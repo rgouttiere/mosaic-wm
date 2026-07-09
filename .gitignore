@@ -1,0 +1,9 @@
+*.app/
+*.swiftpm
+*.xcodeproj
+.DS_Store
+.build/
+.swiftpm/
+Mosaic.zip
+Package.resolved
+dist/

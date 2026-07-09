@@ -1,0 +1,84 @@
+import AppKit
+import Carbon.HIToolbox
+
+// Private SkyLight SPI (same approach as yabai): there is no public API to read or
+// change the current macOS Space (desktop).
+@_silgen_name("CGSMainConnectionID")
+private func CGSMainConnectionID() -> Int32
+
+@_silgen_name("CGSManagedDisplayGetCurrentSpace")
+private func CGSManagedDisplayGetCurrentSpace(_ cid: Int32, _ displayUUID: CFString) -> UInt64
+
+@_silgen_name("CGSCopyManagedDisplaySpaces")
+private func CGSCopyManagedDisplaySpaces(_ cid: Int32) -> CFArray
+
+@_silgen_name("CGSMoveWindowsToManagedSpace")
+private func CGSMoveWindowsToManagedSpace(_ cid: Int32, _ windows: CFArray, _ space: UInt64)
+
+@_silgen_name("CGSSetWindowAlpha")
+private func CGSSetWindowAlpha(_ cid: Int32, _ wid: CGWindowID, _ alpha: Float) -> Int32
+
+enum Spaces {
+    /// The id of the Space currently shown on `screen` (0 → nil on failure).
+    static func currentSpaceID(for screen: NSScreen) -> UInt64? {
+        guard let uuid = displayUUID(screen) else { return nil }
+        let space = CGSManagedDisplayGetCurrentSpace(CGSMainConnectionID(), uuid as CFString)
+        return space == 0 ? nil : space
+    }
+
+    /// Space ids of `screen`'s display, in desktop order (left→right in Mission Control).
+    static func orderedSpaceIDs(for screen: NSScreen) -> [UInt64] {
+        guard let current = currentSpaceID(for: screen) else { return [] }
+        let displays = CGSCopyManagedDisplaySpaces(CGSMainConnectionID()) as? [[String: Any]] ?? []
+        for display in displays {
+            let spaces = (display["Spaces"] as? [[String: Any]] ?? []).compactMap(spaceID)
+            if spaces.contains(current) { return spaces }   // the block holding our display
+        }
+        return []
+    }
+
+    /// Move a window to another Space (private API; best-effort).
+    static func move(window: CGWindowID, toSpace space: UInt64) {
+        let array = [NSNumber(value: window)] as CFArray
+        CGSMoveWindowsToManagedSpace(CGSMainConnectionID(), array, space)
+    }
+
+    /// Set a window's opacity (private API; used to dim unfocused windows).
+    static func setAlpha(_ window: CGWindowID, _ alpha: Float) {
+        _ = CGSSetWindowAlpha(CGSMainConnectionID(), window, alpha)
+    }
+
+    /// Step `delta` desktops left/right by synthesizing the native ⌃←/⌃→ shortcut
+    /// (fallback for switching to an empty desktop). Relies on Mission Control's
+    /// keyboard shortcuts being enabled.
+    static func step(by delta: Int) {
+        guard delta != 0 else { return }
+        let key = CGKeyCode(delta > 0 ? kVK_RightArrow : kVK_LeftArrow)
+        let source = CGEventSource(stateID: .combinedSessionState)
+        for _ in 0..<abs(delta) {
+            if let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true) {
+                down.flags = .maskControl
+                down.post(tap: .cghidEventTap)
+            }
+            if let up = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false) {
+                up.flags = .maskControl
+                up.post(tap: .cghidEventTap)
+            }
+        }
+    }
+
+    private static func displayUUID(_ screen: NSScreen) -> String? {
+        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        else { return nil }
+        let displayID = CGDirectDisplayID(number.uint32Value)
+        guard let uuid = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue() else { return nil }
+        return CFUUIDCreateString(nil, uuid) as String
+    }
+
+    private static func spaceID(_ dict: [String: Any]) -> UInt64? {
+        if let v = dict["ManagedSpaceID"] as? Int { return UInt64(v) }
+        if let v = dict["id64"] as? Int { return UInt64(v) }
+        if let v = dict["id"] as? Int { return UInt64(v) }
+        return nil
+    }
+}
