@@ -9,9 +9,25 @@ let cliArgs = Array(CommandLine.arguments.dropFirst())
 if let verb = cliArgs.first {
     if ["--list", "list", "-h", "--help", "help"].contains(verb) {
         Config.shared.load()
-        print("Mosaic — usage: mosaic <action>\n\nActions:")
+        print("Mosaic — usage: mosaic <action> | mosaic query [focused|workspaces]\n\nActions:")
         for key in Config.shared.keybindings.keys.sorted() { print("  \(key)") }
         print("  reload-config\n  dump-layout")
+        exit(0)
+    }
+    // `mosaic query [focused|workspaces]` — read the state Mosaic publishes to status.json.
+    if verb == "query" {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/mosaic/status.json")
+        guard let data = try? Data(contentsOf: url) else { print("{}"); exit(0) }
+        let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        switch cliArgs.dropFirst().first {
+        case "focused", "workspace":
+            print((obj?["focused"] as? Int).map(String.init) ?? "")
+        case "workspaces":
+            print(((obj?["workspaces"] as? [Int]) ?? []).map(String.init).joined(separator: " "))
+        default:
+            FileHandle.standardOutput.write(data)   // full JSON
+        }
         exit(0)
     }
     DistributedNotificationCenter.default().postNotificationName(

@@ -84,5 +84,28 @@ mosaic dump-layout       # write /tmp/mosaic-dump.txt
 
 Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, …) plus `reload-config` and `dump-layout`.
 
+**Query state** (for status bars / scripts):
+```sh
+mosaic query               # full JSON: focused, per-monitor workspace, workspaces[]
+mosaic query focused       # focused workspace number
+mosaic query workspaces    # assigned workspace numbers, space-separated
+```
+
+## Status bar (sketchybar)
+
+Mosaic runs a shell command on every workspace change — config key **`onWorkspaceChange`** (env `MOSAIC_WORKSPACE` = focused number). Point it at a sketchybar trigger:
+
+```json
+"onWorkspaceChange": "sketchybar --trigger mosaic_workspace_change"
+```
+
+Then, in sketchybar, subscribe an item to `mosaic_workspace_change` and render from `mosaic query`:
+```sh
+# sketchybar plugin
+FOCUSED=$(mosaic query focused)
+sketchybar --set "$NAME" label="$FOCUSED"        # or loop over `mosaic query workspaces`
+```
+(`make install-cli` puts `mosaic` on your PATH; the hook's PATH already includes `/opt/homebrew/bin`.)
+
 ## Menu bar (▦)
 Reload config · Open config file · Clear layout · **Debug: dump layout → /tmp/mosaic-dump.txt** (diagnostics).

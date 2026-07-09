@@ -25,6 +25,10 @@ final class Config {
     var showWorkspaceHUD: Bool = true
     /// center | top | bottom | top-left | top-right | bottom-left | bottom-right
     var hudPosition: String = "top-right"
+    /// Shell command run on every workspace change (exec-and-forget), with the env var
+    /// MOSAIC_WORKSPACE set to the focused number (empty if none). For sketchybar & co,
+    /// e.g. "sketchybar --trigger mosaic_workspace_change". Empty = disabled.
+    var onWorkspaceChange: String = ""
 
     // Window styling.
     var borderEnabled: Bool = true
@@ -128,6 +132,7 @@ final class Config {
         var rules: [AppRule]?
         var showWorkspaceHUD: Bool?
         var hudPosition: String?
+        var onWorkspaceChange: String?
         var borderEnabled: Bool?
         var borderColor: String?
         var borderWidth: Double?
@@ -164,6 +169,7 @@ final class Config {
         rules = []
         showWorkspaceHUD = true
         hudPosition = "top-right"
+        onWorkspaceChange = ""
         borderEnabled = true
         borderColor = "accent"
         borderWidth = 1
@@ -196,7 +202,7 @@ final class Config {
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
             "gap", "outerGap", "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
-            "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "borderEnabled",
+            "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
             "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
@@ -223,6 +229,7 @@ final class Config {
         if let r = file.rules { rules = r }
         if let h = file.showWorkspaceHUD { showWorkspaceHUD = h }
         if let p = file.hudPosition { hudPosition = p }
+        if let o = file.onWorkspaceChange { onWorkspaceChange = o }
         if let b = file.borderEnabled { borderEnabled = b }
         if let c = file.borderColor { borderColor = c }
         if let w = file.borderWidth { borderWidth = w }

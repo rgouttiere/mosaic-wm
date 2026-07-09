@@ -1224,12 +1224,64 @@ final class WindowManager {
     private func showWorkspaceIndicator(for screen: NSScreen) {
         guard let space = Spaces.currentSpaceID(for: screen) else { return }
         let number = workspaceNumber(for: space)
-        onWorkspaceChanged?(number)   // menu-bar icon always reflects the number
+        emitWorkspaceState(number)   // menu-bar icon + status file + shell hook (sketchybar…)
         // Only pop the HUD on a *managed* desktop → never flash a number over an
         // unmanaged Space such as a full-screen video.
         if let number, Config.shared.showWorkspaceHUD, spaces[space] != nil {
             workspaceHUD.show("\(number)", on: screen, position: Config.shared.hudPosition)
         }
+    }
+
+    private var statusURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/mosaic/status.json")
+    }
+    private var lastEmittedWorkspace: Int? = -1   // sentinel: forces the first emit through
+
+    /// Publish the current workspace state: update the menu bar, write status.json (for
+    /// `mosaic query`), and run the configured shell hook on change (for sketchybar & co).
+    private func emitWorkspaceState(_ focused: Int?) {
+        onWorkspaceChanged?(focused)
+        writeStatusFile(focused: focused)
+        if focused != lastEmittedWorkspace {
+            lastEmittedWorkspace = focused
+            runWorkspaceHook(focused)
+        }
+    }
+
+    private func writeStatusFile(focused: Int?) {
+        var monitors: [[String: Any]] = []
+        for screen in NSScreen.screens {
+            guard let sp = Spaces.currentSpaceID(for: screen) else { continue }
+            monitors.append(["display": Int(displayID(of: screen)),
+                             "workspace": workspaceNumber(for: sp).map { $0 as Any } ?? NSNull()])
+        }
+        let dict: [String: Any] = [
+            "focused": focused.map { $0 as Any } ?? NSNull(),
+            "workspaces": assignments.keys.sorted(),
+            "monitors": monitors,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: dict,
+                                                     options: [.prettyPrinted, .sortedKeys]) else { return }
+        try? FileManager.default.createDirectory(at: statusURL.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        try? data.write(to: statusURL, options: .atomic)
+    }
+
+    private func runWorkspaceHook(_ focused: Int?) {
+        let cmd = Config.shared.onWorkspaceChange
+        guard !cmd.isEmpty else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", cmd]
+        var env = ProcessInfo.processInfo.environment
+        env["MOSAIC_WORKSPACE"] = focused.map(String.init) ?? ""
+        // A GUI app inherits a minimal PATH; prepend the usual Homebrew/local bins so
+        // `sketchybar`, `mosaic`, etc. resolve from the hook.
+        let extra = "/opt/homebrew/bin:/usr/local/bin"
+        env["PATH"] = env["PATH"].map { "\(extra):\($0)" } ?? extra
+        p.environment = env
+        try? p.run()   // exec-and-forget
     }
 
     /// Append a leaf as a new column in a (possibly non-active) desktop's tree.
