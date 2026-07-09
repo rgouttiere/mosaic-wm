@@ -15,6 +15,7 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 - **Real macOS Spaces integration** (Mission Control & native gestures keep working).
 - **Survives dock/undock & reboot** — layouts persist keyed by a stable per-monitor fingerprint.
 - **Live JSON config** — modes, gaps, styling, per-app rules, keybindings; reload without restart.
+- **CLI** — every action is scriptable via `mosaic <action>` (e.g. `mosaic workspace-3`), sketchybar/automation-friendly.
 - Keeps **SIP enabled**; runs as a menu-bar accessory app (**▦**).
 
 ## Why another one?

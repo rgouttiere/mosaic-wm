@@ -34,7 +34,8 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 ### Move / resize
 | Action | Shortcut |
 |---|---|
-| Move window | ⌘⌥⇧← → ↑ ↓ |
+| Move window (restructures) | ⌘⌥⇧← → ↑ ↓ |
+| Swap window with neighbor (keeps layout) | ⌘⌃← → ↑ ↓ |
 | Resize | ⌃⌥← → ↑ ↓ |
 | Equalize ratios | ⌘⌥= |
 | Rotate windows in the group | ⌘⌥R |
@@ -67,6 +68,21 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 |---|---|
 | Show / hide the scratchpad | ⌘⌥- |
 | Set the focused app as the scratchpad | ⌘⌥⇧- |
+
+## CLI
+
+Every action is also scriptable from the command line — `mosaic <action>` sends it to the running app (great for scripts, sketchybar, etc.). Install the command with `make install-cli`.
+
+```sh
+mosaic --list            # list all actions
+mosaic focus-left        # same as the ⌘⌥← binding
+mosaic workspace-3       # jump to workspace 3
+mosaic swap-up           # swap with the window above
+mosaic toggle-stacked
+mosaic dump-layout       # write /tmp/mosaic-dump.txt
+```
+
+Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, …) plus `reload-config` and `dump-layout`.
 
 ## Menu bar (▦)
 Reload config · Open config file · Clear layout · **Debug: dump layout → /tmp/mosaic-dump.txt** (diagnostics).

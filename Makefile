@@ -6,7 +6,8 @@ BIN := .build/$(CONFIG)/$(APP_NAME)
 # Run `make cert` once. Falls back to ad-hoc ("-") if the identity is missing.
 SIGN_ID := Mosaic Self-Signed
 
-.PHONY: build bundle run clean cert dist
+PREFIX ?= /usr/local
+.PHONY: build bundle run clean cert dist install-cli
 
 ## Create the stable self-signed dev identity (run once).
 cert:
@@ -46,6 +47,12 @@ dist: build
 	codesign --force --deep --sign - dist/$(BUNDLE)
 	ditto -c -k --keepParent dist/$(BUNDLE) Mosaic.zip
 	@echo "Created Mosaic.zip (arm64, ad-hoc signed). Send it; see README for the tester steps."
+
+## Symlink the `mosaic` CLI to $(PREFIX)/bin (talks to the running app).
+install-cli: bundle
+	@mkdir -p $(PREFIX)/bin
+	ln -sf "$(CURDIR)/$(BUNDLE)/Contents/MacOS/$(APP_NAME)" "$(PREFIX)/bin/mosaic"
+	@echo "Installed 'mosaic' → $(PREFIX)/bin/mosaic. Try: mosaic --list"
 
 clean:
 	rm -rf .build $(BUNDLE) dist Mosaic.zip

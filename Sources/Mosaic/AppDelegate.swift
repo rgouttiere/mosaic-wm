@@ -16,6 +16,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotkeys()
         windowManager.startObserving()
         presentConfigIssues()   // surface any problems from the startup config load
+
+        // CLI channel: `mosaic <action>` posts this; run the matching action on the main thread.
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name(mosaicCommandNotification), object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self, let cmd = note.userInfo?["command"] as? String else { return }
+            if let run = self.makeActions()[cmd] { run() }
+            else { NSLog("Mosaic: unknown CLI action '\(cmd)'") }
+        }
     }
 
     private var lastConfigIssues = ""
@@ -193,12 +202,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotkeys()
     }
 
-    private func registerHotkeys() {
-        guard let hk = hotkeys else { return }
-        hk.unregisterAll()
+    /// Action name (matches config keybindings & CLI verbs) → what it does. Shared by the
+    /// global hotkeys and the `mosaic <action>` CLI.
+    func makeActions() -> [String: () -> Void] {
         let wm = windowManager
-
-        // action name (matches config keybindings) → what it does.
         var actions: [String: () -> Void] = [
             "tile": { wm.tileCurrentSpace() },
             "cycle-mode": { wm.cycleMode() },
@@ -215,6 +222,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "move-right": { wm.move(.right) },
             "move-up": { wm.move(.up) },
             "move-down": { wm.move(.down) },
+            "swap-left": { wm.swap(.left) },
+            "swap-right": { wm.swap(.right) },
+            "swap-up": { wm.swap(.up) },
+            "swap-down": { wm.swap(.down) },
             "resize-left": { wm.resize(.left) },
             "resize-right": { wm.resize(.right) },
             "resize-up": { wm.resize(.up) },
@@ -240,6 +251,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "next-tab": { wm.nextTab() },
             "prev-tab": { wm.prevTab() },
             "clear": { wm.clear() },
+            "reload-config": { [weak self] in self?.reloadConfig() },
+            "dump-layout": { wm.dumpLayout() },
         ]
         // i3-style numbered workspaces: ⌘⌥N switch, ⌘⌥⇧N move focused window.
         for n in 1...9 {
@@ -247,6 +260,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             actions["move-to-\(n)"] = { wm.moveToWorkspace(n) }
             actions["assign-\(n)"] = { wm.assignWorkspace(n) }
         }
+        return actions
+    }
+
+    private func registerHotkeys() {
+        guard let hk = hotkeys else { return }
+        hk.unregisterAll()
+        let actions = makeActions()
 
         for (action, combo) in Config.shared.keybindings {
             guard let run = actions[action] else {

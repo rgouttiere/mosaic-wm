@@ -637,6 +637,24 @@ final class WindowManager {
 
     // MARK: - Editing operations
 
+    /// Swap the focused window with its neighbor in `direction`, keeping the layout
+    /// skeleton intact — the two windows trade slots (and thus sizes). Unlike `move`,
+    /// nothing is restructured; unlike `rotate`, only these two are affected.
+    func swap(_ direction: Direction) {
+        checkSpaceChange()
+        guard let a = focused, let b = neighborLeaf(from: a, direction), a !== b,
+              let pa = a.parent, let ia = pa.index(of: a),
+              let pb = b.parent, let ib = pb.index(of: b) else { return }
+        if pa === pb {
+            pa.children.swapAt(ia, ib)   // ratios stay by slot → sizes follow the position
+        } else {
+            pa.children[ia] = b; b.parent = pa
+            pb.children[ib] = a; a.parent = pb
+        }
+        focused = a                       // focus follows the window to its new slot
+        render()
+    }
+
     func focus(_ direction: Direction) {
         checkSpaceChange()
         guard let leaf = focused, let target = neighborLeaf(from: leaf, direction) else { return }
