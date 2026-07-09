@@ -25,6 +25,9 @@ if let verb = cliArgs.first {
             print((obj?["focused"] as? Int).map(String.init) ?? "")
         case "workspaces":
             print(((obj?["workspaces"] as? [Int]) ?? []).map(String.init).joined(separator: " "))
+        case "active":   // workspaces currently visible on any monitor
+            let mons = (obj?["monitors"] as? [[String: Any]]) ?? []
+            print(mons.compactMap { $0["workspace"] as? Int }.map(String.init).joined(separator: " "))
         default:
             FileHandle.standardOutput.write(data)   // full JSON
         }
