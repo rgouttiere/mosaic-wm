@@ -100,12 +100,21 @@ final class TabBarView: NSView {
         let style = NSMutableParagraphStyle()
         style.alignment = (isStackedRows || icon != nil) ? .left : .center
         style.lineBreakMode = .byTruncatingTail
-        let attrs: [NSAttributedString.Key: Any] = [
+        var attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: active ? .semibold : .regular),
             .foregroundColor: active ? Config.color(from: cfg.tabActiveTextColor)
                                      : Config.color(from: cfg.tabTextColor),
             .paragraphStyle: style,
         ]
+        if active {
+            // Ombre portée subtile pour détacher le libellé du fond d'accent
+            // sans l'alourdir (un stroke rend le texte fin illisible).
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
+            shadow.shadowBlurRadius = 2
+            shadow.shadowOffset = NSSize(width: 0, height: -1)
+            attrs[.shadow] = shadow
+        }
         let textHeight = fontSize + 4
         let textRect = NSRect(x: textLeft, y: rect.midY - textHeight / 2,
                               width: max(0, rect.maxX - textLeft - 8), height: textHeight)
