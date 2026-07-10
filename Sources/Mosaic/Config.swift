@@ -12,6 +12,7 @@ final class Config {
 
     var gap: CGFloat = 0          // inner gap between tiles
     var outerGap: CGFloat = 0     // margin between the tiling area and the screen edges
+    var externalBarTop: CGFloat = 0  // px reserved at the top for an external bar (e.g. sketchybar)
     var tabBarHeight: CGFloat = 22
     var defaultMode: String = "columns"   // columns | grouped | tabbed
     /// Warp the mouse cursor to a workspace when switching to it by shortcut (keeps
@@ -125,6 +126,7 @@ final class Config {
     private struct File: Decodable {
         var gap: Double?
         var outerGap: Double?
+        var externalBarTop: Double?
         var tabBarHeight: Double?
         var warpMouseOnSwitch: Bool?
         var defaultMode: String?
@@ -162,6 +164,7 @@ final class Config {
         // the file (not just overrides).
         gap = 0
         outerGap = 0
+        externalBarTop = 0
         tabBarHeight = 22
         defaultMode = "columns"
         warpMouseOnSwitch = true
@@ -201,7 +204,7 @@ final class Config {
         }
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
-            "gap", "outerGap", "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
+            "gap", "outerGap", "externalBarTop", "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
             "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
@@ -222,6 +225,7 @@ final class Config {
         }
         if let g = file.gap { gap = CGFloat(g) }
         if let o = file.outerGap { outerGap = CGFloat(o) }
+        if let e = file.externalBarTop { externalBarTop = CGFloat(e) }
         if let t = file.tabBarHeight { tabBarHeight = CGFloat(t) }
         if let w = file.warpMouseOnSwitch { warpMouseOnSwitch = w }
         if let m = file.defaultMode { defaultMode = m }
@@ -302,6 +306,7 @@ final class Config {
         let dict: [String: Any] = [
             "gap": Double(gap),
             "outerGap": Double(outerGap),
+            "externalBarTop": Double(externalBarTop),
             "warpMouseOnSwitch": warpMouseOnSwitch,
             "tabBarHeight": Double(tabBarHeight),
             "defaultMode": defaultMode,

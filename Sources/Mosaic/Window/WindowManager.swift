@@ -1912,9 +1912,23 @@ final class WindowManager {
 
     private func clamp(_ v: CGFloat) -> CGFloat { min(0.9, max(0.1, v)) }
 
-    /// The tiling area of a screen = its visible frame minus the configured outer gap.
+    /// The tiling area of a screen = its visible frame minus the configured outer gap,
+    /// minus a top strip reserved for an external bar (e.g. sketchybar).
+    ///
+    /// `externalBarTop` is the bar's height. We only reserve what macOS doesn't already
+    /// reserve at the top (menu bar / notch safe-area), so a notched built-in display —
+    /// which already keeps 32px clear — gets little or no extra strip, while external
+    /// monitors that reserve nothing get the full bar height. This keeps the gap uniform
+    /// across a mixed multi-monitor setup instead of double-counting the notch.
     private func layoutRect(_ screen: NSScreen) -> NSRect {
-        screen.visibleFrame.insetBy(dx: Config.shared.outerGap, dy: Config.shared.outerGap)
+        var r = screen.visibleFrame.insetBy(dx: Config.shared.outerGap, dy: Config.shared.outerGap)
+        let bar = Config.shared.externalBarTop
+        if bar > 0 {
+            let alreadyReserved = screen.frame.maxY - screen.visibleFrame.maxY  // menu bar / notch
+            let extra = max(0, bar - alreadyReserved)
+            r.size.height -= extra   // Cocoa origin is bottom-left → shrinking height frees the TOP
+        }
+        return r
     }
 
     private func screenUnderMouse() -> NSScreen {
