@@ -13,6 +13,7 @@ final class Config {
     var gap: CGFloat = 0          // inner gap between tiles
     var outerGap: CGFloat = 0     // margin between the tiling area and the screen edges
     var externalBarTop: CGFloat = 0  // px reserved at the top for an external bar (e.g. sketchybar)
+    var workspaceNames: [Int: String] = [:]  // optional i3-style labels: workspace number → name
     var tabBarHeight: CGFloat = 22
     var defaultMode: String = "columns"   // columns | grouped | tabbed
     /// Warp the mouse cursor to a workspace when switching to it by shortcut (keeps
@@ -127,6 +128,7 @@ final class Config {
         var gap: Double?
         var outerGap: Double?
         var externalBarTop: Double?
+        var workspaceNames: [String: String]?
         var tabBarHeight: Double?
         var warpMouseOnSwitch: Bool?
         var defaultMode: String?
@@ -165,6 +167,7 @@ final class Config {
         gap = 0
         outerGap = 0
         externalBarTop = 0
+        workspaceNames = [:]
         tabBarHeight = 22
         defaultMode = "columns"
         warpMouseOnSwitch = true
@@ -204,7 +207,7 @@ final class Config {
         }
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
-            "gap", "outerGap", "externalBarTop", "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
+            "gap", "outerGap", "externalBarTop", "workspaceNames", "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
             "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
@@ -226,6 +229,10 @@ final class Config {
         if let g = file.gap { gap = CGFloat(g) }
         if let o = file.outerGap { outerGap = CGFloat(o) }
         if let e = file.externalBarTop { externalBarTop = CGFloat(e) }
+        if let wn = file.workspaceNames {
+            workspaceNames = Dictionary(uniqueKeysWithValues:
+                wn.compactMap { key, value in Int(key).map { ($0, value) } })
+        }
         if let t = file.tabBarHeight { tabBarHeight = CGFloat(t) }
         if let w = file.warpMouseOnSwitch { warpMouseOnSwitch = w }
         if let m = file.defaultMode { defaultMode = m }

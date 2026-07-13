@@ -37,6 +37,20 @@ enum Spaces {
         return []
     }
 
+    /// Every Space id that currently exists across all displays (Mission Control desktops).
+    /// Empty only if the private API returned nothing — callers must treat empty as "unknown"
+    /// and not act on it (never prune state on an empty result).
+    static func allSpaceIDs() -> Set<UInt64> {
+        let displays = CGSCopyManagedDisplaySpaces(CGSMainConnectionID()) as? [[String: Any]] ?? []
+        var ids = Set<UInt64>()
+        for display in displays {
+            for s in (display["Spaces"] as? [[String: Any]] ?? []) {
+                if let id = spaceID(s) { ids.insert(id) }
+            }
+        }
+        return ids
+    }
+
     /// Move a window to another Space (private API; best-effort).
     static func move(window: CGWindowID, toSpace space: UInt64) {
         let array = [NSNumber(value: window)] as CFArray

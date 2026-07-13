@@ -134,6 +134,12 @@ final class WindowManager {
         floatingApps = Config.shared.floatingApps
         resetAllOpacity()       // clear previous dimming; render re-applies per new config
         render()                // re-arrange with new gap / tab-bar height / border / opacity
+        // Workspace names may have changed → republish status.json and fire the hook so
+        // the external bar picks up new labels immediately (even if the number is unchanged).
+        let screen = screenUnderMouse()
+        let num = Spaces.currentSpaceID(for: screen).flatMap { workspaceNumber(for: $0) }
+        writeStatusFile(focused: num)
+        runWorkspaceHook(num)
     }
 
     func startObserving() {
@@ -1221,6 +1227,18 @@ final class WindowManager {
         assignments.first(where: { $0.value == space })?.key
     }
 
+    /// Drop workspace assignments whose Space no longer exists (desktop deleted in
+    /// Mission Control), so an orphaned number stops being published to status.json
+    /// (and stops showing a dead pill in sketchybar).
+    private func pruneStaleAssignments() {
+        let live = Spaces.allSpaceIDs()
+        guard !live.isEmpty else { return }   // unknown → never risk wiping valid assignments
+        let stale = assignments.filter { !live.contains($0.value) }.map(\.key)
+        guard !stale.isEmpty else { return }
+        for n in stale { assignments[n] = nil; assignmentApps[n] = nil }
+        saveNow()
+    }
+
     private func showWorkspaceIndicator(for screen: NSScreen) {
         guard let space = Spaces.currentSpaceID(for: screen) else { return }
         let number = workspaceNumber(for: space)
@@ -1241,6 +1259,7 @@ final class WindowManager {
     /// Publish the current workspace state: update the menu bar, write status.json (for
     /// `mosaic query`), and run the configured shell hook on change (for sketchybar & co).
     private func emitWorkspaceState(_ focused: Int?) {
+        pruneStaleAssignments()
         onWorkspaceChanged?(focused)
         writeStatusFile(focused: focused)
         if focused != lastEmittedWorkspace {
@@ -1256,9 +1275,22 @@ final class WindowManager {
             monitors.append(["display": Int(displayID(of: screen)),
                              "workspace": workspaceNumber(for: sp).map { $0 as Any } ?? NSNull()])
         }
+        // Optional i3-style names, only for assigned workspaces that have one.
+        var names: [String: String] = [:]
+        // Home display (CGDirectDisplayID) of each assigned workspace, so an external bar
+        // can show each workspace only on the monitor it lives on.
+        var wsDisplays: [String: Int] = [:]
+        for n in assignments.keys {
+            if let nm = Config.shared.workspaceNames[n], !nm.isEmpty { names[String(n)] = nm }
+            if let sid = assignments[n], let scr = screen(forSpace: sid) {
+                wsDisplays[String(n)] = Int(displayID(of: scr))
+            }
+        }
         let dict: [String: Any] = [
             "focused": focused.map { $0 as Any } ?? NSNull(),
             "workspaces": assignments.keys.sorted(),
+            "workspaceNames": names,
+            "workspaceDisplays": wsDisplays,
             "monitors": monitors,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict,
