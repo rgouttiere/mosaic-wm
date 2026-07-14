@@ -14,7 +14,7 @@ struct SwitcherItem {
 
 /// A titled group of items inside a mode (renders a section header).
 struct SwitcherSection { let header: String; let items: [SwitcherItem] }
-/// A mode is one ←/→ page of the palette (e.g. "Aller" vs "Actions").
+/// A mode is one ←/→ page of the palette (e.g. "Go" vs "Actions").
 struct SwitcherMode { let name: String; let sections: [SwitcherSection] }
 
 private enum Sw {
@@ -89,7 +89,7 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         field.focusRingType = .none
         field.drawsBackground = false
         field.placeholderAttributedString = NSAttributedString(
-            string: "Filtrer…",
+            string: "Filter…",
             attributes: [.foregroundColor: Sw.subtext, .font: NSFont.systemFont(ofSize: 22)])
         field.delegate = self
         container.addSubview(field)
@@ -252,10 +252,10 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
 
     private func updateFooter(cmd: Bool) {
         if cmd {
-            footer.stringValue = "⌘⏎  déplacer la fenêtre focus ici"
+            footer.stringValue = "⌘⏎  move the focused window here"
             footer.textColor = Sw.accent
         } else {
-            footer.stringValue = "↑↓ naviguer    ←→ mode    ⏎ valider    ⌘⏎ déplacer    esc"
+            footer.stringValue = "↑↓ move    ←→ mode    ⏎ select    ⌘⏎ move    esc"
             footer.textColor = Sw.subtext
         }
     }

@@ -1192,7 +1192,7 @@ final class WindowManager {
             wsItems.append(SwitcherItem(
                 kind: .workspace,
                 title: Config.shared.workspaceNames[n] ?? "Workspace \(n)",
-                subtitle: count == 1 ? "1 fenêtre" : "\(count) fenêtres",
+                subtitle: count == 1 ? "1 window" : "\(count) windows",
                 badge: "\(n)", icon: nil,
                 run: { [weak self] in self?.switchToWorkspace(n) },
                 moveHere: { [weak self] in self?.moveToWorkspace(n) }))
@@ -1206,15 +1206,15 @@ final class WindowManager {
         }
         var navSections: [SwitcherSection] = []
         if !wsItems.isEmpty { navSections.append(SwitcherSection(header: "Workspaces", items: wsItems)) }
-        if !winItems.isEmpty { navSections.append(SwitcherSection(header: "Fenêtres", items: winItems)) }
+        if !winItems.isEmpty { navSections.append(SwitcherSection(header: "Windows", items: winItems)) }
 
         let actionItems = (switcherActions?() ?? []).map { a in
             SwitcherItem(kind: .action, title: Self.prettyAction(a.title), subtitle: Self.prettyShortcut(a.subtitle),
                          badge: "▸", icon: nil, run: a.run, moveHere: nil)
         }
         SwitcherPanel.present(modes: [
-            SwitcherMode(name: "Aller", sections: navSections),
-            SwitcherMode(name: "Actions", sections: [SwitcherSection(header: "Actions Mosaic", items: actionItems)]),
+            SwitcherMode(name: "Go", sections: navSections),
+            SwitcherMode(name: "Actions", sections: [SwitcherSection(header: "Mosaic actions", items: actionItems)]),
         ], on: screen)
     }
 
