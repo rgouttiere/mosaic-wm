@@ -1157,6 +1157,44 @@ final class WindowManager {
         switchTo(space: target, appHint: assignmentApps[n], on: screen)
     }
 
+    /// Fuzzy quick-switcher: jump to a workspace (by name/number) or a window (by title).
+    func showSwitcher() {
+        var items: [SwitcherItem] = []
+        for n in assignments.keys.sorted() {
+            items.append(SwitcherItem(
+                kind: .workspace,
+                title: Config.shared.workspaceNames[n] ?? "Workspace \(n)",
+                subtitle: "workspace",
+                badge: "\(n)",
+                run: { [weak self] in self?.switchToWorkspace(n) }))
+        }
+        for n in assignments.keys.sorted() {
+            guard let sid = assignments[n], let root = spaces[sid]?.root else { continue }
+            root.forEachLeaf { leaf in
+                guard let w = leaf.window else { return }
+                items.append(SwitcherItem(
+                    kind: .window,
+                    title: w.title,
+                    subtitle: w.appName,
+                    badge: "\(n)",
+                    run: { [weak self] in self?.focusWindow(w, inWorkspace: n) }))
+            }
+        }
+        SwitcherPanel.present(items: items, on: screenUnderMouse())
+    }
+
+    /// Bring a specific window forward: switch to its workspace's Space if needed, then
+    /// activate it. The focus-sync observer adopts it into Mosaic's focus — no manual set.
+    private func focusWindow(_ w: ManagedWindow, inWorkspace n: Int) {
+        let screen = screenUnderMouse()
+        if let target = assignments[n], target != Spaces.currentSpaceID(for: screen) {
+            switchTo(space: target, appHint: w.app.bundleIdentifier, on: screen)
+        }
+        AX.makeMain(w.element)
+        w.activateApp()
+        AX.raise(w.element)
+    }
+
     /// Send the focused window to the desktop assigned to workspace `n`.
     func moveToWorkspace(_ n: Int) {
         checkSpaceChange()

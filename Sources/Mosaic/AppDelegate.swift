@@ -254,6 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "next-tab": { wm.nextTab() },
             "prev-tab": { wm.prevTab() },
             "clear": { wm.clear() },
+            "switcher": { wm.showSwitcher() },
             "reload-config": { [weak self] in self?.reloadConfig() },
             "dump-layout": { wm.dumpLayout() },
         ]

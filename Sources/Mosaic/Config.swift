@@ -116,6 +116,7 @@ final class Config {
         "prev-tab": "cmd alt comma",
         "float": "cmd alt f",
         "zoom": "cmd alt return",
+        "switcher": "cmd alt p",   // fuzzy quick-switcher (workspaces + windows)
         "scratchpad-toggle": "cmd alt minus",
         "scratchpad-send": "cmd alt shift minus",
         "move-screen-next": "cmd alt ]",
