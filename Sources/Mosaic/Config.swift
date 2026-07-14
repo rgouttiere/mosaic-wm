@@ -14,6 +14,12 @@ final class Config {
     var outerGap: CGFloat = 0     // margin between the tiling area and the screen edges
     var externalBarTop: CGFloat = 0  // px reserved at the top for an external bar (e.g. sketchybar)
     var workspaceNames: [Int: String] = [:]  // optional i3-style labels: workspace number → name
+    var focusPulseWidth: CGFloat = 5   // px added to the focus border at the peak of the switch pulse (0 = off)
+    var focusPulseDuration: Double = 0.38   // seconds the focus pulse takes to fade out
+    // Feature toggles (all on by default).
+    var focusSync = true        // adopt keyboard/cmd-tab focus changes into the tabs
+    var tabScrollCycle = true   // scroll over a tab bar to cycle its tabs
+    var switcherFadeIn = true   // fade the quick-switcher popup in
     var tabBarHeight: CGFloat = 22
     var defaultMode: String = "columns"   // columns | grouped | tabbed
     /// Warp the mouse cursor to a workspace when switching to it by shortcut (keeps
@@ -117,6 +123,7 @@ final class Config {
         "float": "cmd alt f",
         "zoom": "cmd alt return",
         "switcher": "cmd alt p",   // fuzzy quick-switcher (workspaces + windows)
+        "workspace-back": "cmd alt b",   // bounce to the previous workspace (i3 back-and-forth)
         "scratchpad-toggle": "cmd alt minus",
         "scratchpad-send": "cmd alt shift minus",
         "move-screen-next": "cmd alt ]",
@@ -130,6 +137,11 @@ final class Config {
         var outerGap: Double?
         var externalBarTop: Double?
         var workspaceNames: [String: String]?
+        var focusPulseWidth: Double?
+        var focusPulseDuration: Double?
+        var focusSync: Bool?
+        var tabScrollCycle: Bool?
+        var switcherFadeIn: Bool?
         var tabBarHeight: Double?
         var warpMouseOnSwitch: Bool?
         var defaultMode: String?
@@ -169,6 +181,11 @@ final class Config {
         outerGap = 0
         externalBarTop = 0
         workspaceNames = [:]
+        focusPulseWidth = 5
+        focusPulseDuration = 0.38
+        focusSync = true
+        tabScrollCycle = true
+        switcherFadeIn = true
         tabBarHeight = 22
         defaultMode = "columns"
         warpMouseOnSwitch = true
@@ -208,7 +225,9 @@ final class Config {
         }
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
-            "gap", "outerGap", "externalBarTop", "workspaceNames", "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
+            "gap", "outerGap", "externalBarTop", "workspaceNames", "focusPulseWidth", "focusPulseDuration",
+            "focusSync", "tabScrollCycle", "switcherFadeIn",
+            "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
             "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
@@ -230,6 +249,11 @@ final class Config {
         if let g = file.gap { gap = CGFloat(g) }
         if let o = file.outerGap { outerGap = CGFloat(o) }
         if let e = file.externalBarTop { externalBarTop = CGFloat(e) }
+        if let p = file.focusPulseWidth { focusPulseWidth = CGFloat(p) }
+        if let d = file.focusPulseDuration { focusPulseDuration = d }
+        if let b = file.focusSync { focusSync = b }
+        if let b = file.tabScrollCycle { tabScrollCycle = b }
+        if let b = file.switcherFadeIn { switcherFadeIn = b }
         if let wn = file.workspaceNames {
             workspaceNames = Dictionary(uniqueKeysWithValues:
                 wn.compactMap { key, value in Int(key).map { ($0, value) } })

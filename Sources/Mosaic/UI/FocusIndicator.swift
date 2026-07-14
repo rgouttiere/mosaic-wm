@@ -23,6 +23,21 @@ final class FocusIndicator {
     func hide() {
         window.orderOut(nil)
     }
+
+    /// One-shot glow around the focused window (e.g. after a workspace switch) to draw the
+    /// eye to what's now focused. Ramps a translucent halo down to nothing over ~0.25s.
+    func pulse() {
+        guard Config.shared.focusPulseWidth > 0,   // 0 = disabled
+              let v = window.contentView as? BorderView, window.isVisible else { return }
+        let duration = max(0.05, Config.shared.focusPulseDuration)
+        let steps = max(6, Int(duration / 0.024))
+        v.pulse = 1
+        for i in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration * Double(i) / Double(steps)) { [weak v] in
+                v?.pulse = 1 - CGFloat(i) / CGFloat(steps)   // ease-out
+            }
+        }
+    }
 }
 
 private final class BorderWindow: NSWindow {
@@ -44,6 +59,8 @@ private final class BorderWindow: NSWindow {
 private final class BorderView: NSView {
     /// nil = no preselect; true = split armed below; false = armed to the right.
     var preselect: Bool?
+    /// 0 = none, 1 = full one-shot glow (see FocusIndicator.pulse()).
+    var pulse: CGFloat = 0 { didSet { needsDisplay = true } }
 
     override func draw(_ dirtyRect: NSRect) {
         let thickness = CGFloat(Config.shared.borderWidth)
@@ -58,10 +75,14 @@ private final class BorderView: NSView {
             NSBezierPath(rect: half.insetBy(dx: thickness, dy: thickness)).fill()
         }
 
-        accent.setStroke()
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: thickness / 2, dy: thickness / 2),
+        // Border — thickened + brightened for a one-shot pulse, drawn INSET by its own
+        // half-width so a wide pulse never clips against the window bounds.
+        let lineWidth = thickness + pulse * Config.shared.focusPulseWidth
+        let stroke = pulse > 0 ? (accent.blended(withFraction: 0.45 * pulse, of: .white) ?? accent) : accent
+        stroke.setStroke()
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2),
                                 xRadius: radius, yRadius: radius)
-        path.lineWidth = thickness
+        path.lineWidth = lineWidth
         path.stroke()
     }
 }

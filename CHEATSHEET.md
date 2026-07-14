@@ -11,7 +11,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
   - **Stacked** — **⌘⌥⇧S**: one window shown, a vertical title list. Can hold tab groups / splits (drawn inline).
 - **Preselect** (i3-style): **⌘⌥V** / **⌘⌥H** arm a split (below / right); the **next** window opened nests there. A tint on the focused window's edge shows where. Moving focus cancels it.
 - **Workspaces** numbered 1–9 (unique, across screens). Assign a desktop to a number, then jump to it. Optionally **name** them via `workspaceNames` in config (the number stays the key; the name is just a label).
-- **Quick-switcher** (**⌘⌥P**): a fuzzy popup to jump to any workspace (by name/number) or window (by title). ↑/↓ to move, ⏎ to jump, Esc to dismiss.
+- **Quick-switcher / command palette** (**⌘⌥P**): a fuzzy popup. **"Aller"** mode jumps to a workspace (by name/number) or window (by title) — grouped under section headers, most-recent first, with per-workspace window counts and app icons. **←/→** flips to **"Actions"** mode to run any Mosaic action. **↑/↓** move (skipping headers) · **⏎** go/run · **⌘⏎** move the focused window to the highlighted workspace · **Esc** dismiss.
 - **Scratchpad**: a dedicated app shown/hidden as a floating panel (survives relaunch).
 - **Rules** (`config.json`): `float`, `groupWith`, `place` (`column`/`tab`), `workspace: N`.
 
@@ -58,7 +58,8 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 ### Workspaces & screens
 | Action | Shortcut |
 |---|---|
-| Quick-switcher (jump to a workspace **or** window) | ⌘⌥P |
+| Quick-switcher / command palette | ⌘⌥P |
+| Previous workspace (back-and-forth) | ⌘⌥B |
 | Go to workspace N | ⌘⌥1…9 |
 | Send window to workspace N | ⌘⌥⇧1…9 |
 | Assign current desktop to number N | ⌘⌥⌃1…9 |
@@ -84,7 +85,7 @@ mosaic toggle-stacked
 mosaic dump-layout       # write /tmp/mosaic-dump.txt
 ```
 
-Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `switcher`, …) plus `reload-config` and `dump-layout`.
+Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `switcher`, `workspace-back`, …) plus `reload-config` and `dump-layout`.
 
 **Query state** (for status bars / scripts):
 ```sh

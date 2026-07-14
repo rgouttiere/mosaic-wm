@@ -31,6 +31,7 @@ final class TabBarView: NSView {
 
     private var dragSourceIndex: Int?
     private var didDrag = false
+    private var scrollAccum: CGFloat = 0
 
     private var isStackedRows: Bool { vertical && !rows.isEmpty }
     private var segmentWidth: CGFloat {
@@ -122,6 +123,34 @@ final class TabBarView: NSView {
     }
 
     // MARK: - Mouse
+
+    /// Scroll over the strip to cycle tabs (horizontal) or stack rows (vertical), wrapping.
+    override func scrollWheel(with event: NSEvent) {
+        guard Config.shared.tabScrollCycle else { return }
+        let raw = abs(event.scrollingDeltaY) >= abs(event.scrollingDeltaX)
+            ? event.scrollingDeltaY : event.scrollingDeltaX
+        guard raw != 0 else { return }
+        if event.hasPreciseScrollingDeltas {
+            scrollAccum += raw
+            guard abs(scrollAccum) >= 28 else { return }   // one step per trackpad chunk
+            cycleTab(scrollAccum > 0 ? -1 : 1)
+            scrollAccum = 0
+        } else {
+            cycleTab(raw > 0 ? -1 : 1)                       // one step per wheel notch
+        }
+    }
+
+    private func cycleTab(_ dir: Int) {
+        if isStackedRows {
+            let n = rows.count
+            guard n > 1 else { return }
+            onStackSelect?((selectedRow + dir + n) % n, 0)
+        } else {
+            let n = titles.count
+            guard n > 1 else { return }
+            onSelect?((selectedIndex + dir + n) % n)
+        }
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard !isStackedRows, !titles.isEmpty else { return }

@@ -1,16 +1,22 @@
 import AppKit
 
-/// One row in the quick-switcher: a workspace or a window.
+/// One selectable entry: a workspace, a window, or a Mosaic action.
 struct SwitcherItem {
-    enum Kind { case workspace, window }
+    enum Kind { case workspace, window, action }
     let kind: Kind
-    let title: String        // workspace name, or window title
-    let subtitle: String     // "workspace" or the app name
-    let badge: String        // workspace number/name it belongs to
-    let run: () -> Void      // what to do when chosen
+    let title: String
+    let subtitle: String
+    let badge: String
+    let icon: NSImage?
+    let run: () -> Void          // ⏎
+    let moveHere: (() -> Void)?  // ⌘⏎ (move focused window here) — nil for actions
 }
 
-/// Theme colours (match the terminal/sketchybar setup).
+/// A titled group of items inside a mode (renders a section header).
+struct SwitcherSection { let header: String; let items: [SwitcherItem] }
+/// A mode is one ←/→ page of the palette (e.g. "Aller" vs "Actions").
+struct SwitcherMode { let name: String; let sections: [SwitcherSection] }
+
 private enum Sw {
     static let bg      = NSColor(srgbRed: 0x1e/255, green: 0x1e/255, blue: 0x1e/255, alpha: 0.98)
     static let text    = NSColor(srgbRed: 0xf9/255, green: 0xf8/255, blue: 0xf5/255, alpha: 1)
@@ -20,33 +26,44 @@ private enum Sw {
     static let badgeBg = NSColor(srgbRed: 0x31/255, green: 0x32/255, blue: 0x44/255, alpha: 1)
 }
 
-/// A centered, dark, fuzzy quick-switcher popup (⌘-palette style). Type to filter across
-/// workspaces and windows; ↑/↓ to move, ⏎ to jump, Esc to dismiss.
+/// Fuzzy quick-switcher / command palette. Type to filter; ↑/↓ move (skipping headers);
+/// ←/→ switch mode; ⏎ run; ⌘⏎ move the focused window; Esc dismiss.
 final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
     private static var shared: SwitcherPanel?
 
     private let field = NSTextField()
     private let table = NSTableView()
-    private var all: [SwitcherItem]
-    private var filtered: [SwitcherItem]
+    private let footer = NSTextField(labelWithString: "")
+    private let modeLabel = NSTextField(labelWithString: "")
+    private let modes: [SwitcherMode]
+    private var currentMode = 0
+    private enum Row { case header(String); case item(SwitcherItem) }
+    private var rows: [Row] = []
     private var keyMonitor: Any?
     private var closing = false
 
-    static func present(items: [SwitcherItem], on screen: NSScreen) {
+    static func present(modes: [SwitcherMode], on screen: NSScreen) {
         shared?.forceClose()
-        let p = SwitcherPanel(items: items, screen: screen)
+        let p = SwitcherPanel(modes: modes, screen: screen)
         shared = p
         NSApp.activate(ignoringOtherApps: true)
         p.makeKeyAndOrderFront(nil)
         p.makeFirstResponder(p.field)
+        if Config.shared.switcherFadeIn {
+            p.alphaValue = 0
+            for i in 1...10 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.017) { [weak p] in
+                    p?.alphaValue = CGFloat(i) / 10   // ~0.17s fade-in (bypasses Reduce Motion)
+                }
+            }
+        }
     }
 
     override var canBecomeKey: Bool { true }
 
-    init(items: [SwitcherItem], screen: NSScreen) {
-        all = items
-        filtered = items
-        let w: CGFloat = 640, h: CGFloat = 420
+    init(modes: [SwitcherMode], screen: NSScreen) {
+        self.modes = modes.isEmpty ? [SwitcherMode(name: "", sections: [])] : modes
+        let w: CGFloat = 640, h: CGFloat = 440
         let rect = NSRect(x: screen.frame.midX - w / 2,
                           y: screen.frame.midY - h / 2 + 100, width: w, height: h)
         super.init(contentRect: rect, styleMask: [.borderless, .nonactivatingPanel],
@@ -56,7 +73,6 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
-        animationBehavior = .utilityWindow
 
         let container = NSView(frame: NSRect(origin: .zero, size: rect.size))
         container.wantsLayer = true
@@ -66,30 +82,34 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         container.layer?.borderColor = Sw.accent.withAlphaComponent(0.35).cgColor
         contentView = container
 
-        field.frame = NSRect(x: 18, y: h - 58, width: w - 36, height: 40)
-        field.font = .systemFont(ofSize: 22, weight: .regular)
+        field.frame = NSRect(x: 18, y: h - 56, width: w - 36, height: 40)
+        field.font = .systemFont(ofSize: 22)
         field.textColor = Sw.text
         field.isBordered = false
         field.focusRingType = .none
         field.drawsBackground = false
         field.placeholderAttributedString = NSAttributedString(
-            string: "Aller à un workspace ou une fenêtre…",
+            string: "Filtrer…",
             attributes: [.foregroundColor: Sw.subtext, .font: NSFont.systemFont(ofSize: 22)])
         field.delegate = self
         container.addSubview(field)
 
-        let sep = NSView(frame: NSRect(x: 14, y: h - 66, width: w - 28, height: 1))
+        let sep = NSView(frame: NSRect(x: 14, y: h - 64, width: w - 28, height: 1))
         sep.wantsLayer = true
         sep.layer?.backgroundColor = Sw.subtext.withAlphaComponent(0.2).cgColor
         container.addSubview(sep)
 
-        let scroll = NSScrollView(frame: NSRect(x: 8, y: 8, width: w - 16, height: h - 82))
+        modeLabel.frame = NSRect(x: 18, y: h - 86, width: w - 36, height: 18)
+        modeLabel.alignment = .center
+        container.addSubview(modeLabel)
+
+        let scroll = NSScrollView(frame: NSRect(x: 8, y: 34, width: w - 16, height: h - 124))
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay   // translucent, floats over content instead of taking a column
         table.headerView = nil
         table.backgroundColor = .clear
-        table.rowHeight = 46
         table.intercellSpacing = NSSize(width: 0, height: 2)
         table.selectionHighlightStyle = .regular
         table.dataSource = self
@@ -102,47 +122,67 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         scroll.documentView = table
         container.addSubview(scroll)
 
-        table.reloadData()
-        selectRow(0)
+        footer.frame = NSRect(x: 18, y: 10, width: w - 36, height: 16)
+        footer.font = .systemFont(ofSize: 11)
+        footer.alignment = .center
+        container.addSubview(footer)
 
-        // Robust key handling: intercept nav keys ourselves; let everything else reach the
-        // search field. Avoids relying on single-line field-editor command routing.
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        updateModeLabel()
+        updateFooter(cmd: false)
+        reloadResults()
+
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
             guard let self else { return event }
+            if event.type == .flagsChanged {
+                self.updateFooter(cmd: event.modifierFlags.contains(.command)); return event
+            }
             switch event.keyCode {
             case 125: self.move(1);  return nil   // ↓
             case 126: self.move(-1); return nil   // ↑
+            case 123: self.switchMode(-1); return nil   // ←
+            case 124: self.switchMode(1);  return nil   // →
             case 48:  self.move(event.modifierFlags.contains(.shift) ? -1 : 1); return nil  // ⇥
-            case 36, 76: self.confirm(); return nil   // ⏎ / enter
+            case 36, 76: self.confirm(move: event.modifierFlags.contains(.command)); return nil
             case 53:  self.forceClose(); return nil   // esc
             default:  return event
             }
         }
     }
 
-    // MARK: - Filtering
+    // MARK: - Modes / filtering
 
     func controlTextDidChange(_ obj: Notification) { reloadResults() }
 
-    private func reloadResults() {
-        let q = field.stringValue.trimmingCharacters(in: .whitespaces)
-        if q.isEmpty {
-            filtered = all
-        } else {
-            filtered = all
-                .compactMap { item -> (SwitcherItem, Int)? in
-                    guard let s = Self.fuzzyScore(q, "\(item.title) \(item.subtitle) \(item.badge)")
-                    else { return nil }
-                    return (item, s + (item.kind == .workspace ? 5 : 0))
-                }
-                .sorted { $0.1 > $1.1 }
-                .map { $0.0 }
-        }
-        table.reloadData()
-        selectRow(0)
+    private func switchMode(_ dir: Int) {
+        guard modes.count > 1 else { return }
+        currentMode = (currentMode + dir + modes.count) % modes.count
+        updateModeLabel()
+        reloadResults()
     }
 
-    /// Subsequence fuzzy match with consecutive / word-start bonuses. nil = no match.
+    private func reloadResults() {
+        let q = field.stringValue.trimmingCharacters(in: .whitespaces)
+        var out: [Row] = []
+        for section in modes[currentMode].sections {
+            let matched: [SwitcherItem]
+            if q.isEmpty {
+                matched = section.items
+            } else {
+                matched = section.items.compactMap { item -> (SwitcherItem, Int)? in
+                    guard let s = Self.fuzzyScore(q, "\(item.title) \(item.subtitle) \(item.badge)") else { return nil }
+                    return (item, s)
+                }.sorted { $0.1 > $1.1 }.map { $0.0 }
+            }
+            if !matched.isEmpty {
+                out.append(.header(section.header))
+                out.append(contentsOf: matched.map { .item($0) })
+            }
+        }
+        rows = out
+        table.reloadData()
+        if let first = firstItem(from: 0, dir: 1) { table.selectRowIndexes([first], byExtendingSelection: false) }
+    }
+
     private static func fuzzyScore(_ needle: String, _ haystack: String) -> Int? {
         if needle.isEmpty { return 0 }
         let n = Array(needle.lowercased()), h = Array(haystack.lowercased())
@@ -158,47 +198,84 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         return ni == n.count ? score - h.count : nil
     }
 
-    // MARK: - Navigation
+    // MARK: - Navigation (skips header rows)
 
-    private func selectRow(_ i: Int) {
-        guard i >= 0, i < filtered.count else { return }
-        table.selectRowIndexes([i], byExtendingSelection: false)
-        table.scrollRowToVisible(i)
+    private func isItem(_ i: Int) -> Bool {
+        guard rows.indices.contains(i) else { return false }
+        if case .item = rows[i] { return true }; return false
     }
-
+    private func firstItem(from start: Int, dir: Int) -> Int? {
+        var i = start
+        while rows.indices.contains(i) { if isItem(i) { return i }; i += dir }
+        return nil
+    }
     private func move(_ delta: Int) {
-        guard !filtered.isEmpty else { return }
-        let cur = table.selectedRow < 0 ? 0 : table.selectedRow
-        selectRow(min(max(cur + delta, 0), filtered.count - 1))
+        let cur = table.selectedRow
+        if let next = firstItem(from: (cur < 0 ? -1 : cur) + delta, dir: delta) {
+            table.selectRowIndexes([next], byExtendingSelection: false)
+            table.scrollRowToVisible(next)
+        }
     }
 
-    private func confirm() {
-        let r = table.selectedRow
-        guard r >= 0, r < filtered.count else { return }
-        let item = filtered[r]
-        forceClose()
-        item.run()
-    }
+    private func confirm(move: Bool) { execute(row: table.selectedRow, move: move) }
 
     @objc private func rowClicked() {
-        let r = table.clickedRow
-        guard r >= 0, r < filtered.count else { return }
-        let item = filtered[r]
+        execute(row: table.clickedRow,
+                move: NSApp.currentEvent?.modifierFlags.contains(.command) ?? false)
+    }
+
+    private func execute(row: Int, move: Bool) {
+        guard isItem(row), case .item(let it) = rows[row] else { return }
         forceClose()
-        item.run()
+        if move, let m = it.moveHere { m() } else { it.run() }
+    }
+
+    // MARK: - Chrome
+
+    private func updateModeLabel() {
+        let s = NSMutableAttributedString()
+        if modes.count > 1 { s.append(NSAttributedString(string: "‹   ",
+            attributes: [.foregroundColor: Sw.subtext, .font: NSFont.systemFont(ofSize: 12)])) }
+        for (i, m) in modes.enumerated() {
+            let on = i == currentMode
+            s.append(NSAttributedString(string: m.name, attributes: [
+                .foregroundColor: on ? Sw.accent : Sw.subtext,
+                .font: NSFont.systemFont(ofSize: 12, weight: on ? .bold : .regular)]))
+            if i < modes.count - 1 {
+                s.append(NSAttributedString(string: "      ", attributes: [.font: NSFont.systemFont(ofSize: 12)]))
+            }
+        }
+        if modes.count > 1 { s.append(NSAttributedString(string: "   ›",
+            attributes: [.foregroundColor: Sw.subtext, .font: NSFont.systemFont(ofSize: 12)])) }
+        modeLabel.attributedStringValue = s
+    }
+
+    private func updateFooter(cmd: Bool) {
+        if cmd {
+            footer.stringValue = "⌘⏎  déplacer la fenêtre focus ici"
+            footer.textColor = Sw.accent
+        } else {
+            footer.stringValue = "↑↓ naviguer    ←→ mode    ⏎ valider    ⌘⏎ déplacer    esc"
+            footer.textColor = Sw.subtext
+        }
     }
 
     // MARK: - Table
 
-    func numberOfRows(in tableView: NSTableView) -> Int { filtered.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        if case .header = rows[row] { return 26 }; return 46
+    }
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { isItem(row) }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        SwitcherRow(item: filtered[row])
+        switch rows[row] {
+        case .header(let h): return SwitcherHeader(text: h)
+        case .item(let it): return SwitcherRow(item: it, query: field.stringValue.trimmingCharacters(in: .whitespaces))
+        }
     }
-
-    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-        SwitcherRowView()
-    }
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { SwitcherRowView() }
 
     // MARK: - Lifecycle
 
@@ -217,20 +294,42 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
     }
 }
 
-/// Row background that draws our accent selection (no reloadData needed — the table
-/// redraws row views on selection changes automatically).
+private func swHighlightedTitle(_ title: String, query: String) -> NSAttributedString {
+    let out = NSMutableAttributedString(string: title,
+        attributes: [.foregroundColor: Sw.text, .font: NSFont.systemFont(ofSize: 15)])
+    guard !query.isEmpty else { return out }
+    let t = Array(title.lowercased()), q = Array(query.lowercased())
+    var qi = 0
+    let hit: [NSAttributedString.Key: Any] = [.foregroundColor: Sw.accent,
+                                              .font: NSFont.systemFont(ofSize: 15, weight: .bold)]
+    for (i, c) in t.enumerated() where qi < q.count {
+        if c == q[qi] { out.addAttributes(hit, range: NSRange(location: i, length: 1)); qi += 1 }
+    }
+    return out
+}
+
 private final class SwitcherRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else { return }
-        let r = bounds.insetBy(dx: 6, dy: 2)
         Sw.sel.setFill()
-        NSBezierPath(roundedRect: r, xRadius: 8, yRadius: 8).fill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 6, dy: 2), xRadius: 8, yRadius: 8).fill()
     }
 }
 
-/// Row content: [badge] title … subtitle.
+private final class SwitcherHeader: NSView {
+    init(text: String) {
+        super.init(frame: .zero)
+        let label = NSTextField(labelWithString: text.uppercased())
+        label.font = .systemFont(ofSize: 10, weight: .bold)
+        label.textColor = Sw.subtext
+        label.frame = NSRect(x: 20, y: 4, width: 500, height: 14)
+        addSubview(label)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
 private final class SwitcherRow: NSView {
-    init(item: SwitcherItem) {
+    init(item: SwitcherItem, query: String) {
         super.init(frame: .zero)
         wantsLayer = true
 
@@ -245,11 +344,18 @@ private final class SwitcherRow: NSView {
         badge.frame = NSRect(x: 18, y: 14, width: max(26, badge.frame.width + 8), height: 20)
         addSubview(badge)
 
-        let title = NSTextField(labelWithString: item.title)
-        title.font = .systemFont(ofSize: 15)
-        title.textColor = Sw.text
+        var titleX = badge.frame.maxX + 12
+        if let icon = item.icon {
+            let iv = NSImageView(frame: NSRect(x: badge.frame.maxX + 10, y: 13, width: 20, height: 20))
+            iv.image = icon
+            iv.imageScaling = .scaleProportionallyUpOrDown
+            addSubview(iv)
+            titleX = iv.frame.maxX + 8
+        }
+
+        let title = NSTextField(labelWithAttributedString: swHighlightedTitle(item.title, query: query))
         title.lineBreakMode = .byTruncatingTail
-        title.frame = NSRect(x: badge.frame.maxX + 12, y: 13, width: 380, height: 20)
+        title.frame = NSRect(x: titleX, y: 13, width: 400 - titleX, height: 20)
         addSubview(title)
 
         let sub = NSTextField(labelWithString: item.subtitle)
@@ -257,9 +363,8 @@ private final class SwitcherRow: NSView {
         sub.textColor = Sw.subtext
         sub.alignment = .right
         sub.lineBreakMode = .byTruncatingTail
-        sub.frame = NSRect(x: 430, y: 14, width: 176, height: 18)
+        sub.frame = NSRect(x: 408, y: 14, width: 180, height: 18)   // ends ~588, clear of the scroller
         addSubview(sub)
     }
-
     required init?(coder: NSCoder) { fatalError() }
 }

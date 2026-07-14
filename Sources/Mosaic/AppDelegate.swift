@@ -16,6 +16,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.statusItem.button?.title = number.map { "▦\($0)" } ?? "▦"
         }
         setupHotkeys()
+        windowManager.switcherActions = { [weak self] in
+            guard let self else { return [] }
+            let actions = self.makeActions()
+            let binds = Config.shared.keybindings
+            return actions.keys.filter { $0 != "switcher" }.sorted()
+                .map { (title: $0, subtitle: binds[$0] ?? "", run: actions[$0]!) }
+        }
         windowManager.startObserving()
         presentConfigIssues()   // surface any problems from the startup config load
         startWatchingConfig()   // hot-reload config.json on save (no manual reload-config)
@@ -255,6 +262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "prev-tab": { wm.prevTab() },
             "clear": { wm.clear() },
             "switcher": { wm.showSwitcher() },
+            "workspace-back": { wm.workspaceBack() },
             "reload-config": { [weak self] in self?.reloadConfig() },
             "dump-layout": { wm.dumpLayout() },
         ]

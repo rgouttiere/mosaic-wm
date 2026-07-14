@@ -77,6 +77,9 @@ final class WindowManager {
     /// set is unchanged and nothing closed, a reconcile can't have anything to do — used
     /// to skip the costly captureWindows() on pure focus/app switches.
     private var lastReconcileOnScreen: Set<CGWindowID> = []
+    /// Recently-focused workspace numbers, most-recent first. Powers the switcher's recency
+    /// ordering and the ⌘⌥B back-and-forth toggle.
+    private var workspaceRecency: [Int] = []
     /// i3 "preselect": arm a split orientation on a window so the NEXT window nests into a
     /// new split with it. `vertical` = new window goes below; else to the right.
     private var preselect: (vertical: Bool, leaf: Container)?
@@ -86,6 +89,8 @@ final class WindowManager {
     private let workspaceHUD = WorkspaceHUD()
     /// Notifies the menu bar of the current workspace number (nil = unknown/unmanaged).
     var onWorkspaceChanged: ((Int?) -> Void)?
+    /// Supplies the Mosaic actions for the switcher's "Actions" mode (set by AppDelegate).
+    var switcherActions: (() -> [(title: String, subtitle: String, run: () -> Void)])?
     private var stateURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/mosaic/state.json")
@@ -243,7 +248,7 @@ final class WindowManager {
     /// window — so it can't fight the user or loop with our own raises. This is what keeps
     /// the tabs in sync without needing a click.
     private func syncFocusToSystem() {
-        guard !suspended, !tabDragging, let root else { return }
+        guard Config.shared.focusSync, !suspended, !tabDragging, let root else { return }
         guard let app = NSWorkspace.shared.frontmostApplication else { return }
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
         guard let win: AXUIElement = AX.copy(axApp, kAXFocusedWindowAttribute as String),
@@ -304,6 +309,8 @@ final class WindowManager {
         }
         layoutResizeHandles()   // reposition handles for the now-active desktop
         showWorkspaceIndicator(for: screen)
+        // Draw the eye to the now-focused window, after the macOS Space transition settles.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.focusIndicator.pulse() }
     }
 
     // MARK: - Entry points
@@ -1157,30 +1164,75 @@ final class WindowManager {
         switchTo(space: target, appHint: assignmentApps[n], on: screen)
     }
 
+    /// Bounce to the previous workspace (i3 back-and-forth): recency[0] is current, [1] prior.
+    func workspaceBack() {
+        guard workspaceRecency.count >= 2 else { return }
+        switchToWorkspace(workspaceRecency[1])
+    }
+
     /// Fuzzy quick-switcher: jump to a workspace (by name/number) or a window (by title).
+    /// Ordered by recency (most-recently-used first); the current workspace sinks to the
+    /// bottom so ⏎ on the top row jumps somewhere useful.
     func showSwitcher() {
-        var items: [SwitcherItem] = []
-        for n in assignments.keys.sorted() {
-            items.append(SwitcherItem(
+        let screen = screenUnderMouse()
+        let current = Spaces.currentSpaceID(for: screen).flatMap { workspaceNumber(for: $0) }
+        let ordered = assignments.keys.sorted { a, b in
+            if a == current { return false }
+            if b == current { return true }
+            let ia = workspaceRecency.firstIndex(of: a) ?? Int.max
+            let ib = workspaceRecency.firstIndex(of: b) ?? Int.max
+            return ia != ib ? ia < ib : a < b
+        }
+        var wsItems: [SwitcherItem] = []
+        var winItems: [SwitcherItem] = []
+        for n in ordered {
+            let root = assignments[n].flatMap { spaces[$0]?.root }
+            var count = 0
+            root?.forEachLeaf { if $0.window != nil { count += 1 } }
+            wsItems.append(SwitcherItem(
                 kind: .workspace,
                 title: Config.shared.workspaceNames[n] ?? "Workspace \(n)",
-                subtitle: "workspace",
-                badge: "\(n)",
-                run: { [weak self] in self?.switchToWorkspace(n) }))
-        }
-        for n in assignments.keys.sorted() {
-            guard let sid = assignments[n], let root = spaces[sid]?.root else { continue }
-            root.forEachLeaf { leaf in
+                subtitle: count == 1 ? "1 fenêtre" : "\(count) fenêtres",
+                badge: "\(n)", icon: nil,
+                run: { [weak self] in self?.switchToWorkspace(n) },
+                moveHere: { [weak self] in self?.moveToWorkspace(n) }))
+            root?.forEachLeaf { leaf in
                 guard let w = leaf.window else { return }
-                items.append(SwitcherItem(
-                    kind: .window,
-                    title: w.title,
-                    subtitle: w.appName,
-                    badge: "\(n)",
-                    run: { [weak self] in self?.focusWindow(w, inWorkspace: n) }))
+                winItems.append(SwitcherItem(
+                    kind: .window, title: w.title, subtitle: w.appName, badge: "\(n)", icon: w.app.icon,
+                    run: { [weak self] in self?.focusWindow(w, inWorkspace: n) },
+                    moveHere: { [weak self] in self?.moveToWorkspace(n) }))
             }
         }
-        SwitcherPanel.present(items: items, on: screenUnderMouse())
+        var navSections: [SwitcherSection] = []
+        if !wsItems.isEmpty { navSections.append(SwitcherSection(header: "Workspaces", items: wsItems)) }
+        if !winItems.isEmpty { navSections.append(SwitcherSection(header: "Fenêtres", items: winItems)) }
+
+        let actionItems = (switcherActions?() ?? []).map { a in
+            SwitcherItem(kind: .action, title: Self.prettyAction(a.title), subtitle: Self.prettyShortcut(a.subtitle),
+                         badge: "▸", icon: nil, run: a.run, moveHere: nil)
+        }
+        SwitcherPanel.present(modes: [
+            SwitcherMode(name: "Aller", sections: navSections),
+            SwitcherMode(name: "Actions", sections: [SwitcherSection(header: "Actions Mosaic", items: actionItems)]),
+        ], on: screen)
+    }
+
+    private static func prettyAction(_ key: String) -> String {
+        let s = key.replacingOccurrences(of: "-", with: " ")
+        return s.prefix(1).uppercased() + s.dropFirst()
+    }
+    private static func prettyShortcut(_ combo: String) -> String {
+        guard !combo.isEmpty else { return "" }
+        return combo.split(separator: " ").map { part -> String in
+            switch part {
+            case "cmd": return "⌘"; case "alt": return "⌥"; case "ctrl": return "⌃"; case "shift": return "⇧"
+            case "return": return "↩"; case "left": return "←"; case "right": return "→"
+            case "up": return "↑"; case "down": return "↓"; case "equal": return "="
+            case "minus": return "-"; case "period": return "."; case "comma": return ","
+            default: return part.count == 1 ? part.uppercased() : String(part)
+            }
+        }.joined()
     }
 
     /// Bring a specific window forward: switch to its workspace's Space if needed, then
@@ -1333,6 +1385,10 @@ final class WindowManager {
     /// `mosaic query`), and run the configured shell hook on change (for sketchybar & co).
     private func emitWorkspaceState(_ focused: Int?) {
         pruneStaleAssignments()
+        if let n = focused, workspaceRecency.first != n {
+            workspaceRecency.removeAll { $0 == n }
+            workspaceRecency.insert(n, at: 0)
+        }
         onWorkspaceChanged?(focused)
         writeStatusFile(focused: focused)
         if focused != lastEmittedWorkspace {
