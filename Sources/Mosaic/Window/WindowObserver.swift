@@ -90,7 +90,7 @@ final class WindowObserver {
         pending?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.onChange() }
         pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
     }
 
     // MARK: - App tracking

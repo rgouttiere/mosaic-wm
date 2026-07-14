@@ -56,6 +56,17 @@ final class ManagedWindow {
         lastSetFrame = axRect
     }
 
+    /// Last opacity we set (via CGS). `applyOpacity` runs over every window on each render,
+    /// so skipping unchanged writes avoids a burst of redundant private-API calls. ALL
+    /// alpha changes must go through here, else the cache would go stale.
+    private var lastSetAlpha: Float?
+
+    func setAlpha(_ alpha: Float, id: CGWindowID) {
+        if lastSetAlpha == alpha { return }
+        Spaces.setAlpha(id, alpha)
+        lastSetAlpha = alpha
+    }
+
     /// Bring this window (and its app) to the front of the window stack.
     func focus() {
         AX.raise(element)

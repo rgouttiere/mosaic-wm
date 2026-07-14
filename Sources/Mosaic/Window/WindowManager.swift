@@ -349,7 +349,7 @@ final class WindowManager {
     /// Stop managing the current desktop (others keep their layouts).
     func clear() {
         if let id = activeSpaceID, let st = spaces[id] {
-            st.root?.forEachLeaf { if let w = $0.window, let wid = AX.windowID(w.element) { Spaces.setAlpha(wid, 1) } }
+            st.root?.forEachLeaf { if let w = $0.window, let wid = AX.windowID(w.element) { w.setAlpha(1, id: wid) } }
             st.root?.teardown()
             spaces[id] = nil
         }
@@ -360,7 +360,7 @@ final class WindowManager {
     func resetAllOpacity() {
         for state in spaces.values {
             state.root?.forEachLeaf {
-                if let w = $0.window, let id = AX.windowID(w.element) { Spaces.setAlpha(id, 1) }
+                if let w = $0.window, let id = AX.windowID(w.element) { w.setAlpha(1, id: id) }
             }
         }
     }
@@ -507,7 +507,7 @@ final class WindowManager {
     }
 
     private func detach(_ leaf: Container) {
-        if let w = leaf.window, let id = AX.windowID(w.element) { Spaces.setAlpha(id, 1) }
+        if let w = leaf.window, let id = AX.windowID(w.element) { w.setAlpha(1, id: id) }
         guard let parent = leaf.parent, let idx = parent.index(of: leaf) else {
             root = nil
             return
@@ -1412,7 +1412,7 @@ final class WindowManager {
         w.setCocoaFrame(rect)
         AX.raise(w.element)
         w.activateApp()
-        if let wid = AX.windowID(w.element) { Spaces.setAlpha(wid, 1) }   // full opacity
+        if let wid = AX.windowID(w.element) { w.setAlpha(1, id: wid) }   // full opacity
         scratchpadVisible = true
         // Hide the floating overlays so they don't sit on top of the scratchpad.
         active?.root?.forEachTabbed { $0.hideStrip() }
@@ -1555,7 +1555,7 @@ final class WindowManager {
             w.setCocoaFrame(area)
             if activate { w.activateApp() }
             AX.raise(w.element)
-            if let id = AX.windowID(w.element) { Spaces.setAlpha(id, 1) }   // zoomed = full opacity
+            if let id = AX.windowID(w.element) { w.setAlpha(1, id: id) }   // zoomed = full opacity
             root.forEachTabbed { $0.hideStrip() }   // only THIS desktop's strips, not other screens'
             hideAllHandles()
             // Monocle = a single window fills the screen: the focus border only adds
@@ -1599,7 +1599,7 @@ final class WindowManager {
         let activeID = focused?.window.flatMap { AX.windowID($0.element) }
         root.forEachLeaf { leaf in
             guard let w = leaf.window, !w.isFullscreen, let id = AX.windowID(w.element) else { return }
-            Spaces.setAlpha(id, id == activeID ? active : inactive)
+            w.setAlpha(id == activeID ? active : inactive, id: id)
         }
     }
 
