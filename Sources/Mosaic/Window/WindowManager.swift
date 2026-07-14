@@ -73,6 +73,10 @@ final class WindowManager {
     /// Guards reconcile against re-entrancy (all triggers are on the main queue, but this
     /// makes it impossible for a nested call to corrupt the tree mid-pass).
     private var isReconciling = false
+    /// On-screen window IDs at the last reconcile that ran the full enumeration. If the
+    /// set is unchanged and nothing closed, a reconcile can't have anything to do — used
+    /// to skip the costly captureWindows() on pure focus/app switches.
+    private var lastReconcileOnScreen: Set<CGWindowID> = []
     /// i3 "preselect": arm a split orientation on a window so the NEXT window nests into a
     /// new split with it. `vertical` = new window goes below; else to the right.
     private var preselect: (vertical: Bool, leaf: Container)?
@@ -476,6 +480,13 @@ final class WindowManager {
         // (Per-leaf glitch/close handling above already keeps transiently-invalid windows,
         // so an empty aliveTreeIDs here means a real switch or a real empty desktop.)
         if !aliveTreeIDs.isEmpty && aliveTreeIDs.isDisjoint(with: onScreen) { return }
+
+        // Fast path: nothing closed, no grace recheck pending, and the on-screen window
+        // set is unchanged since the last full reconcile → nothing could have been added
+        // or removed. Skip the expensive enumeration (captureWindows) — this is what makes
+        // a pure focus / app switch cheap instead of paying ~30ms of AX every time.
+        if deadLeaves.isEmpty, !gracePending, onScreen == lastReconcileOnScreen { return }
+        lastReconcileOnScreen = onScreen
 
         let windows = captureWindows(on: screen)
         let additions = windows.filter { window in
