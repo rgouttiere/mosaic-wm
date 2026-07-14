@@ -6,6 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let windowManager = WindowManager()
     private var hotkeys: HotkeyManager?
     private var statusItem: NSStatusItem!
+    private var configWatch: DispatchSourceFileSystemObject?
+    private var configReloadWork: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         requestAccessibilityIfNeeded()
@@ -16,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotkeys()
         windowManager.startObserving()
         presentConfigIssues()   // surface any problems from the startup config load
+        startWatchingConfig()   // hot-reload config.json on save (no manual reload-config)
 
         // CLI channel: `mosaic <action>` posts this; run the matching action on the main thread.
         DistributedNotificationCenter.default().addObserver(
@@ -277,6 +280,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             hk.register(keyCode: parsed.keyCode, modifiers: parsed.modifiers, action: run)
         }
+    }
+
+    /// Watch config.json and hot-reload it on save. Editors save atomically (write a temp
+    /// file then rename over the original), so on a rename/delete we re-arm on the new inode.
+    private func startWatchingConfig() {
+        configWatch?.cancel()
+        let fd = open(Config.shared.configURL.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let src = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .rename, .delete, .attrib],
+            queue: .main)
+        src.setEventHandler { [weak self, weak src] in
+            guard let self, let src else { return }
+            let flags = src.data
+            self.scheduleConfigReload()
+            if flags.contains(.rename) || flags.contains(.delete) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.startWatchingConfig()   // re-arm on the replacement file
+                }
+            }
+        }
+        src.setCancelHandler { close(fd) }
+        configWatch = src
+        src.resume()
+    }
+
+    /// Debounce a burst of file events into a single reload.
+    private func scheduleConfigReload() {
+        configReloadWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.reloadConfig() }
+        configReloadWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
     @objc private func reloadConfig() {
