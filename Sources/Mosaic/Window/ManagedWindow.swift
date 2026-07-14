@@ -38,9 +38,22 @@ final class ManagedWindow {
 
     var frame: CGRect? { AX.frame(element) }
 
+    /// Last frame (AX coords) we asked this window to take. Lets `setCocoaFrame` skip a
+    /// redundant AX write — the expensive op, since each write forces the app to re-layout
+    /// its content — when the target is unchanged. Mosaic is the layout authority and does
+    /// not track external moves, so comparing against our own last write is sufficient.
+    private var lastSetFrame: CGRect?
+
     /// Position/size the window in Cocoa coordinates (converted to AX internally).
     func setCocoaFrame(_ cocoaRect: CGRect) {
-        AX.setFrame(element, Geometry.flip(cocoaRect))
+        let axRect = Geometry.flip(cocoaRect)
+        if let last = lastSetFrame,
+           abs(last.origin.x - axRect.origin.x) < 1, abs(last.origin.y - axRect.origin.y) < 1,
+           abs(last.size.width - axRect.size.width) < 1, abs(last.size.height - axRect.size.height) < 1 {
+            return   // already where we put it → skip the costly AX write + app relayout
+        }
+        AX.setFrame(element, axRect)
+        lastSetFrame = axRect
     }
 
     /// Bring this window (and its app) to the front of the window stack.
