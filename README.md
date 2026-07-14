@@ -11,10 +11,12 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 - **Tab & stack containers across apps** — merge any windows (Firefox + Terminal + Notes…) into one tile as tabs (horizontal bar) or a stack (vertical title list). Nest them inside splits.
 - **i3-style layout tree** — split H/V, tabbed, stacked, arbitrarily nested; keyboard-driven focus / move / resize, plus mouse resize and tab drag & drop (including across groups and screens).
 - **i3 preselect** — arm a split direction (`⌘⌥V`/`⌘⌥H`); the next window nests there.
-- **Numbered workspaces** (1–9, assignable, unique across screens), **per-app scratchpad**, **zoom/monocle**.
+- **Numbered workspaces** (1–9, assignable, unique across screens) — optionally **named** (i3-style); **per-app scratchpad**, **zoom/monocle**.
+- **Quick-switcher** (`⌘⌥P`) — a ⌘-palette popup to fuzzy-jump to any workspace or window.
+- **External-bar aware** — reserve a top strip for a bar like [sketchybar](https://github.com/FelixKratz/SketchyBar) (`externalBarTop`, notch-aware per screen) and publish workspace names + per-monitor placement for it to render.
 - **Real macOS Spaces integration** (Mission Control & native gestures keep working).
 - **Survives dock/undock & reboot** — layouts persist keyed by a stable per-monitor fingerprint.
-- **Live JSON config** — modes, gaps, styling, per-app rules, keybindings; reload without restart.
+- **Live JSON config** — modes, gaps, styling, per-app rules, keybindings; **auto-reloads on save** (no restart).
 - **CLI** — every action is scriptable via `mosaic <action>` (e.g. `mosaic workspace-3`), sketchybar/automation-friendly.
 - Keeps **SIP enabled**; runs as a menu-bar accessory app (**▦**).
 
@@ -56,14 +58,15 @@ xattr -dr com.apple.quarantine /Applications/Mosaic.app   # clear the quarantine
 3. `⌘⌥G` — merge the focused window with its neighbor into **tabs**; `⌘⌥⇧G` — into a **stack**.
 4. `⌘⌥E` toggle split H/V · `⌘⌥S` tabbed · `⌘⌥⇧S` stacked · `⌘⌥↩` zoom.
 5. `⌘⌥V`/`⌘⌥H` — preselect a split for the next window.
+6. `⌘⌥P` — quick-switcher: type to jump to a workspace or window.
 
 **Full shortcut reference: [CHEATSHEET.md](CHEATSHEET.md).**
 
 ## Config
 
-First launch writes `~/.config/mosaic/config.json`. Edit it, then **menu → "Reload config"** (live — no restart). Invalid config surfaces a warning instead of silently reverting.
+First launch writes `~/.config/mosaic/config.json`. Edit and save it — Mosaic **auto-reloads on save** (or **menu → "Reload config"**). Invalid config surfaces a warning instead of silently reverting.
 
-Keys: `gap`, `outerGap`, `tabBarHeight`, `defaultMode` (`columns`/`grouped`/`tabbed`), `warpMouseOnSwitch`, `showWorkspaceHUD`, `hudPosition`; window styling (`borderEnabled`, `borderColor` `"accent"`|`"#RRGGBB"`, `borderWidth`, `borderCornerRadius`, `activeOpacity`/`inactiveOpacity`); tab styling (`tabBarColor`, `tabActiveColor`, `tabTextColor`, `tabActiveTextColor`, `tabCornerRadius`, `tabFontSize`, `tabBarOpacity`); `floatingApps` (names/bundle ids, lowercased); `keybindings` (action → combo, e.g. `"tile": "cmd alt t"`; only the ones you list override defaults).
+Keys: `gap`, `outerGap`, `externalBarTop` (px reserved at the top for an external bar like sketchybar — per screen, notch-aware), `tabBarHeight`, `defaultMode` (`columns`/`grouped`/`tabbed`), `warpMouseOnSwitch`, `showWorkspaceHUD`, `hudPosition`; `workspaceNames` (i3-style labels, `{ "2": "web", "3": "code" }` — number stays the identity/keybinding key, the name is display-only); window styling (`borderEnabled`, `borderColor` `"accent"`|`"#RRGGBB"`, `borderWidth`, `borderCornerRadius`, `activeOpacity`/`inactiveOpacity`); tab styling (`tabBarColor`, `tabActiveColor`, `tabTextColor`, `tabActiveTextColor`, `tabCornerRadius`, `tabFontSize`, `tabBarOpacity`); `floatingApps` (names/bundle ids, lowercased); `keybindings` (action → combo, e.g. `"tile": "cmd alt t"`; only the ones you list override defaults).
 
 Per-app auto-placement `rules`, applied as windows open:
 ```json

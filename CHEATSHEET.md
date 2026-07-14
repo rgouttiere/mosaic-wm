@@ -10,7 +10,8 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
   - **Tabbed** — **⌘⌥S**: one window shown, a horizontal tab strip.
   - **Stacked** — **⌘⌥⇧S**: one window shown, a vertical title list. Can hold tab groups / splits (drawn inline).
 - **Preselect** (i3-style): **⌘⌥V** / **⌘⌥H** arm a split (below / right); the **next** window opened nests there. A tint on the focused window's edge shows where. Moving focus cancels it.
-- **Workspaces** numbered 1–9 (unique, across screens). Assign a desktop to a number, then jump to it.
+- **Workspaces** numbered 1–9 (unique, across screens). Assign a desktop to a number, then jump to it. Optionally **name** them via `workspaceNames` in config (the number stays the key; the name is just a label).
+- **Quick-switcher** (**⌘⌥P**): a fuzzy popup to jump to any workspace (by name/number) or window (by title). ↑/↓ to move, ⏎ to jump, Esc to dismiss.
 - **Scratchpad**: a dedicated app shown/hidden as a floating panel (survives relaunch).
 - **Rules** (`config.json`): `float`, `groupWith`, `place` (`column`/`tab`), `workspace: N`.
 
@@ -57,6 +58,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 ### Workspaces & screens
 | Action | Shortcut |
 |---|---|
+| Quick-switcher (jump to a workspace **or** window) | ⌘⌥P |
 | Go to workspace N | ⌘⌥1…9 |
 | Send window to workspace N | ⌘⌥⇧1…9 |
 | Assign current desktop to number N | ⌘⌥⌃1…9 |
@@ -82,14 +84,16 @@ mosaic toggle-stacked
 mosaic dump-layout       # write /tmp/mosaic-dump.txt
 ```
 
-Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, …) plus `reload-config` and `dump-layout`.
+Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `switcher`, …) plus `reload-config` and `dump-layout`.
 
 **Query state** (for status bars / scripts):
 ```sh
-mosaic query               # full JSON: focused, per-monitor workspace, workspaces[]
+mosaic query               # full JSON: focused, monitors[], workspaces[],
+                           #   workspaceNames{n:name}, workspaceDisplays{n:displayID}
 mosaic query focused       # focused workspace number
 mosaic query workspaces    # assigned workspace numbers, space-separated
 ```
+`workspaceNames` / `workspaceDisplays` let a bar label each workspace and show it only on the monitor it lives on.
 
 ## Status bar (sketchybar)
 
