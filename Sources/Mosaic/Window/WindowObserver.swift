@@ -18,6 +18,7 @@ final class WindowObserver {
         kAXWindowCreatedNotification,
         kAXApplicationHiddenNotification,
         kAXApplicationShownNotification,
+        kAXFocusedWindowChangedNotification,   // keyboard focus / cmd-tab / app switch
     ]
 
     init(onChange: @escaping () -> Void) {
@@ -51,6 +52,19 @@ final class WindowObserver {
     /// tab strips) without re-tiling windows.
     var onTitleChange: (() -> Void)?
     private var titlePending: DispatchWorkItem?
+
+    /// Called (debounced) when the system's focused window changed (click, cmd-tab, app
+    /// switch). A PASSIVE resync of Mosaic's focus — never re-tiles, so no loop with our
+    /// own raises.
+    var onFocusChange: (() -> Void)?
+    private var focusPending: DispatchWorkItem?
+
+    func scheduleFocusSync() {
+        focusPending?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.onFocusChange?() }
+        focusPending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+    }
 
     /// Register per-window notifications: "destroyed" (re-tile on close) and
     /// "title-changed" (live tab labels). Safe to call repeatedly.
@@ -121,9 +135,12 @@ final class WindowObserver {
 private let axObserverCallback: AXObserverCallback = { _, _, notification, refcon in
     guard let refcon else { return }
     let obs = Unmanaged<WindowObserver>.fromOpaque(refcon).takeUnretainedValue()
-    if (notification as String) == (kAXTitleChangedNotification as String) {
+    switch notification as String {
+    case kAXTitleChangedNotification as String:
         obs.scheduleTitleRefresh()   // light: just refresh tab labels
-    } else {
+    case kAXFocusedWindowChangedNotification as String:
+        obs.scheduleFocusSync()      // light: adopt system focus, no re-tile
+    default:
         obs.scheduleChange()         // structural: re-tile
     }
 }

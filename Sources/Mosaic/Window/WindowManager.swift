@@ -145,6 +145,7 @@ final class WindowManager {
     func startObserving() {
         loadState()
         observer.onTitleChange = { [weak self] in self?.active?.root?.refreshBarTitles() }
+        observer.onFocusChange = { [weak self] in self?.syncFocusToSystem() }
         observer.start()
         // Poll the current Space as a reliable fallback: the activeSpaceDidChange
         // notification is flaky, and without this the active desktop can go stale
@@ -230,6 +231,27 @@ final class WindowManager {
         focused = leaf
         preselect = nil          // focus moved → disarm any pending preselect
         updateFocusIndicator()   // border only — the click itself already focused the window
+    }
+
+    /// Adopt the system's focused window (keyboard focus, cmd-tab, app switch) into the
+    /// tree. PASSIVE: updates the tab bars + focus border only, never activates/raises a
+    /// window — so it can't fight the user or loop with our own raises. This is what keeps
+    /// the tabs in sync without needing a click.
+    private func syncFocusToSystem() {
+        guard !suspended, !tabDragging, let root else { return }
+        guard let app = NSWorkspace.shared.frontmostApplication else { return }
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        guard let win: AXUIElement = AX.copy(axApp, kAXFocusedWindowAttribute as String),
+              let id = AX.windowID(win) else { return }
+        var target: Container?
+        root.forEachLeaf { leaf in
+            guard target == nil, let w = leaf.window else { return }
+            if w.resolvedID() == id || w.lastKnownID == id { target = leaf }
+        }
+        guard let leaf = target, leaf !== focused else { return }
+        focused = leaf
+        preselect = nil          // focus moved → disarm any pending preselect
+        updateFocusIndicator()   // move the focus border only — identical to a click, no re-tile/raise
     }
 
     /// The visible window under `point`: in a tabbed container only the selected child
