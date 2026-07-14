@@ -153,6 +153,7 @@ final class WindowManager {
         spaceTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
             self?.checkSpaceChange()
             self?.sweepOrphanStrips()   // catch stray tab bars even without a render
+            Perf.dumpIfDue()            // opt-in timing summary (no-op unless enabled)
         }
         // Focus-follows-click: clicking a managed window moves Mosaic's focus to it.
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
@@ -421,6 +422,7 @@ final class WindowManager {
     private func reconcile() {
         guard !suspended, !isReconciling, let root, let screen = activeScreen else { return }
         isReconciling = true
+        let __perf = DispatchTime.now(); defer { Perf.record("reconcile", since: __perf) }
         defer { isReconciling = false }
         let onScreen = AX.onScreenWindowIDs()
 
@@ -1533,6 +1535,7 @@ final class WindowManager {
     /// back to the layout's desktop. Even then we only activate an on-screen window.
     private func render(activate: Bool = true) {
         guard let root, let screen = activeScreen else { return }
+        let __perf = DispatchTime.now(); defer { Perf.record("render", since: __perf) }
 
         // Monocle: the focused tile fills the screen; every overlay is hidden so nothing
         // floats over it. The tree keeps its frames for when we un-zoom.
@@ -1944,6 +1947,7 @@ final class WindowManager {
     // MARK: - Helpers
 
     private func captureWindows(on screen: NSScreen) -> [ManagedWindow] {
+        let __perf = DispatchTime.now(); defer { Perf.record("captureWindows", since: __perf) }
         let onScreen = AX.onScreenWindowIDs()
         return AX.managedWindows()
             .compactMap(ManagedWindow.init)
