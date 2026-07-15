@@ -189,6 +189,14 @@ final class WindowManager {
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
             ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.handleWake() }
         }
+        // Update the active desktop the instant macOS reports a Space change (the 0.4s poll
+        // is only a fallback). The notification can fire before the switch settles, so
+        // re-check after the transition too. Without this the focus border lags on the old
+        // Space — very visible when two workspaces share one display.
+        ws.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.checkSpaceChange()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) { [weak self] in self?.checkSpaceChange() }
+        }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.handleDisplayChange() }
@@ -1701,6 +1709,9 @@ final class WindowManager {
 
         if activate, let w = focused?.window,
            let id = AX.windowID(w.element), AX.onScreenWindowIDs().contains(id) {
+            // makeMain BEFORE activating: else activating the app first surfaces its old
+            // main window (another tab of the same app) for a frame before we raise ours.
+            AX.makeMain(w.element)
             w.activateApp()
             AX.raise(w.element)
         }

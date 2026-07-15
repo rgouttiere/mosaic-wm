@@ -113,11 +113,10 @@ final class Container {
             return
         }
         if layout == .tabbed {
+            // Raise ONLY the selected entry. Raising hidden entries (even "first") makes
+            // one of them briefly land on top → a 1-frame flash of the tab underneath when
+            // switching tabs. The selected entry going to front is all that's needed.
             let i = min(max(selected, 0), children.count - 1)
-            // Raise the HIDDEN entries first, then the selected one last. Otherwise a
-            // hidden full-size entry can sit ABOVE the visible entry when the latter is a
-            // split (its tiled windows don't each cover the whole area) and cover it.
-            for (j, c) in children.enumerated() where j != i { c.raiseVisibleWindows() }
             if children.indices.contains(i) { children[i].raiseVisibleWindows() }
         } else {
             children.forEach { $0.raiseVisibleWindows() }

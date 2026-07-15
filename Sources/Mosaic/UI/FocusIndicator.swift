@@ -17,7 +17,10 @@ final class FocusIndicator {
         window.contentView?.frame = NSRect(origin: .zero, size: cocoaFrame.size)
         (window.contentView as? BorderView)?.preselect = preselect
         window.contentView?.needsDisplay = true   // pick up config color/width changes
-        window.orderFront(nil)
+        // orderFrontRegardless (like the tab bars) so a .stationary window actually
+        // migrates to the current Space — orderFront leaves it stuck on its old Space,
+        // which shows the border on the wrong workspace when two share a display.
+        window.orderFrontRegardless()
     }
 
     func hide() {
@@ -48,10 +51,11 @@ private final class BorderWindow: NSWindow {
         hasShadow = false
         ignoresMouseEvents = true   // never intercept clicks
         level = .floating
-        // NOT canJoinAllSpaces: it must belong to the desktop it's shown on, so macOS
-        // hides it the instant you switch desktops (no lingering rectangle). orderFront
-        // moves it to the current desktop when we render a managed one.
-        collectionBehavior = [.ignoresCycle, .stationary]
+        // moveToActiveSpace: the border follows to whatever Space is active when we order
+        // it front — so it lands on the desktop you're actually looking at, even when two
+        // workspaces share a display or you switch with ⌃←/→. (.stationary kept it pinned
+        // to its original Space, which left the border on the previous workspace.)
+        collectionBehavior = [.ignoresCycle, .moveToActiveSpace]
         contentView = BorderView()
     }
 }
