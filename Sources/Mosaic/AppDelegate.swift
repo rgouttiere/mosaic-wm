@@ -105,9 +105,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(withTitle: "\(entry.title)\(combo)", action: entry.selector, keyEquivalent: "")
         }
 
+        // Navigation & overlays.
+        menu.addItem(.separator())
+        let nav: [(action: String, title: String, selector: Selector)] = [
+            ("expose", "Overview (Exposé)", #selector(showExpose)),
+            ("switcher", "Quick-switcher / palette", #selector(showSwitcher)),
+            ("hints", "Window hints", #selector(showHints)),
+            ("workspace-back", "Back to previous workspace", #selector(workspaceBack)),
+        ]
+        for entry in nav {
+            let combo = MenuFormat.combo(bindings[entry.action])
+            menu.addItem(withTitle: "\(entry.title)\(combo)", action: entry.selector, keyEquivalent: "")
+        }
+
         // Keyboard-only actions (directional): show the modifiers + "arrows".
         menu.addItem(.separator())
-        let header = NSMenuItem(title: "Raccourcis clavier", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Keyboard shortcuts", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         let directional: [(action: String, title: String)] = [
@@ -141,6 +154,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let assignItem = NSMenuItem(title: "Assign this desktop to…", action: nil, keyEquivalent: "")
         assignItem.submenu = assignSubmenu
         menu.addItem(assignItem)
+
+        let unassignCombo = MenuFormat.combo(Config.shared.keybindings["unassign"])
+        let unassignItem = NSMenuItem(title: "Unassign this desktop\(unassignCombo)",
+                                      action: #selector(unassignThisDesktop), keyEquivalent: "")
+        unassignItem.target = self
+        menu.addItem(unassignItem)
 
         // More clickable actions.
         menu.addItem(.separator())
@@ -203,6 +222,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func scratchpadSend() { windowManager.sendToScratchpad() }
     @objc private func scratchpadToggle() { windowManager.toggleScratchpad() }
     @objc private func assignFromMenu(_ sender: NSMenuItem) { windowManager.assignWorkspace(sender.tag) }
+    @objc private func unassignThisDesktop() { windowManager.unassignCurrent() }
+    @objc private func showSwitcher() { windowManager.showSwitcher() }
+    @objc private func showHints() { windowManager.showHints() }
+    @objc private func showExpose() { windowManager.showExpose() }
+    @objc private func workspaceBack() { windowManager.workspaceBack() }
     @objc private func clearLayout() { windowManager.clear() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.shared.configURL) }
     @objc private func dumpLayout() { windowManager.dumpLayout() }

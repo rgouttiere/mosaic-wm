@@ -1251,13 +1251,13 @@ final class WindowManager {
                     tiles.append(ExposeTile(frame: Geometry.flip(repFrame), tabs: tabs))
                 }
             }
-            // Empty tiled tree: the workspace's remembered app may be on its own full-screen
-            // Space. Show it ONLY if that app really has a full-screen window right now.
-            if tiles.isEmpty, let bundle = assignmentApps[n],
-               let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundle }),
-               appHasFullscreenWindow(app) {
+            // Empty tiled tree: if the workspace's assigned Space is a native-fullscreen
+            // Space, an app is occupying it (its windows aren't visible cross-Space via AX).
+            // Show the remembered app's name — that's what's actually fullscreen there.
+            if tiles.isEmpty, Spaces.isFullscreenSpace(sid), let bundle = assignmentApps[n] {
+                let app = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == bundle }
                 tiles.append(ExposeTile(frame: wsScreen,
-                    tabs: [ExposeTab(label: "⛶ \(app.localizedName ?? bundle)", icon: app.icon, selected: true)]))
+                    tabs: [ExposeTab(label: "⛶ \(app?.localizedName ?? bundle)", icon: app?.icon, selected: true)]))
             }
             wss.append(ExposeWorkspace(
                 title: Config.shared.workspaceNames[n] ?? "Workspace \(n)",
@@ -1265,13 +1265,6 @@ final class WindowManager {
                 jump: { [weak self] in self?.switchToWorkspace(n) }))
         }
         ExposeOverlay.show(wss, on: screen, commitOnRelease: commitOnCmdRelease)
-    }
-
-    /// True if `app` currently has any full-screen window (i.e. it's on its own Space).
-    private func appHasFullscreenWindow(_ app: NSRunningApplication) -> Bool {
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
-        guard let windows: [AXUIElement] = AX.copy(axApp, kAXWindowsAttribute as String) else { return false }
-        return windows.contains { AX.isFullscreen($0) }
     }
 
     /// Remove a workspace number's assignment (unset it).

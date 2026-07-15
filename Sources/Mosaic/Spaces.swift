@@ -18,12 +18,29 @@ private func CGSMoveWindowsToManagedSpace(_ cid: Int32, _ windows: CFArray, _ sp
 @_silgen_name("CGSSetWindowAlpha")
 private func CGSSetWindowAlpha(_ cid: Int32, _ wid: CGWindowID, _ alpha: Float) -> Int32
 
+// Space type via CGSSpaceGetType: 0 = user desktop, 2 = system. Native-fullscreen is 1 on
+// older macOS but 4 on macOS 26 (Tahoe) — treat both as fullscreen.
+@_silgen_name("CGSSpaceGetType")
+private func CGSSpaceGetType(_ cid: Int32, _ space: UInt64) -> Int32
+
 enum Spaces {
     /// The id of the Space currently shown on `screen` (0 → nil on failure).
     static func currentSpaceID(for screen: NSScreen) -> UInt64? {
         guard let uuid = displayUUID(screen) else { return nil }
         let space = CGSManagedDisplayGetCurrentSpace(CGSMainConnectionID(), uuid as CFString)
         return space == 0 ? nil : space
+    }
+
+    /// Raw CGS type of a Space (0 = user desktop, 1 = native-fullscreen, 2 = system).
+    static func spaceType(_ space: UInt64) -> Int32 {
+        CGSSpaceGetType(CGSMainConnectionID(), space)
+    }
+
+    /// True if the Space is a native-fullscreen Space (an app occupying its own desktop).
+    /// Fullscreen reports as 1 (pre-Tahoe) or 4 (macOS 26); user = 0, system = 2.
+    static func isFullscreenSpace(_ space: UInt64) -> Bool {
+        let t = CGSSpaceGetType(CGSMainConnectionID(), space)
+        return t == 1 || t == 4
     }
 
     /// Space ids of `screen`'s display, in desktop order (left→right in Mission Control).
