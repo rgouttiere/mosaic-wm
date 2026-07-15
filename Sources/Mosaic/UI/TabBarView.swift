@@ -152,19 +152,37 @@ final class TabBarView: NSView {
         }
     }
 
+    /// Top-level index under `point` (a tab segment when horizontal, a row when stacked).
+    /// Rows map 1:1 to children, so this doubles as the child index for reorder/detach.
+    private func sourceIndex(at point: NSPoint) -> Int? {
+        if isStackedRows {
+            guard rowHeight > 0, !rows.isEmpty else { return nil }
+            return min(rows.count - 1, max(0, Int(point.y / rowHeight)))
+        }
+        guard !titles.isEmpty else { return nil }
+        return index(at: point)
+    }
+
+    /// The label shown in the drag ghost for the top-level index being dragged.
+    private func dragLabel(_ i: Int) -> String {
+        if isStackedRows {
+            let segs = rows.indices.contains(i) ? rows[i] : []
+            let active = selectedSeg.indices.contains(i) ? selectedSeg[i] : 0
+            return segs.indices.contains(active) ? segs[active] : (segs.first ?? "—")
+        }
+        return titles.indices.contains(i) ? titles[i] : "—"
+    }
+
     override func mouseDown(with event: NSEvent) {
-        guard !isStackedRows, !titles.isEmpty else { return }
-        dragSourceIndex = index(at: convert(event.locationInWindow, from: nil))
+        dragSourceIndex = sourceIndex(at: convert(event.locationInWindow, from: nil))
         didDrag = false
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard !isStackedRows else { return }
+        guard let source = dragSourceIndex else { return }
         if !didDrag {
             onDragStateChange?(true)
-            if let i = dragSourceIndex, titles.indices.contains(i) {
-                TabDragGhost.shared.show(titles[i], at: NSEvent.mouseLocation)
-            }
+            TabDragGhost.shared.show(dragLabel(source), at: NSEvent.mouseLocation)
         } else {
             TabDragGhost.shared.move(to: NSEvent.mouseLocation)
         }
@@ -174,24 +192,20 @@ final class TabBarView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
-        if isStackedRows {
-            guard rowHeight > 0 else { return }
-            let r = min(rows.count - 1, max(0, Int(local.y / rowHeight)))
-            let segs = rows.indices.contains(r) ? rows[r] : []
-            let segW = segs.isEmpty ? bounds.width : bounds.width / CGFloat(segs.count)
-            let s = segW > 0 ? min(max(segs.count - 1, 0), max(0, Int(local.x / segW))) : 0
-            onStackSelect?(r, s)
-            return
-        }
         TabDragGhost.shared.hide()
         guard let source = dragSourceIndex else { return }
         if didDrag {
             if bounds.contains(local) {
-                let target = index(at: local)
-                if target != source { onReorder?(source, target) }
+                if let target = sourceIndex(at: local), target != source { onReorder?(source, target) }
             } else {
                 onDropOutside?(source, NSEvent.mouseLocation)
             }
+        } else if isStackedRows {
+            // Pure click in a stacked row: select the (row, segment) under the cursor.
+            let segs = rows.indices.contains(source) ? rows[source] : []
+            let segW = segs.isEmpty ? bounds.width : bounds.width / CGFloat(segs.count)
+            let s = segW > 0 ? min(max(segs.count - 1, 0), max(0, Int(local.x / segW))) : 0
+            onStackSelect?(source, s)
         } else {
             onSelect?(source)
         }

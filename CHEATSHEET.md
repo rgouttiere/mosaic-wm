@@ -8,7 +8,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 - **Containers** (i3-style, nestable):
   - **Split** horizontal / vertical — toggle H↔V with **⌘⌥E**.
   - **Tabbed** — **⌘⌥S**: one window shown, a horizontal tab strip.
-  - **Stacked** — **⌘⌥⇧S**: one window shown, a vertical title list. Can hold tab groups / splits (drawn inline).
+  - **Stacked** — **⌘⌥⇧S**: one window shown, a vertical title list. Can hold tab groups / splits (drawn inline). Drag a row to reorder it, or out of the bar to detach/move it (like horizontal tabs).
 - **Preselect** (i3-style): **⌘⌥V** / **⌘⌥H** arm a split (below / right); the **next** window opened nests there. A tint on the focused window's edge shows where. Moving focus cancels it.
 - **Workspaces** numbered 1–9 (unique, across screens). Assign a desktop to a number, then jump to it. Optionally **name** them via `workspaceNames` in config (the number stays the key; the name is just a label).
 - **Quick-switcher / command palette** (**⌘⌥P**): a fuzzy popup. **"Go"** mode jumps to a workspace (by name/number) or window (by title) — grouped under section headers, most-recent first, with per-workspace window counts and app icons. **←/→** flips to **"Actions"** mode to run any Mosaic action. **↑/↓** move (skipping headers) · **⏎** go/run · **⌘⏎** move the focused window to the highlighted workspace · **Esc** dismiss.

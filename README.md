@@ -9,7 +9,7 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 ## Highlights
 
 - **Tab & stack containers across apps** — merge any windows (Firefox + Terminal + Notes…) into one tile as tabs (horizontal bar) or a stack (vertical title list). Nest them inside splits.
-- **i3-style layout tree** — split H/V, tabbed, stacked, arbitrarily nested; keyboard-driven focus / move / resize, plus mouse resize and tab drag & drop (including across groups and screens).
+- **i3-style layout tree** — split H/V, tabbed, stacked, arbitrarily nested; keyboard-driven focus / move / resize, plus mouse resize and drag & drop of tabs **and** stacked rows to reorder or detach them (including across groups and screens).
 - **i3 preselect** — arm a split direction (`⌘⌥V`/`⌘⌥H`); the next window nests there.
 - **Numbered workspaces** (1–9, assignable, unique across screens) — optionally **named** (i3-style); **per-app scratchpad**, **zoom/monocle**.
 - **Quick-switcher / command palette** (`⌘⌥P`) — fuzzy-jump to any workspace or window (grouped, recency-ordered, with window counts + app icons), or flip with `←/→` to a **command palette** running any Mosaic action. `⌘⏎` moves the focused window to a workspace; `⌘⌥B` bounces to the previous workspace (i3 back-and-forth).
