@@ -84,6 +84,18 @@ final class Container {
         if isLeaf { body(self) } else { children.forEach { $0.forEachLeaf(body) } }
     }
 
+    /// Like `forEachLeaf` but visits only windows that are actually on screen: in a tabbed
+    /// (or stacked) container, just the selected child — so hidden tabs are skipped.
+    func forEachVisibleLeaf(_ body: (Container) -> Void) {
+        if isLeaf { body(self); return }
+        if layout == .tabbed {
+            let i = min(max(selected, 0), children.count - 1)
+            if children.indices.contains(i) { children[i].forEachVisibleLeaf(body) }
+        } else {
+            children.forEach { $0.forEachVisibleLeaf(body) }
+        }
+    }
+
     func forEachTabbed(_ body: (Container) -> Void) {
         if !isLeaf {
             if layout == .tabbed { body(self) }

@@ -1170,6 +1170,42 @@ final class WindowManager {
         switchToWorkspace(workspaceRecency[1])
     }
 
+    /// Vimium-style window hints: label every visible window; typing its letter focuses it.
+    func showHints() {
+        let onScreen = AX.onScreenWindowIDs()
+        var targets: [HintTarget] = []
+        for screen in NSScreen.screens {
+            guard let sid = Spaces.currentSpaceID(for: screen), let root = spaces[sid]?.root else { continue }
+            root.forEachVisibleLeaf { leaf in   // skip hidden tabs/stacks
+                guard let w = leaf.window, let id = AX.windowID(w.element), onScreen.contains(id),
+                      let axFrame = w.frame else { return }
+                targets.append(HintTarget(frameCocoa: Geometry.flip(axFrame),
+                                          focus: { [weak self] in self?.focusVisibleWindow(leaf) }))
+            }
+        }
+        HintsOverlay.show(targets)
+    }
+
+    /// Focus a hinted window. If it's on another screen/desktop, warp the mouse onto it so
+    /// the mouse-follows model adopts that desktop, then move Mosaic's focus + border there.
+    private func focusVisibleWindow(_ leaf: Container) {
+        guard let w = leaf.window else { return }
+        AX.makeMain(w.element); w.activateApp(); AX.raise(w.element)
+        if treeContainsLeaf(leaf) {              // already on the active desktop
+            focused = leaf
+            updateFocusIndicator()
+        } else if let f = w.frame {              // another screen → follow it there
+            CGWarpMouseCursorPosition(CGPoint(x: f.midX, y: f.midY))   // AX frame is CG (top-left)
+            CGAssociateMouseAndMouseCursorPosition(1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+                guard let self else { return }
+                self.checkSpaceChange()
+                self.focused = leaf
+                self.updateFocusIndicator()
+            }
+        }
+    }
+
     /// Fuzzy quick-switcher: jump to a workspace (by name/number) or a window (by title).
     /// Ordered by recency (most-recently-used first); the current workspace sinks to the
     /// bottom so ⏎ on the top row jumps somewhere useful.

@@ -262,6 +262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "prev-tab": { wm.prevTab() },
             "clear": { wm.clear() },
             "switcher": { wm.showSwitcher() },
+            "hints": { wm.showHints() },
             "workspace-back": { wm.workspaceBack() },
             "reload-config": { [weak self] in self?.reloadConfig() },
             "dump-layout": { wm.dumpLayout() },

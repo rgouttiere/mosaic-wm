@@ -13,6 +13,7 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 - **i3 preselect** — arm a split direction (`⌘⌥V`/`⌘⌥H`); the next window nests there.
 - **Numbered workspaces** (1–9, assignable, unique across screens) — optionally **named** (i3-style); **per-app scratchpad**, **zoom/monocle**.
 - **Quick-switcher / command palette** (`⌘⌥P`) — fuzzy-jump to any workspace or window (grouped, recency-ordered, with window counts + app icons), or flip with `←/→` to a **command palette** running any Mosaic action. `⌘⏎` moves the focused window to a workspace; `⌘⌥B` bounces to the previous workspace (i3 back-and-forth).
+- **Window hints** (`⌘⌥J`) — Vimium-style: a letter appears on every visible window; type it to focus (works across screens). Keyboard-only, no arrows.
 - **External-bar aware** — reserve a top strip for a bar like [sketchybar](https://github.com/FelixKratz/SketchyBar) (`externalBarTop`, notch-aware per screen) and publish workspace names + per-monitor placement for it to render.
 - **Real macOS Spaces integration** (Mission Control & native gestures keep working).
 - **Survives dock/undock & reboot** — layouts persist keyed by a stable per-monitor fingerprint.

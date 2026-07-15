@@ -43,7 +43,7 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
     private var closing = false
 
     static func present(modes: [SwitcherMode], on screen: NSScreen) {
-        shared?.forceClose()
+        if let open = shared { open.forceClose(); return }   // pressing the hotkey again toggles it off
         let p = SwitcherPanel(modes: modes, screen: screen)
         shared = p
         NSApp.activate(ignoringOtherApps: true)

@@ -123,6 +123,7 @@ final class Config {
         "float": "cmd alt f",
         "zoom": "cmd alt return",
         "switcher": "cmd alt p",   // fuzzy quick-switcher (workspaces + windows)
+        "hints": "cmd alt j",      // vimium-style window hints (type a letter to focus)
         "workspace-back": "cmd alt b",   // bounce to the previous workspace (i3 back-and-forth)
         "scratchpad-toggle": "cmd alt minus",
         "scratchpad-send": "cmd alt shift minus",
