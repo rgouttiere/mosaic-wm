@@ -5,6 +5,7 @@ import Carbon.HIToolbox
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let windowManager = WindowManager()
     private var hotkeys: HotkeyManager?
+    private let cmdTabTap = CmdTabTap()
     private var statusItem: NSStatusItem!
     private var configWatch: DispatchSourceFileSystemObject?
     private var configReloadWork: DispatchWorkItem?
@@ -16,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.statusItem.button?.title = number.map { "▦\($0)" } ?? "▦"
         }
         setupHotkeys()
+        setupCmdTabTap()
         windowManager.switcherActions = { [weak self] in
             guard let self else { return [] }
             let actions = self.makeActions()
@@ -263,6 +265,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "clear": { wm.clear() },
             "switcher": { wm.showSwitcher() },
             "hints": { wm.showHints() },
+            "expose": { wm.showExpose() },
+            "unassign": { wm.unassignCurrent() },
             "workspace-back": { wm.workspaceBack() },
             "reload-config": { [weak self] in self?.reloadConfig() },
             "dump-layout": { wm.dumpLayout() },
@@ -272,8 +276,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             actions["workspace-\(n)"] = { wm.switchToWorkspace(n) }
             actions["move-to-\(n)"] = { wm.moveToWorkspace(n) }
             actions["assign-\(n)"] = { wm.assignWorkspace(n) }
+            actions["unassign-\(n)"] = { wm.unassignWorkspace(n) }
         }
         return actions
+    }
+
+    // MARK: ⌘Tab-style exposé switcher (Method A: hold to browse, release to commit)
+
+    /// Wire the tap's callbacks once, then apply the configured combo.
+    private func setupCmdTabTap() {
+        let wm = windowManager
+        cmdTabTap.onTrigger = { dir in
+            if ExposeOverlay.isOpen { ExposeOverlay.advance(dir) }
+            else { wm.showExpose(commitOnCmdRelease: true); ExposeOverlay.advance(dir) }
+        }
+        cmdTabTap.onRelease = { ExposeOverlay.commitIfRelease() }
+        applyExposeSwitch()
+    }
+
+    /// Enable/disable the exposé tap from `exposeSwitch` (e.g. "cmd tab"); empty = off.
+    private func applyExposeSwitch() {
+        let combo = Config.shared.exposeSwitch.trimmingCharacters(in: .whitespaces)
+        guard !combo.isEmpty, let parsed = KeyCombo.parse(combo) else {
+            cmdTabTap.disable()
+            if !combo.isEmpty { NSLog("Mosaic: invalid exposeSwitch combo '\(combo)'") }
+            return
+        }
+        // Carbon modifier mask → CGEventFlags.
+        var flags: CGEventFlags = []
+        if parsed.modifiers & UInt32(cmdKey)     != 0 { flags.insert(.maskCommand) }
+        if parsed.modifiers & UInt32(optionKey)  != 0 { flags.insert(.maskAlternate) }
+        if parsed.modifiers & UInt32(controlKey) != 0 { flags.insert(.maskControl) }
+        if parsed.modifiers & UInt32(shiftKey)   != 0 { flags.insert(.maskShift) }
+        guard !flags.isEmpty else {   // a bare key with no modifier can't be a hold-to-commit combo
+            NSLog("Mosaic: exposeSwitch '\(combo)' needs a modifier to hold"); cmdTabTap.disable(); return
+        }
+        cmdTabTap.disable()   // re-arm cleanly with the new combo
+        cmdTabTap.enable(keyCode: Int64(parsed.keyCode), modMask: flags)
     }
 
     private func registerHotkeys() {
@@ -329,6 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Config.shared.load()
         windowManager.reloadConfig()
         registerHotkeys()   // unregisters old, applies new bindings
+        applyExposeSwitch() // re-arm the ⌘Tab tap with the (possibly changed) combo
         rebuildMenu()       // refresh combos shown in the menu
         presentConfigIssues()   // warn if the edited config has problems
         NSLog("Mosaic: config reloaded")

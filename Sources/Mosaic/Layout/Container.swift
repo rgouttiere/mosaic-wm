@@ -84,6 +84,13 @@ final class Container {
         if isLeaf { body(self) } else { children.forEach { $0.forEachLeaf(body) } }
     }
 
+    /// Visit each on-screen TILE: a leaf, or a whole tabbed container (so its tabs can be
+    /// drawn as a group). Splits are recursed.
+    func forEachTile(_ body: (Container) -> Void) {
+        if isLeaf || layout == .tabbed { body(self); return }
+        children.forEach { $0.forEachTile(body) }
+    }
+
     /// Like `forEachLeaf` but visits only windows that are actually on screen: in a tabbed
     /// (or stacked) container, just the selected child — so hidden tabs are skipped.
     func forEachVisibleLeaf(_ body: (Container) -> Void) {

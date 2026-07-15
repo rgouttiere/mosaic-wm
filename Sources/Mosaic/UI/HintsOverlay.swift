@@ -86,7 +86,8 @@ final class HintsOverlay {
     }
 }
 
-private final class KeyPanel: NSPanel { override var canBecomeKey: Bool { true } }
+/// A borderless panel that can still become key (needed to capture keys for the overlays).
+final class KeyPanel: NSPanel { override var canBecomeKey: Bool { true } }
 
 private final class HintsView: NSView {
     var origin = CGPoint.zero          // this screen's Cocoa origin

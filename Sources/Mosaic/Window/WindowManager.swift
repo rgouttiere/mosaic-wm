@@ -438,12 +438,54 @@ final class WindowManager {
 
     // MARK: - Live reconcile
 
+    /// Guarantee each window lives in exactly one Space's tree. A cross-Space tab drag, or a
+    /// window that drifted to another display, can leave a stale duplicate leaf → the same
+    /// window then shows in two tab bars. Keep the copy on the display the window is on.
+    private func dedupTrees() {
+        var seen: [CGWindowID: [(sid: UInt64, leaf: Container)]] = [:]
+        for (sid, state) in spaces {
+            state.root?.forEachLeaf { leaf in
+                guard let w = leaf.window, let id = w.resolvedID() ?? w.lastKnownID else { return }
+                seen[id, default: []].append((sid, leaf))
+            }
+        }
+        for (_, occ) in seen where occ.count > 1 {
+            var owner = occ[0].sid
+            if let w = occ[0].leaf.window, let f = w.frame {
+                let c = Geometry.flip(f)
+                if let scr = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: c.midX, y: c.midY)) }),
+                   let sid = Spaces.currentSpaceID(for: scr), occ.contains(where: { $0.sid == sid }) {
+                    owner = sid
+                }
+            }
+            for entry in occ where entry.sid != owner {
+                if let state = spaces[entry.sid] { removeLeaf(entry.leaf, from: state) }
+            }
+        }
+    }
+
+    /// Structurally remove a leaf from a (possibly non-active) Space's tree + collapse.
+    private func removeLeaf(_ leaf: Container, from state: SpaceState) {
+        if let parent = leaf.parent, let i = parent.index(of: leaf) {
+            parent.children.remove(at: i)
+            parent.selected = min(parent.selected, max(0, parent.children.count - 1))
+            parent.removeRatio(at: i)
+            collapse(parent, in: state)
+        } else if state.root === leaf {
+            state.root = nil
+        }
+        leaf.hideStrip()
+        if let sr = state.root, let sf = state.focused, !contains(sr, sf) { state.focused = sr.firstLeaf() }
+        else if state.root == nil { state.focused = nil }
+    }
+
     private func reconcile() {
         guard !suspended, !isReconciling, let root, let screen = activeScreen else { return }
         isReconciling = true
         let __perf = DispatchTime.now(); defer { Perf.record("reconcile", since: __perf) }
         defer { isReconciling = false }
         let onScreen = AX.onScreenWindowIDs()
+        dedupTrees()
 
         var aliveTreeIDs = Set<CGWindowID>()
         var deadLeaves: [Container] = []
@@ -1176,6 +1218,78 @@ final class WindowManager {
     func workspaceBack() {
         guard workspaceRecency.count >= 2 else { return }
         switchToWorkspace(workspaceRecency[1])
+    }
+
+    /// Schematic workspace overview (exposé): a grid of workspaces, each drawn with its
+    /// windows as scaled rectangles. Pick one to jump.
+    func showExpose(commitOnCmdRelease: Bool = false) {
+        let screen = screenUnderMouse()
+        let current = Spaces.currentSpaceID(for: screen).flatMap { workspaceNumber(for: $0) }
+        let ordered = assignments.keys.sorted()
+        var wss: [ExposeWorkspace] = []
+        for n in ordered {
+            guard let sid = assignments[n] else { continue }
+            let wsScreen = self.screen(forSpace: sid)?.frame ?? screen.frame
+            var tiles: [ExposeTile] = []
+            spaces[sid]?.root?.forEachTile { tile in
+                if tile.isLeaf {
+                    guard let w = tile.window else { return }
+                    if w.isFullscreen {
+                        tiles.append(ExposeTile(frame: wsScreen, tabs: [ExposeTab(label: "⛶ \(w.title)", icon: w.app.icon, selected: true)]))
+                    } else if let f = w.frame {
+                        tiles.append(ExposeTile(frame: Geometry.flip(f), tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true)]))
+                    }
+                } else {
+                    // Tabbed container → one tile with a tab per child (rep = child's first window).
+                    let sel = min(max(tile.selected, 0), tile.children.count - 1)
+                    guard tile.children.indices.contains(sel),
+                          let repFrame = tile.children[sel].firstLeaf().window?.frame else { return }
+                    let tabs = tile.children.enumerated().map { i, c -> ExposeTab in
+                        let w = c.firstLeaf().window
+                        return ExposeTab(label: w?.title ?? "—", icon: w?.app.icon, selected: i == sel)
+                    }
+                    tiles.append(ExposeTile(frame: Geometry.flip(repFrame), tabs: tabs))
+                }
+            }
+            // Empty tiled tree: the workspace's remembered app may be on its own full-screen
+            // Space. Show it ONLY if that app really has a full-screen window right now.
+            if tiles.isEmpty, let bundle = assignmentApps[n],
+               let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundle }),
+               appHasFullscreenWindow(app) {
+                tiles.append(ExposeTile(frame: wsScreen,
+                    tabs: [ExposeTab(label: "⛶ \(app.localizedName ?? bundle)", icon: app.icon, selected: true)]))
+            }
+            wss.append(ExposeWorkspace(
+                title: Config.shared.workspaceNames[n] ?? "Workspace \(n)",
+                screen: wsScreen, tiles: tiles, current: n == current,
+                jump: { [weak self] in self?.switchToWorkspace(n) }))
+        }
+        ExposeOverlay.show(wss, on: screen, commitOnRelease: commitOnCmdRelease)
+    }
+
+    /// True if `app` currently has any full-screen window (i.e. it's on its own Space).
+    private func appHasFullscreenWindow(_ app: NSRunningApplication) -> Bool {
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        guard let windows: [AXUIElement] = AX.copy(axApp, kAXWindowsAttribute as String) else { return false }
+        return windows.contains { AX.isFullscreen($0) }
+    }
+
+    /// Remove a workspace number's assignment (unset it).
+    func unassignWorkspace(_ n: Int) {
+        guard assignments[n] != nil else { return }
+        assignments[n] = nil
+        assignmentApps[n] = nil
+        workspaceRecency.removeAll { $0 == n }
+        saveNow()
+        showWorkspaceIndicator(for: screenUnderMouse())   // refresh HUD / status.json / bar
+    }
+
+    /// Unset whatever workspace number is assigned to the current desktop.
+    func unassignCurrent() {
+        let screen = screenUnderMouse()
+        guard let space = Spaces.currentSpaceID(for: screen),
+              let n = assignments.first(where: { $0.value == space })?.key else { return }
+        unassignWorkspace(n)
     }
 
     /// Vimium-style window hints: label every visible window; typing its letter focuses it.

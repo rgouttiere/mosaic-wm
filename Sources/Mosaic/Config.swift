@@ -16,6 +16,8 @@ final class Config {
     var workspaceNames: [Int: String] = [:]  // optional i3-style labels: workspace number → name
     var focusPulseWidth: CGFloat = 5   // px added to the focus border at the peak of the switch pulse (0 = off)
     var focusPulseDuration: Double = 0.38   // seconds the focus pulse takes to fade out
+    var exposeDim: Double = 0.7   // exposé backdrop opacity (0 = transparent, 1 = opaque black)
+    var exposeSwitch = ""   // hold-combo to drive the exposé (e.g. "cmd tab"); empty = disabled
     // Feature toggles (all on by default).
     var focusSync = true        // adopt keyboard/cmd-tab focus changes into the tabs
     var tabScrollCycle = true   // scroll over a tab bar to cycle its tabs
@@ -124,6 +126,8 @@ final class Config {
         "zoom": "cmd alt return",
         "switcher": "cmd alt p",   // fuzzy quick-switcher (workspaces + windows)
         "hints": "cmd alt j",      // vimium-style window hints (type a letter to focus)
+        "expose": "cmd alt o",     // schematic workspace overview
+        "unassign": "cmd alt ctrl 0",   // unset the current desktop's workspace number
         "workspace-back": "cmd alt b",   // bounce to the previous workspace (i3 back-and-forth)
         "scratchpad-toggle": "cmd alt minus",
         "scratchpad-send": "cmd alt shift minus",
@@ -140,6 +144,8 @@ final class Config {
         var workspaceNames: [String: String]?
         var focusPulseWidth: Double?
         var focusPulseDuration: Double?
+        var exposeDim: Double?
+        var exposeSwitch: String?
         var focusSync: Bool?
         var tabScrollCycle: Bool?
         var switcherFadeIn: Bool?
@@ -184,6 +190,8 @@ final class Config {
         workspaceNames = [:]
         focusPulseWidth = 5
         focusPulseDuration = 0.38
+        exposeDim = 0.7
+        exposeSwitch = ""
         focusSync = true
         tabScrollCycle = true
         switcherFadeIn = true
@@ -227,7 +235,7 @@ final class Config {
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
             "gap", "outerGap", "externalBarTop", "workspaceNames", "focusPulseWidth", "focusPulseDuration",
-            "focusSync", "tabScrollCycle", "switcherFadeIn",
+            "exposeDim", "exposeSwitch", "focusSync", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
             "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
@@ -252,6 +260,8 @@ final class Config {
         if let e = file.externalBarTop { externalBarTop = CGFloat(e) }
         if let p = file.focusPulseWidth { focusPulseWidth = CGFloat(p) }
         if let d = file.focusPulseDuration { focusPulseDuration = d }
+        if let d = file.exposeDim { exposeDim = d }
+        if let s = file.exposeSwitch { exposeSwitch = s }
         if let b = file.focusSync { focusSync = b }
         if let b = file.tabScrollCycle { tabScrollCycle = b }
         if let b = file.switcherFadeIn { switcherFadeIn = b }
