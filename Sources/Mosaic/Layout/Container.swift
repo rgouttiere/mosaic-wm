@@ -18,8 +18,9 @@ final class Container {
     var children: [Container]
     /// Fraction of the parent split each child occupies (sums to 1). Unused for leaves.
     var ratios: [CGFloat]
-    /// The window, for leaves only.
-    let window: ManagedWindow?
+    /// The window, for leaves only. A `var` so a leaf can adopt a replacement window in
+    /// place — e.g. when an app swaps one window for another (IINA's launcher → video).
+    var window: ManagedWindow?
     /// Selected child index, for `.tabbed` containers. Always kept in range.
     var selected = 0 {
         didSet {

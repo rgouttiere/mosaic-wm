@@ -489,7 +489,7 @@ final class WindowManager {
 
         var aliveTreeIDs = Set<CGWindowID>()
         var deadLeaves: [Container] = []
-        var gracePending = false
+        var staleLeaves: [Container] = []   // has a window, but AX couldn't resolve its id now
         root.forEachLeaf { leaf in
             guard let w = leaf.window else { deadLeaves.append(leaf); return }   // no window at all
             if let id = w.resolvedID() {
@@ -508,29 +508,18 @@ final class WindowManager {
                 if let cached = w.lastKnownID { aliveTreeIDs.insert(cached) }
                 return
             }
-            // AX couldn't resolve the window. Before removing it, be sure it's really gone:
-            //  • still in the window-server list (CoreGraphics) → just an AX glitch, keep it;
-            //  • otherwise require it to miss twice → survives transient wake/dock hiccups.
+            // AX couldn't resolve the window. It might be a transient glitch, a real close,
+            // or an app swapping this window for a new one (IINA replaces its launcher window
+            // with the video window). Defer the verdict until we've captured the current
+            // windows: a same-app newcomer can then be adopted into this exact slot, and only
+            // a leaf with no replacement is aged out. Meanwhile keep the slot alive.
             if let cached = w.lastKnownID, onScreen.contains(cached) {
                 w.missCount = 0
                 aliveTreeIDs.insert(cached)
             } else {
-                w.missCount += 1
-                if w.missCount >= 2 { deadLeaves.append(leaf) }          // confirmed closed
-                else {
-                    gracePending = true                                  // re-check soon
-                    if let cached = w.lastKnownID { aliveTreeIDs.insert(cached) }   // grace: keep
-                }
+                staleLeaves.append(leaf)
+                if let cached = w.lastKnownID { aliveTreeIDs.insert(cached) }   // keep during grace
             }
-        }
-
-        // A window in grace: nothing else will fire the 2nd check, so a genuinely-closed
-        // window's tab would linger. Re-run soon to confirm & remove it promptly.
-        if gracePending {
-            graceRecheck?.cancel()
-            let work = DispatchWorkItem { [weak self] in self?.reconcile() }
-            graceRecheck = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
         }
 
         // None of our windows visible → we've switched desktops; leave it untouched.
@@ -538,17 +527,46 @@ final class WindowManager {
         // so an empty aliveTreeIDs here means a real switch or a real empty desktop.)
         if !aliveTreeIDs.isEmpty && aliveTreeIDs.isDisjoint(with: onScreen) { return }
 
-        // Fast path: nothing closed, no grace recheck pending, and the on-screen window
-        // set is unchanged since the last full reconcile → nothing could have been added
-        // or removed. Skip the expensive enumeration (captureWindows) — this is what makes
-        // a pure focus / app switch cheap instead of paying ~30ms of AX every time.
-        if deadLeaves.isEmpty, !gracePending, onScreen == lastReconcileOnScreen { return }
+        // Fast path: nothing closed or vanishing, and the on-screen window set is unchanged
+        // since the last full reconcile → nothing could have been added or removed. Skip the
+        // expensive enumeration (captureWindows) — this keeps a pure focus / app switch cheap
+        // instead of paying ~30ms of AX every time.
+        if deadLeaves.isEmpty, staleLeaves.isEmpty, onScreen == lastReconcileOnScreen { return }
         lastReconcileOnScreen = onScreen
 
         let windows = captureWindows(on: screen)
-        let additions = windows.filter { window in
+        var additions = windows.filter { window in
             guard let id = AX.windowID(window.element) else { return false }
             return !aliveTreeIDs.contains(id)
+        }
+
+        // Same-app window replacement: if a leaf's window vanished and the same app just
+        // opened a new one, adopt the newcomer into the vanished leaf's EXACT slot instead
+        // of detaching the leaf and inserting the newcomer elsewhere. No ghost tile, no jump
+        // — IINA's launcher→video swap keeps the video right where the launcher tiled, and
+        // the leaf keeps focus if it had it.
+        for leaf in staleLeaves {
+            guard let deadPid = leaf.window?.pid,
+                  let idx = additions.firstIndex(where: { $0.pid == deadPid }) else { continue }
+            let replacement = additions.remove(at: idx)
+            _ = replacement.resolvedID()   // cache the id so the next pass sees it as alive
+            leaf.window = replacement      // render() below repaints its tab/stack label
+        }
+
+        // Verdict for the leaves still unresolved after adoption: a couple of misses in a row
+        // confirms a real close (survives transient wake/dock glitches); one miss schedules a
+        // prompt re-check so a genuinely-closed window's tab can't linger.
+        var gracePending = false
+        for leaf in staleLeaves {
+            guard let w = leaf.window, w.resolvedID() == nil, !w.app.isHidden else { continue }
+            w.missCount += 1
+            if w.missCount >= 2 { deadLeaves.append(leaf) } else { gracePending = true }
+        }
+        if gracePending {
+            graceRecheck?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.reconcile() }
+            graceRecheck = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
         }
 
         guard !deadLeaves.isEmpty || !additions.isEmpty else { return }
