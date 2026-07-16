@@ -54,11 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         defer { isPresentingIssues = false }
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "config.json : \(issues.count) problème\(issues.count > 1 ? "s" : "")"
+        alert.messageText = "config.json: \(issues.count) issue\(issues.count > 1 ? "s" : "")"
         alert.informativeText = issues.map { "• \($0)" }.joined(separator: "\n")
-            + "\n\nLes valeurs valides sont appliquées ; le reste reste au défaut."
+            + "\n\nValid values are applied; everything else keeps its default."
         alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Ouvrir config.json")
+        alert.addButton(withTitle: "Open config.json")
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertSecondButtonReturn {
             NSWorkspace.shared.open(Config.shared.configURL)

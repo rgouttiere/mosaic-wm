@@ -118,4 +118,11 @@ sketchybar --set "$NAME" label="$FOCUSED"        # or loop over `mosaic query wo
 (`make install-cli` puts `mosaic` on your PATH; the hook's PATH already includes `/opt/homebrew/bin`.)
 
 ## Menu bar (▦)
-Reload config · Open config file · Clear layout · **Debug: dump layout → /tmp/mosaic-dump.txt** (diagnostics).
+
+The menu-bar icon opens a menu with clickable entries for most actions (each showing its current shortcut), plus:
+
+- **Navigation & overlays** — Overview (Exposé), Quick-switcher / palette, Window hints, Back to previous workspace.
+- **Assign this desktop to…** (submenu, workspaces 1–9) · **Unassign this desktop**.
+- **Open config file…** · **Reload config** · **Clear layout**.
+- **Debug: dump layout → /tmp/mosaic-dump.txt** (attach this to bug reports).
+- **Quit Mosaic**.

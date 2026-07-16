@@ -228,7 +228,7 @@ final class Config {
         }
         // 1) Well-formed JSON object?
         guard let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            loadIssues.append("JSON invalide (un objet { … } est attendu). Valeurs par défaut appliquées.")
+            loadIssues.append("Invalid JSON (expected an object { … }). Defaults applied.")
             NSLog("Mosaic: config.json is invalid JSON — using defaults")
             return
         }
@@ -244,14 +244,14 @@ final class Config {
             "tabActivePadding", "dropHighlightEnabled", "dropHighlightColor", "keybindings",
         ]
         for key in raw.keys.sorted() where !key.hasPrefix("_") && !known.contains(key) {
-            loadIssues.append("clé inconnue « \(key) » ignorée (faute de frappe ?)")
+            loadIssues.append("unknown key “\(key)” ignored (typo?)")
         }
         // 3) Typed decode — on failure, report which field and keep defaults.
         let file: File
         do {
             file = try JSONDecoder().decode(File.self, from: data)
         } catch {
-            loadIssues.append("valeur invalide : \(describeDecodingError(error))")
+            loadIssues.append("invalid value: \(describeDecodingError(error))")
             NSLog("Mosaic: config.json has an invalid value — using defaults (\(error))")
             return
         }
@@ -299,20 +299,20 @@ final class Config {
         // 4) Semantic checks (values parsed fine but are out of range / unknown).
         let validModes: Set<String> = ["columns", "grouped", "tabbed"]
         if !validModes.contains(defaultMode.lowercased()) {
-            loadIssues.append("defaultMode « \(defaultMode) » inconnu (attendu : columns, grouped, tabbed)")
+            loadIssues.append("unknown defaultMode “\(defaultMode)” (expected: columns, grouped, tabbed)")
         }
         let validPos: Set<String> = ["center", "top", "bottom", "top-left", "top-right",
                                      "bottom-left", "bottom-right", "topleft", "topright",
                                      "bottomleft", "bottomright"]
         if !validPos.contains(hudPosition.lowercased()) {
-            loadIssues.append("hudPosition « \(hudPosition) » inconnu")
+            loadIssues.append("unknown hudPosition “\(hudPosition)”")
         }
         for (name, value) in ["activeOpacity": activeOpacity, "inactiveOpacity": inactiveOpacity]
         where !(0...1).contains(value) {
-            loadIssues.append("\(name) = \(value) hors plage (0.0 à 1.0)")
+            loadIssues.append("\(name) = \(value) out of range (0.0 to 1.0)")
         }
         for rule in rules where rule.workspace != nil && !(1...9).contains(rule.workspace!) {
-            loadIssues.append("rule « \(rule.app) » : workspace \(rule.workspace!) hors plage (1 à 9)")
+            loadIssues.append("rule “\(rule.app)”: workspace \(rule.workspace!) out of range (1 to 9)")
         }
 
         // Duplicate keybindings: two actions on the same combo → only one wins (undefined).
@@ -320,7 +320,7 @@ final class Config {
         for (action, combo) in keybindings {
             let norm = combo.lowercased().split { " +-".contains($0) }.sorted().joined(separator: "+")
             if let other = comboOwner[norm] {
-                loadIssues.append("raccourci en double « \(combo) » : « \(action) » et « \(other) »")
+                loadIssues.append("duplicate shortcut “\(combo)”: “\(action)” and “\(other)”")
             } else {
                 comboOwner[norm] = action
             }
@@ -334,12 +334,12 @@ final class Config {
         guard let e = error as? DecodingError else { return error.localizedDescription }
         func path(_ c: DecodingError.Context) -> String {
             let p = c.codingPath.map(\.stringValue).joined(separator: ".")
-            return p.isEmpty ? "(racine)" : p
+            return p.isEmpty ? "(root)" : p
         }
         switch e {
-        case .typeMismatch(let t, let c): return "mauvais type pour « \(path(c)) » (attendu \(t))"
-        case .valueNotFound(_, let c):    return "valeur nulle pour « \(path(c)) »"
-        case .keyNotFound(let k, _):      return "clé requise absente « \(k.stringValue) »"
+        case .typeMismatch(let t, let c): return "wrong type for “\(path(c))” (expected \(t))"
+        case .valueNotFound(_, let c):    return "null value for “\(path(c))”"
+        case .keyNotFound(let k, _):      return "required key missing “\(k.stringValue)”"
         case .dataCorrupted(let c):       return c.debugDescription
         @unknown default:                 return "\(e)"
         }

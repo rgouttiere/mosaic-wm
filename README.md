@@ -68,7 +68,67 @@ xattr -dr com.apple.quarantine /Applications/Mosaic.app   # clear the quarantine
 
 First launch writes `~/.config/mosaic/config.json`. Edit and save it — Mosaic **auto-reloads on save** (or **menu → "Reload config"**). Invalid config surfaces a warning instead of silently reverting.
 
-Keys: `gap`, `outerGap`, `externalBarTop` (px reserved at the top for an external bar like sketchybar — per screen, notch-aware), `tabBarHeight`, `defaultMode` (`columns`/`grouped`/`tabbed`), `warpMouseOnSwitch`, `showWorkspaceHUD`, `hudPosition`; `workspaceNames` (i3-style labels, `{ "2": "web", "3": "code" }` — number stays the identity/keybinding key, the name is display-only); window styling (`borderEnabled`, `borderColor` `"accent"`|`"#RRGGBB"`, `borderWidth`, `borderCornerRadius`, `activeOpacity`/`inactiveOpacity`); tab styling (`tabBarColor`, `tabActiveColor`, `tabTextColor`, `tabActiveTextColor`, `tabCornerRadius`, `tabFontSize`, `tabBarOpacity`); the focus pulse on workspace switch (`focusPulseWidth` px, `0` = off; `focusPulseDuration` s); the exposé (`exposeDim` — backdrop opacity 0–1; `exposeSwitch` — a hold-combo like `"cmd tab"` that drives the exposé as a schematic alt-tab, `""` = off/native); feature toggles (`focusSync` — adopt keyboard/cmd-tab focus into the tabs; `tabScrollCycle` — scroll a tab bar to cycle tabs; `switcherFadeIn` — fade the palette in); `floatingApps` (names/bundle ids, lowercased); `keybindings` (action → combo, e.g. `"tile": "cmd alt t"`; only the ones you list override defaults).
+Every key is optional — omit one and its default applies. Sizes are in pixels, opacities are `0.0`–`1.0`, and colors are either `"accent"` (follows your macOS accent color) or a hex string like `"#1E1E1E"`.
+
+**Layout & workspaces**
+
+| Key | Default | What it does |
+|---|---|---|
+| `gap` | `0` | Space between tiles. |
+| `outerGap` | `0` | Margin between the tiling area and the screen edges. |
+| `defaultMode` | `"columns"` | How new windows are auto-placed: `columns`, `grouped` (by app), or `tabbed`. |
+| `tabBarHeight` | `22` | Height of the tab/stack bar. |
+| `warpMouseOnSwitch` | `true` | Move the mouse onto a workspace when you switch to it by shortcut (keeps the mouse-follows-focus model consistent). |
+| `workspaceNames` | `{}` | i3-style labels, e.g. `{ "2": "web", "3": "code" }`. The number stays the identity/shortcut key; the name is display-only. |
+| `externalBarTop` | `0` | Pixels reserved at the top for an external bar (e.g. sketchybar), per screen, notch-aware. `0` = none. |
+
+**Window appearance**
+
+| Key | Default | What it does |
+|---|---|---|
+| `borderEnabled` | `true` | Draw a border around the focused window. |
+| `borderColor` | `"accent"` | Border color (`"accent"` or hex). |
+| `borderWidth` | `1` | Border thickness. |
+| `borderCornerRadius` | `18` | Border corner radius. |
+| `activeOpacity` | `1.0` | Opacity of the focused window. |
+| `inactiveOpacity` | `0.5` | Opacity of unfocused windows. `1.0` = no dimming. |
+
+**Tab / stack bar appearance**
+
+| Key | Default | What it does |
+|---|---|---|
+| `tabBarColor` | `"#1E1E1E"` | Bar background color. |
+| `tabBarOpacity` | `0.97` | Bar opacity. |
+| `tabCornerRadius` | `10` | Bar corner radius. |
+| `tabFontSize` | `14` | Label font size. |
+| `tabTextColor` | `"#B0B0B0"` | Inactive tab label color. |
+| `tabActiveColor` | `"accent"` | Active tab pill color. |
+| `tabActiveTextColor` | `"#FFFFFF"` | Active tab label color. |
+| `tabActivePadding` | `0` | Inset of the active-tab pill. |
+
+**Overlays & visual feedback**
+
+| Key | Default | What it does |
+|---|---|---|
+| `showWorkspaceHUD` | `true` | Flash the workspace name when you switch. |
+| `hudPosition` | `"top-right"` | Where the HUD appears: `center`, `top`, `bottom`, `top-left`, `top-right`, `bottom-left`, `bottom-right`. |
+| `focusPulseWidth` | `5` | Pixels the focus border briefly swells on a workspace switch. `0` = off. |
+| `focusPulseDuration` | `0.38` | Seconds the focus pulse takes to fade. |
+| `dropHighlightEnabled` | `true` | Highlight the drop target while dragging a tab/row. |
+| `dropHighlightColor` | `"accent"` | Drop-highlight color. |
+| `exposeDim` | `0.7` | Exposé backdrop opacity. |
+
+**Behavior & integration**
+
+| Key | Default | What it does |
+|---|---|---|
+| `focusSync` | `true` | Adopt keyboard/⌘Tab focus changes back into the tabs, so the tab bar tracks whatever you focus. |
+| `tabScrollCycle` | `true` | Scroll over a tab bar to cycle through its tabs. |
+| `switcherFadeIn` | `true` | Fade the quick-switcher popup in. |
+| `exposeSwitch` | `""` | Hold-combo that drives the exposé as a schematic alt-tab, e.g. `"cmd tab"`. `""` keeps the native ⌘Tab. |
+| `onWorkspaceChange` | `""` | Shell command run on every workspace change (env `MOSAIC_WORKSPACE` = focused number). Point it at a sketchybar trigger; see [CHEATSHEET.md](CHEATSHEET.md#status-bar-sketchybar). `""` = off. |
+| `floatingApps` | *(screenshot tools)* | App names or bundle ids (lowercased) that never tile — they always float. |
+| `keybindings` | *(see below)* | Map an action to a shortcut, e.g. `"tile": "cmd alt t"`. Only the entries you list override the defaults. |
 
 Per-app auto-placement `rules`, applied as windows open:
 ```json
@@ -80,6 +140,26 @@ Per-app auto-placement `rules`, applied as windows open:
 ]
 ```
 `app` = case-insensitive substring of the app name or bundle id. `float` keeps it out of tiling; `groupWith` auto-tabs it with the named app; `place` = `column` | `tab` | (default: next to focus); `workspace` = send its windows to workspace N (must be assigned).
+
+### Turning features off
+
+Every optional behavior can be switched off from the same config file — set the key and save:
+
+| To turn off… | Set |
+|---|---|
+| Window border | `"borderEnabled": false` |
+| Dimming of unfocused windows | `"inactiveOpacity": 1.0` |
+| Focus pulse on workspace switch | `"focusPulseWidth": 0` |
+| Workspace-name HUD | `"showWorkspaceHUD": false` |
+| Drop-target highlight (while dragging tabs) | `"dropHighlightEnabled": false` |
+| Focus sync into tabs | `"focusSync": false` |
+| Scroll-to-cycle on tab bars | `"tabScrollCycle": false` |
+| Quick-switcher fade-in | `"switcherFadeIn": false` |
+| ⌘Tab exposé switcher | `"exposeSwitch": ""` (keeps native ⌘Tab) |
+| External-bar top strip | `"externalBarTop": 0` |
+| Status-bar hook (sketchybar) | `"onWorkspaceChange": ""` |
+
+To free up a keyboard shortcut for another app, rebind that action to a combo you don't use (the action stays available via the menu and `mosaic <action>` CLI).
 
 ## Architecture
 
