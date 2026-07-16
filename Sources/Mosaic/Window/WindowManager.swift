@@ -153,7 +153,7 @@ final class WindowManager {
 
     func startObserving() {
         loadState()
-        observer.onTitleChange = { [weak self] in self?.active?.root?.refreshBarTitles() }
+        observer.onTitleChange = { [weak self] in self?.refreshVisibleTitles() }
         observer.onFocusChange = { [weak self] in self?.syncFocusToSystem() }
         observer.start()
         // Poll the current Space as a reliable fallback: the activeSpaceDidChange
@@ -1144,6 +1144,17 @@ final class WindowManager {
             r.raiseVisibleStrips()
         }
         sweepOrphanStrips()
+    }
+
+    /// Repaint the tab/stack strip labels of the Space visible on EVERY screen, not just
+    /// the active one — so a title change (a browser navigating, a terminal's cwd) on a
+    /// secondary monitor updates its label live, without having to focus that monitor.
+    /// Cheap: it only re-reads titles of leaves already in the tree, no AX enumeration.
+    private func refreshVisibleTitles() {
+        for screen in NSScreen.screens {
+            guard let id = Spaces.currentSpaceID(for: screen), let st = spaces[id] else { continue }
+            st.root?.refreshBarTitles()
+        }
     }
 
     private func contains(_ node: Container, _ leaf: Container) -> Bool {
