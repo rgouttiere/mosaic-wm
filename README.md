@@ -136,10 +136,11 @@ Per-app auto-placement `rules`, applied as windows open:
   { "app": "discord", "float": true },
   { "app": "slack",   "groupWith": "discord" },
   { "app": "spotify", "place": "column" },
-  { "app": "mail",    "workspace": 4 }
+  { "app": "mail",    "workspace": 4 },
+  { "app": "ferdium", "fullscreen": false }
 ]
 ```
-`app` = case-insensitive substring of the app name or bundle id. `float` keeps it out of tiling; `groupWith` auto-tabs it with the named app; `place` = `column` | `tab` | (default: next to focus); `workspace` = send its windows to workspace N (must be assigned).
+`app` = case-insensitive substring of the app name or bundle id. `float` keeps it out of tiling; `groupWith` auto-tabs it with the named app; `place` = `column` | `tab` | (default: next to focus); `workspace` = send its windows to workspace N (must be assigned); `fullscreen` = force native full screen off (`false` → windowed, so it can tile) or on (`true`) — applied once when a window opens, or every time if you add `"fullscreenLock": true`.
 
 ### Turning features off
 

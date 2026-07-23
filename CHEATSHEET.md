@@ -15,7 +15,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 - **Window hints** (**⌘⌥J**): overlays a letter on every visible window (across all screens); type it to focus that window (the mouse follows for cross-screen jumps). **⌘⌥J** again or **Esc** cancels.
 - **Schematic exposé** (**⌘⌥O**): a Mission-Control-style overview drawn from the layout tree — every workspace of every screen at once, one column per screen, tiles to scale with tab strips + app icons (fullscreen apps shown by name). **← → ↑ ↓** navigate (2D) · **⇥** cycle · **⏎** jump · **Esc** cancel. Set `exposeSwitch` (e.g. `"cmd tab"`) to also drive it as a schematic alt-tab: **hold** the modifier to browse, **⇥** to cycle, **release** to commit. Off (native ⌘Tab) by default.
 - **Scratchpad**: a dedicated app shown/hidden as a floating panel (survives relaunch).
-- **Rules** (`config.json`): `float`, `groupWith`, `place` (`column`/`tab`), `workspace: N`.
+- **Rules** (`config.json`): `float`, `groupWith`, `place` (`column`/`tab`), `workspace: N`, `fullscreen` (`false` = force windowed/tileable, `true` = force native full screen; add `fullscreenLock: true` to keep enforcing it).
 
 ## Shortcuts
 
