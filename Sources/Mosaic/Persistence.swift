@@ -46,4 +46,7 @@ struct AppRule: Codable {
     var groupWith: String?       // app name to auto-tab this window with, if present
     var place: String?           // "column" | "tab" | (default: next to focused)
     var workspace: Int?          // send this app's new windows to workspace N (must be assigned)
+    var fullscreen: Bool?        // force native full screen off (false → tileable) / on
+    var fullscreenLock: Bool?    // true → keep enforcing `fullscreen`; false/absent → apply
+                                 // it once when the window opens, then leave it user-toggleable
 }

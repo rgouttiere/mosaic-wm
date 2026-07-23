@@ -94,6 +94,21 @@ enum AX {
         return (value as? Bool) ?? false
     }
 
+    /// Enter/leave native full screen (a standard AX write — works with SIP enabled).
+    static func setFullscreen(_ element: AXUIElement, _ on: Bool) {
+        AXUIElementSetAttributeValue(element, "AXFullScreen" as CFString,
+                                     (on ? kCFBooleanTrue : kCFBooleanFalse))
+    }
+
+    /// Standard windows of an app by pid, INCLUDING full-screened ones — unlike
+    /// `managedWindows`, this doesn't skip the app when hidden or filter by screen. Used to
+    /// enforce per-app window-state rules on windows Mosaic otherwise wouldn't capture.
+    static func standardWindows(ofPID pid: pid_t) -> [AXUIElement] {
+        let axApp = AXUIElementCreateApplication(pid)
+        guard let windows: [AXUIElement] = copy(axApp, kAXWindowsAttribute as String) else { return [] }
+        return windows.filter { subrole($0) == (kAXStandardWindowSubrole as String) }
+    }
+
     /// Window ids currently visible on the *active* Space of each display.
     /// Windows sitting on other Spaces are not on-screen, so this is how we avoid
     /// sweeping in apps from adjacent desktops.

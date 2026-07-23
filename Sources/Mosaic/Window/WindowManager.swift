@@ -162,6 +162,7 @@ final class WindowManager {
         spaceTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
             self?.checkSpaceChange()
             self?.sweepOrphanStrips()   // catch stray tab bars even without a render
+            self?.purgeVisibleGhosts()  // clean dead tiles on visible, non-active monitors
             Perf.dumpIfDue()            // opt-in timing summary (no-op unless enabled)
         }
         // Focus-follows-click: clicking a managed window moves Mosaic's focus to it.
@@ -341,6 +342,11 @@ final class WindowManager {
         let all = Mode.allCases
         if let i = all.firstIndex(of: st.mode) { st.mode = all[(i + 1) % all.count] }
         build()
+        // Republish so an external bar reflects the new tiling mode immediately (the focused
+        // workspace is unchanged, so the normal change-gated hook wouldn't fire on its own).
+        let n = activeScreen.flatMap { Spaces.currentSpaceID(for: $0) }.flatMap { workspaceNumber(for: $0) }
+        writeStatusFile(focused: n)
+        runWorkspaceHook(n)
     }
 
     /// Toggle "manage every desktop": when on, visiting any unmanaged desktop tiles it.
@@ -385,7 +391,47 @@ final class WindowManager {
     private func tick() {
         guard !suspended else { return }
         checkSpaceChange()
+        enforceFullscreenRules()
         reconcile()
+    }
+
+    /// Windows we've already applied an on-open `fullscreen` rule to, so we set the state
+    /// once and then leave the user free to toggle it. Pruned to living windows each pass.
+    private var fullscreenApplied = Set<CGWindowID>()
+
+    /// Enforce per-app `fullscreen` rules. Some apps (e.g. Ferdium) restore themselves into
+    /// native macOS full screen, where they live on their own Space and can't be tiled. A
+    /// rule `{"app":"ferdium","fullscreen":false}` forces such a window back to windowed so
+    /// the next reconcile can manage it; `true` forces it into full screen.
+    ///
+    /// `fullscreenLock: true` keeps enforcing the state every tick (a hard lock). Otherwise
+    /// the state is applied ONCE when a window first appears, then left alone — so the user
+    /// can freely toggle full screen afterwards. No-op — and zero cost — unless at least one
+    /// fullscreen rule exists.
+    private func enforceFullscreenRules() {
+        let rules = Config.shared.rules.filter { $0.fullscreen != nil }
+        guard !rules.isEmpty else { fullscreenApplied.removeAll(); return }
+        var seen = Set<CGWindowID>()
+        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+            let name = (app.localizedName ?? "").lowercased()
+            let bundle = (app.bundleIdentifier ?? "").lowercased()
+            guard let rule = rules.first(where: {
+                name.contains($0.app.lowercased()) || bundle.contains($0.app.lowercased())
+            }), let want = rule.fullscreen else { continue }
+            let lock = rule.fullscreenLock ?? false
+            for window in AX.standardWindows(ofPID: app.processIdentifier) {
+                let wid = AX.windowID(window)
+                if let wid { seen.insert(wid) }
+                if lock {
+                    if AX.isFullscreen(window) != want { AX.setFullscreen(window, want) }
+                } else {   // on-open: set once per window, then leave it user-toggleable
+                    guard let wid, !fullscreenApplied.contains(wid) else { continue }
+                    if AX.isFullscreen(window) != want { AX.setFullscreen(window, want) }
+                    fullscreenApplied.insert(wid)
+                }
+            }
+        }
+        fullscreenApplied.formIntersection(seen)   // forget closed windows → reopened re-apply
     }
 
     // MARK: - Build
@@ -479,6 +525,11 @@ final class WindowManager {
         else if state.root == nil { state.focused = nil }
     }
 
+    /// A window was definitively destroyed (AX "destroyed" notification) → remove its leaf
+    /// from whatever Space holds it and re-render immediately, skipping the reconcile's
+    /// miss-count grace. A closed app's tile/tab then vanishes instantly instead of after
+    /// ~0.5s (or needing a manual focus nudge). The debounced reconcile still runs after as
+    /// a backstop for anything not resolved here.
     private func reconcile() {
         guard !suspended, !isReconciling, let root, let screen = activeScreen else { return }
         isReconciling = true
@@ -566,7 +617,10 @@ final class WindowManager {
             graceRecheck?.cancel()
             let work = DispatchWorkItem { [weak self] in self?.reconcile() }
             graceRecheck = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+            // Faster re-check → a closed window's tile/tab is confirmed gone and removed in
+            // ~0.2s (2 misses) instead of ~0.5s, without the flash of rendering inside the
+            // AX destroy callback. Still two misses, so a transient AX glitch never removes.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
         }
 
         guard !deadLeaves.isEmpty || !additions.isEmpty else { return }
@@ -1157,6 +1211,63 @@ final class WindowManager {
         }
     }
 
+    /// Purge dead leaves (and adopt same-app replacements) on a Space that is VISIBLE on a
+    /// secondary monitor but is NOT the active one. `reconcile()` only runs on the active
+    /// Space, so a window that closed on another monitor while focus was elsewhere — e.g.
+    /// IINA's video window ending on a background screen — would leave a ghost tile there
+    /// until that monitor was focused. Runs on the poll timer.
+    ///
+    /// Cost is bounded: a cheap leaf walk (only `resolvedID()`, no AX enumeration) runs
+    /// first, and the expensive `captureWindows` is paid only for a Space that actually has
+    /// a vanished leaf. New-window *insertion* is deliberately left to the active reconcile
+    /// (opening a window activates its app → that Space becomes active), so this never has
+    /// to reason about focus/preselect on a Space the user isn't on.
+    private func purgeVisibleGhosts() {
+        guard !suspended, !isReconciling else { return }
+        let onScreen = AX.onScreenWindowIDs()
+        var changed = false
+        var adopted: [ManagedWindow] = []
+        for scr in NSScreen.screens {
+            guard let id = Spaces.currentSpaceID(for: scr), id != activeSpaceID,
+                  let st = spaces[id], let r = st.root else { continue }
+
+            var aliveIDs = Set<CGWindowID>()
+            var stale: [Container] = []
+            r.forEachLeaf { leaf in
+                guard let w = leaf.window else { stale.append(leaf); return }
+                if let wid = w.resolvedID() { if !w.isFullscreen { aliveIDs.insert(wid) }; return }
+                if w.app.isHidden { w.missCount = 0; if let c = w.lastKnownID { aliveIDs.insert(c) }; return }
+                if let c = w.lastKnownID, onScreen.contains(c) { w.missCount = 0; aliveIDs.insert(c); return }
+                stale.append(leaf)
+                if let c = w.lastKnownID { aliveIDs.insert(c) }   // keep during grace
+            }
+            guard !stale.isEmpty else { continue }
+
+            // A window vanished here → look for same-app newcomers to adopt into the exact
+            // slot (IINA's launcher→video swap on a background monitor), else age the leaf
+            // out through the same two-miss grace the active reconcile uses.
+            var additions = captureWindows(on: scr).filter {
+                guard let wid = AX.windowID($0.element) else { return false }
+                return !aliveIDs.contains(wid)
+            }
+            for leaf in stale {
+                guard let w = leaf.window else { removeLeaf(leaf, from: st); changed = true; continue }
+                if let idx = additions.firstIndex(where: { $0.pid == w.pid }) {
+                    let rep = additions.remove(at: idx)
+                    _ = rep.resolvedID()
+                    leaf.window = rep
+                    adopted.append(rep)
+                    changed = true
+                } else {
+                    w.missCount += 1
+                    if w.missCount >= 2 { removeLeaf(leaf, from: st); changed = true }
+                }
+            }
+        }
+        if !adopted.isEmpty { observer.watchForClose(adopted) }
+        if changed { refreshVisibleSpaces() }
+    }
+
     private func contains(_ node: Container, _ leaf: Container) -> Bool {
         var found = false
         node.forEachLeaf { if $0 === leaf { found = true } }
@@ -1582,7 +1693,8 @@ final class WindowManager {
         for screen in NSScreen.screens {
             guard let sp = Spaces.currentSpaceID(for: screen) else { continue }
             monitors.append(["display": Int(displayID(of: screen)),
-                             "workspace": workspaceNumber(for: sp).map { $0 as Any } ?? NSNull()])
+                             "workspace": workspaceNumber(for: sp).map { $0 as Any } ?? NSNull(),
+                             "mode": (spaces[sp]?.mode).map { "\($0)" } ?? NSNull()])
         }
         // Optional i3-style names, only for assigned workspaces that have one.
         var names: [String: String] = [:]
@@ -1597,6 +1709,7 @@ final class WindowManager {
         }
         let dict: [String: Any] = [
             "focused": focused.map { $0 as Any } ?? NSNull(),
+            "mode": (active?.mode).map { "\($0)" } ?? NSNull(),   // tiling mode of the active Space
             "workspaces": assignments.keys.sorted(),
             "workspaceNames": names,
             "workspaceDisplays": wsDisplays,
