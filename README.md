@@ -200,6 +200,8 @@ The menu bar has a **"Debug: dump layout"** item that writes the live tree + vis
 
 Best-effort personal project — issues and PRs welcome but may go unanswered. If you report a layout bug, please attach the output of **menu → "Debug: dump layout"** and your macOS version.
 
+Run the logic tests with `make test` — a small in-module suite (layout tree + config parsing) that runs with just the Command Line Tools (no full Xcode / XCTest required). It's compiled only into debug builds.
+
 ## License
 
 [MIT](LICENSE) © 2026 Raphael Gouttiere.

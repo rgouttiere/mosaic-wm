@@ -137,7 +137,8 @@ final class Config {
         "move-desktop-prev": "cmd alt shift [",
     ]
 
-    private struct File: Decodable {
+    // Internal (not private) so unit tests can exercise the lenient decode directly.
+    struct File: Decodable {
         var gap: Double?
         var outerGap: Double?
         var externalBarTop: Double?
@@ -247,6 +248,27 @@ final class Config {
             .appendingPathComponent(".config/mosaic/config.json")
     }
 
+    /// Parse the `workspaceNames` map (string keys → labels) into number-keyed labels.
+    /// `Int(_:)` is not injective ("1"/"01"/"+1" all → 1), so distinct JSON keys can collapse;
+    /// a collision (or a key outside 1…9) is dropped and surfaced as an issue rather than
+    /// trapping in `Dictionary(uniqueKeysWithValues:)`. Pure + static so it's unit-testable.
+    static func parseWorkspaceNames(_ wn: [String: String]) -> (names: [Int: String], issues: [String]) {
+        var names: [Int: String] = [:]
+        var issues: [String] = []
+        for (key, value) in wn {
+            guard let n = Int(key) else { continue }
+            guard (1...9).contains(n) else {
+                issues.append("workspaceNames: “\(key)” is outside 1…9 — ignored")
+                continue
+            }
+            if names[n] != nil {
+                issues.append("workspaceNames: duplicate key for workspace \(n) — keeping “\(value)”")
+            }
+            names[n] = value   // last write wins on a collision
+        }
+        return (names, issues)
+    }
+
     func load() {
         // Reset to defaults first so a reload also reflects keys/bindings removed from
         // the file (not just overrides).
@@ -338,22 +360,9 @@ final class Config {
         if let b = file.tabScrollCycle { tabScrollCycle = b }
         if let b = file.switcherFadeIn { switcherFadeIn = b }
         if let wn = file.workspaceNames {
-            // Int(_:) is not injective ("1","01","+1" all → 1), so distinct JSON keys can
-            // collapse to the same number. uniqueKeysWithValues traps (fatalError) on a
-            // collision — a config typo must never crash-loop the app — so dedupe with
-            // uniquingKeysWith and report it, matching this file's degrade-gracefully design.
-            var names: [Int: String] = [:]
-            for (key, value) in wn {
-                guard let n = Int(key) else { continue }
-                if names[n] != nil {
-                    loadIssues.append("workspaceNames: duplicate key for workspace \(n) — keeping “\(value)”")
-                } else if !(1...9).contains(n) {
-                    loadIssues.append("workspaceNames: “\(key)” is outside 1…9 — ignored")
-                    continue
-                }
-                if (1...9).contains(n) { names[n] = value }
-            }
-            workspaceNames = names
+            let parsed = Config.parseWorkspaceNames(wn)
+            workspaceNames = parsed.names
+            loadIssues.append(contentsOf: parsed.issues)
         }
         if let t = file.tabBarHeight { tabBarHeight = CGFloat(t) }
         if let w = file.warpMouseOnSwitch { warpMouseOnSwitch = w }

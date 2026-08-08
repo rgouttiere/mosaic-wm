@@ -7,7 +7,7 @@ BIN := .build/$(CONFIG)/$(APP_NAME)
 SIGN_ID := Mosaic Self-Signed
 
 PREFIX ?= /usr/local
-.PHONY: build bundle run clean cert dist install-cli
+.PHONY: build bundle run clean cert dist install-cli test
 
 ## Create the stable self-signed dev identity (run once).
 cert:
@@ -16,6 +16,12 @@ cert:
 ## Compile the executable.
 build:
 	swift build -c $(CONFIG)
+
+## Run the in-module self-test suite (pure logic: layout tree + config parsing).
+## Debug build so the #if DEBUG `--self-test` entry point is compiled in. No Xcode needed.
+test:
+	swift build
+	.build/debug/$(APP_NAME) --self-test
 
 ## Assemble a runnable .app bundle and codesign it with the stable identity.
 ## A stable signature keeps the Accessibility grant across rebuilds.

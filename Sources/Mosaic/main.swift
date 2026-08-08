@@ -7,6 +7,9 @@ let mosaicCommandNotification = "fr.rgouttiere.mosaic.command"
 // sends the command to the already-running Mosaic and exits. `--list` prints the actions.
 let cliArgs = Array(CommandLine.arguments.dropFirst())
 if let verb = cliArgs.first {
+    #if DEBUG
+    if verb == "--self-test" { exit(SelfTest.run()) }   // in-module unit tests (debug builds only)
+    #endif
     if ["--list", "list", "-h", "--help", "help"].contains(verb) {
         Config.shared.load()
         print("Mosaic — usage: mosaic <action> | mosaic query [focused|workspaces]\n\nActions:")
