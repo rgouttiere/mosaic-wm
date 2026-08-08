@@ -51,15 +51,24 @@ enum AX {
 
     // MARK: Attribute writes
 
-    static func setFrame(_ element: AXUIElement, _ rect: CGRect) {
+    /// Returns whether the write was accepted (`.success`). An app can transiently reject a
+    /// move (`kAXErrorCannotComplete`/`APIDisabled` right after wake or launch while its AX
+    /// server is busy); the caller uses this to avoid caching a position the window never took
+    /// — otherwise the `<1px` skip would suppress the retry and the tile stays mis-placed with
+    /// no self-heal. Note `.success` means *accepted*, not *pixel-applied*: apps that clamp to
+    /// a min/max size still return `.success`, so this neither fixes nor regresses clamping.
+    @discardableResult
+    static func setFrame(_ element: AXUIElement, _ rect: CGRect) -> Bool {
         var origin = rect.origin
         var size = rect.size
+        var ok = true
         if let posValue = AXValueCreate(.cgPoint, &origin) {
-            AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, posValue)
+            ok = (AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, posValue) == .success) && ok
         }
         if let sizeValue = AXValueCreate(.cgSize, &size) {
-            AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+            ok = (AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue) == .success) && ok
         }
+        return ok
     }
 
     static func raise(_ element: AXUIElement) {
@@ -95,9 +104,13 @@ enum AX {
     }
 
     /// Enter/leave native full screen (a standard AX write — works with SIP enabled).
-    static func setFullscreen(_ element: AXUIElement, _ on: Bool) {
+    /// Returns whether the write was accepted: a window still animating/initializing on open
+    /// often rejects it, and the caller must not record the rule as applied on a rejected write
+    /// (else the on-open rule is silently and permanently defeated for that window).
+    @discardableResult
+    static func setFullscreen(_ element: AXUIElement, _ on: Bool) -> Bool {
         AXUIElementSetAttributeValue(element, "AXFullScreen" as CFString,
-                                     (on ? kCFBooleanTrue : kCFBooleanFalse))
+                                     (on ? kCFBooleanTrue : kCFBooleanFalse)) == .success
     }
 
     /// Standard windows of an app by pid, INCLUDING full-screened ones — unlike

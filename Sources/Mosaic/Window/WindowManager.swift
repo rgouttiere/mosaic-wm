@@ -145,8 +145,7 @@ final class WindowManager {
         render()                // re-arrange with new gap / tab-bar height / border / opacity
         // Workspace names may have changed → republish status.json and fire the hook so
         // the external bar picks up new labels immediately (even if the number is unchanged).
-        let screen = screenUnderMouse()
-        let num = Spaces.currentSpaceID(for: screen).flatMap { workspaceNumber(for: $0) }
+        let num = screenUnderMouse().flatMap { Spaces.currentSpaceID(for: $0) }.flatMap { workspaceNumber(for: $0) }
         writeStatusFile(focused: num)
         runWorkspaceHook(num)
     }
@@ -159,12 +158,17 @@ final class WindowManager {
         // Poll the current Space as a reliable fallback: the activeSpaceDidChange
         // notification is flaky, and without this the active desktop can go stale
         // (so edits would hit the previous desktop's layout).
-        spaceTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+        // .common mode (via explicit Timer + RunLoop.add, not scheduledTimer which is .default
+        // only) so the Space poll keeps firing while a status-bar menu or modal holds a nested
+        // run loop — otherwise the active desktop could go stale for as long as a menu is open.
+        let timer = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in
             self?.checkSpaceChange()
             self?.sweepOrphanStrips()   // catch stray tab bars even without a render
             self?.purgeVisibleGhosts()  // clean dead tiles on visible, non-active monitors
             Perf.dumpIfDue()            // opt-in timing summary (no-op unless enabled)
         }
+        RunLoop.main.add(timer, forMode: .common)
+        spaceTimer = timer
         // Focus-follows-click: clicking a managed window moves Mosaic's focus to it.
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
             self?.focusWindowUnderMouse()
@@ -296,8 +300,7 @@ final class WindowManager {
         guard !suspended, !tabDragging else { return }
         // Follow the screen the mouse is on: the active desktop is that screen's
         // current Space. Moving the mouse to another display activates its desktop.
-        let screen = screenUnderMouse()
-        guard let id = Spaces.currentSpaceID(for: screen) else { return }
+        guard let screen = screenUnderMouse(), let id = Spaces.currentSpaceID(for: screen) else { return }
         guard id != activeSpaceID else { return }
         NSLog("Mosaic: desktop \(activeSpaceID.map(String.init) ?? "nil") → \(id)")
         focusIndicator.hide()   // drop the focus rectangle immediately during the switch
@@ -326,8 +329,7 @@ final class WindowManager {
 
     /// Start (or rebuild) management of the current desktop on the screen under the mouse.
     func tileCurrentSpace() {
-        let screen = screenUnderMouse()
-        guard let id = Spaces.currentSpaceID(for: screen) else { return }
+        guard let screen = screenUnderMouse(), let id = Spaces.currentSpaceID(for: screen) else { return }
         let st = SpaceState(displayID: displayID(of: screen))
         st.mode = spaces[id]?.mode ?? defaultMode
         spaces[id] = st
@@ -353,8 +355,7 @@ final class WindowManager {
     func toggleManageAll() {
         manageAll.toggle()
         if manageAll {
-            let screen = screenUnderMouse()
-            if let id = Spaces.currentSpaceID(for: screen) {
+            if let screen = screenUnderMouse(), let id = Spaces.currentSpaceID(for: screen) {
                 activeSpaceID = id
                 if spaces[id] == nil {
                     let st = SpaceState(displayID: displayID(of: screen))
@@ -426,8 +427,15 @@ final class WindowManager {
                     if AX.isFullscreen(window) != want { AX.setFullscreen(window, want) }
                 } else {   // on-open: set once per window, then leave it user-toggleable
                     guard let wid, !fullscreenApplied.contains(wid) else { continue }
-                    if AX.isFullscreen(window) != want { AX.setFullscreen(window, want) }
-                    fullscreenApplied.insert(wid)
+                    // Mark applied only once the state is actually achieved — already matching,
+                    // or the write was accepted. A window still animating on open often rejects
+                    // the write; recording it applied there would defeat the on-open rule forever
+                    // (the set is pruned only when the window disappears). Gate on the write
+                    // RESULT, never a read-back: AXFullScreen kicks off an async Space transition,
+                    // so a read right after would still report the old value and re-fire every tick.
+                    if AX.isFullscreen(window) == want || AX.setFullscreen(window, want) {
+                        fullscreenApplied.insert(wid)
+                    }
                 }
             }
         }
@@ -491,7 +499,12 @@ final class WindowManager {
         var seen: [CGWindowID: [(sid: UInt64, leaf: Container)]] = [:]
         for (sid, state) in spaces {
             state.root?.forEachLeaf { leaf in
-                guard let w = leaf.window, let id = w.resolvedID() ?? w.lastKnownID else { return }
+                // Key on the cached id first: dedup only needs to match the same window across
+                // trees, and lastKnownID is a stable per-window CGWindowID. resolvedID() is a
+                // synchronous cross-process AX call, and this walk runs over EVERY leaf of EVERY
+                // space on each reconcile — paying that IPC here (only to skip it via ??) stalls
+                // the main thread. dedup doesn't rely on resolvedID()'s side effects.
+                guard let w = leaf.window, let id = w.lastKnownID ?? w.resolvedID() else { return }
                 seen[id, default: []].append((sid, leaf))
             }
         }
@@ -513,9 +526,7 @@ final class WindowManager {
     /// Structurally remove a leaf from a (possibly non-active) Space's tree + collapse.
     private func removeLeaf(_ leaf: Container, from state: SpaceState) {
         if let parent = leaf.parent, let i = parent.index(of: leaf) {
-            parent.children.remove(at: i)
-            parent.selected = min(parent.selected, max(0, parent.children.count - 1))
-            parent.removeRatio(at: i)
+            parent.removeChild(at: i)   // adjusts `selected` for the lower-index shift too
             collapse(parent, in: state)
         } else if state.root === leaf {
             state.root = nil
@@ -585,7 +596,7 @@ final class WindowManager {
         if deadLeaves.isEmpty, staleLeaves.isEmpty, onScreen == lastReconcileOnScreen { return }
         lastReconcileOnScreen = onScreen
 
-        let windows = captureWindows(on: screen)
+        let windows = captureWindows(on: screen, onScreen: onScreen)   // reuse this pass's enumeration
         var additions = windows.filter { window in
             guard let id = AX.windowID(window.element) else { return false }
             return !aliveTreeIDs.contains(id)
@@ -601,6 +612,7 @@ final class WindowManager {
                   let idx = additions.firstIndex(where: { $0.pid == deadPid }) else { continue }
             let replacement = additions.remove(at: idx)
             _ = replacement.resolvedID()   // cache the id so the next pass sees it as alive
+            if let old = leaf.window { observer.unwatch([old]) }   // the vanished window's AX regs
             leaf.window = replacement      // render() below repaints its tab/stack label
         }
 
@@ -625,8 +637,10 @@ final class WindowManager {
 
         guard !deadLeaves.isEmpty || !additions.isEmpty else { return }
 
+        observer.unwatch(deadLeaves.compactMap { $0.window })   // release regs for really-gone windows
         for leaf in deadLeaves { detach(leaf) }
         for window in additions { insert(window) }
+        if !deadLeaves.isEmpty { pruneResizeCache() }   // window closes collapse containers → drop their cache
 
         guard let newRoot = self.root else { focusIndicator.hide(); return }
         if focused == nil || !treeContainsLeaf(focused!) { focused = newRoot.firstLeaf() }
@@ -641,9 +655,8 @@ final class WindowManager {
             root = nil
             return
         }
-        parent.children.remove(at: idx)
+        parent.removeChild(at: idx)   // drops the ratio slice AND fixes `selected` for the shift
         leaf.parent = nil
-        parent.removeRatio(at: idx)   // preserve remaining windows' relative sizes
 
         if parent.children.count == 1 {
             replace(parent, with: parent.children[0])
@@ -874,16 +887,14 @@ final class WindowManager {
     /// of a tab/stack group.
     private func moveOutward(_ f: Container, from parent: Container, idx: Int, direction: Direction) {
         if let grandparent = parent.parent, let pIdx = grandparent.index(of: parent) {
-            parent.children.remove(at: idx)
-            parent.removeRatio(at: idx)
+            parent.removeChild(at: idx)   // remove + ratio + `selected` shift-fix
             f.parent = grandparent
             let insertAt = direction.isForward ? pIdx + 1 : pIdx
             grandparent.children.insert(f, at: insertAt)
             grandparent.addRatio(at: insertAt)
             cleanupAfterRemoval(parent)
         } else if parent === root, parent.children.count > 1 {
-            parent.children.remove(at: idx)
-            parent.removeRatio(at: idx)
+            parent.removeChild(at: idx)   // remove + ratio + `selected` shift-fix
             let orient: Container.Layout = direction.isHorizontal ? .splitH : .splitV
             self.root = Container(layout: orient, children: direction.isForward ? [parent, f] : [f, parent])
             if parent.children.count == 1 { replace(parent, with: parent.children[0]) }
@@ -1081,9 +1092,7 @@ final class WindowManager {
 
         // Detach from the source tree and collapse what it leaves behind.
         if let parent = dragged.parent, let i = parent.index(of: dragged) {
-            parent.children.remove(at: i)
-            parent.selected = min(parent.selected, max(0, parent.children.count - 1))
-            parent.removeRatio(at: i)
+            parent.removeChild(at: i)   // adjusts `selected` for the lower-index shift too
             collapse(parent, in: sourceState)
         }
 
@@ -1169,8 +1178,7 @@ final class WindowManager {
             }
         } else if container.children.isEmpty {
             if let gp = container.parent, let idx = gp.index(of: container) {
-                gp.children.remove(at: idx)
-                gp.removeRatio(at: idx)
+                gp.removeChild(at: idx)   // adjusts `selected` for the lower-index shift too
                 collapse(gp, in: state)
             } else {
                 state.root = nil
@@ -1224,13 +1232,23 @@ final class WindowManager {
     /// to reason about focus/preselect on a Space the user isn't on.
     private func purgeVisibleGhosts() {
         guard !suspended, !isReconciling else { return }
+        // Gate the expensive enumeration on cheap SPI: only a secondary monitor showing a
+        // managed Space that is NOT the active one can hold a ghost here. On a single-monitor
+        // setup (the common case) the sole screen's Space IS active, so there are no candidates
+        // and we skip the CGWindowList enumeration entirely — otherwise it fires ~2.5×/s forever
+        // and defeats idle/App-Nap quiescence.
+        let candidates: [(scr: NSScreen, st: SpaceState, root: Container)] =
+            NSScreen.screens.compactMap { scr in
+                guard let id = Spaces.currentSpaceID(for: scr), id != activeSpaceID,
+                      let st = spaces[id], let r = st.root else { return nil }
+                return (scr, st, r)
+            }
+        guard !candidates.isEmpty else { return }
+
         let onScreen = AX.onScreenWindowIDs()
         var changed = false
         var adopted: [ManagedWindow] = []
-        for scr in NSScreen.screens {
-            guard let id = Spaces.currentSpaceID(for: scr), id != activeSpaceID,
-                  let st = spaces[id], let r = st.root else { continue }
-
+        for (scr, st, r) in candidates {
             var aliveIDs = Set<CGWindowID>()
             var stale: [Container] = []
             r.forEachLeaf { leaf in
@@ -1246,7 +1264,7 @@ final class WindowManager {
             // A window vanished here → look for same-app newcomers to adopt into the exact
             // slot (IINA's launcher→video swap on a background monitor), else age the leaf
             // out through the same two-miss grace the active reconcile uses.
-            var additions = captureWindows(on: scr).filter {
+            var additions = captureWindows(on: scr, onScreen: onScreen).filter {
                 guard let wid = AX.windowID($0.element) else { return false }
                 return !aliveIDs.contains(wid)
             }
@@ -1255,12 +1273,13 @@ final class WindowManager {
                 if let idx = additions.firstIndex(where: { $0.pid == w.pid }) {
                     let rep = additions.remove(at: idx)
                     _ = rep.resolvedID()
+                    observer.unwatch([w])   // the vanished window's AX regs (adopted away)
                     leaf.window = rep
                     adopted.append(rep)
                     changed = true
                 } else {
                     w.missCount += 1
-                    if w.missCount >= 2 { removeLeaf(leaf, from: st); changed = true }
+                    if w.missCount >= 2 { observer.unwatch([w]); removeLeaf(leaf, from: st); changed = true }
                 }
             }
         }
@@ -1326,7 +1345,8 @@ final class WindowManager {
     }
 
     func moveToDesktopIndex(_ index: Int) {
-        let ordered = Spaces.orderedSpaceIDs(for: activeScreen ?? screenUnderMouse())
+        guard let screen = activeScreen ?? screenUnderMouse() else { return }
+        let ordered = Spaces.orderedSpaceIDs(for: screen)
         guard ordered.indices.contains(index) else { return }
         moveFocused(toSpace: ordered[index])
     }
@@ -1335,8 +1355,7 @@ final class WindowManager {
 
     /// Pin the current desktop to workspace number `n` (1-9).
     func assignWorkspace(_ n: Int) {
-        let screen = screenUnderMouse()
-        guard let space = Spaces.currentSpaceID(for: screen) else { return }
+        guard let screen = screenUnderMouse(), let space = Spaces.currentSpaceID(for: screen) else { return }
         assignments = assignments.filter { $0.key != n && $0.value != space }  // unique number & space
         assignments[n] = space
         // Remember the desktop's app so we can switch to it even when it's unmanaged
@@ -1349,8 +1368,8 @@ final class WindowManager {
     /// Switch to the desktop assigned to workspace `n` (numbers are global across all
     /// screens — only user-assigned desktops have a number).
     func switchToWorkspace(_ n: Int) {
-        let screen = screenUnderMouse()
-        guard let target = assignments[n], target != Spaces.currentSpaceID(for: screen) else { return }
+        guard let screen = screenUnderMouse(),
+              let target = assignments[n], target != Spaces.currentSpaceID(for: screen) else { return }
         switchTo(space: target, appHint: assignmentApps[n], on: screen)
     }
 
@@ -1363,7 +1382,7 @@ final class WindowManager {
     /// Schematic workspace overview (exposé): a grid of workspaces, each drawn with its
     /// windows as scaled rectangles. Pick one to jump.
     func showExpose(commitOnCmdRelease: Bool = false) {
-        let screen = screenUnderMouse()
+        guard let screen = screenUnderMouse() else { return }
         let current = Spaces.currentSpaceID(for: screen).flatMap { workspaceNumber(for: $0) }
         let ordered = assignments.keys.sorted()
         var wss: [ExposeWorkspace] = []
@@ -1414,13 +1433,15 @@ final class WindowManager {
         assignmentApps[n] = nil
         workspaceRecency.removeAll { $0 == n }
         saveNow()
-        showWorkspaceIndicator(for: screenUnderMouse())   // refresh HUD / status.json / bar
+        if let screen = screenUnderMouse() {
+            showWorkspaceIndicator(for: screen)   // refresh HUD / status.json / bar
+        }
     }
 
     /// Unset whatever workspace number is assigned to the current desktop.
     func unassignCurrent() {
-        let screen = screenUnderMouse()
-        guard let space = Spaces.currentSpaceID(for: screen),
+        guard let screen = screenUnderMouse(),
+              let space = Spaces.currentSpaceID(for: screen),
               let n = assignments.first(where: { $0.value == space })?.key else { return }
         unassignWorkspace(n)
     }
@@ -1465,7 +1486,7 @@ final class WindowManager {
     /// Ordered by recency (most-recently-used first); the current workspace sinks to the
     /// bottom so ⏎ on the top row jumps somewhere useful.
     func showSwitcher() {
-        let screen = screenUnderMouse()
+        guard let screen = screenUnderMouse() else { return }
         let current = Spaces.currentSpaceID(for: screen).flatMap { workspaceNumber(for: $0) }
         let ordered = assignments.keys.sorted { a, b in
             if a == current { return false }
@@ -1529,8 +1550,8 @@ final class WindowManager {
     /// Bring a specific window forward: switch to its workspace's Space if needed, then
     /// activate it. The focus-sync observer adopts it into Mosaic's focus — no manual set.
     private func focusWindow(_ w: ManagedWindow, inWorkspace n: Int) {
-        let screen = screenUnderMouse()
-        if let target = assignments[n], target != Spaces.currentSpaceID(for: screen) {
+        if let screen = screenUnderMouse(),
+           let target = assignments[n], target != Spaces.currentSpaceID(for: screen) {
             switchTo(space: target, appHint: w.app.bundleIdentifier, on: screen)
         }
         AX.makeMain(w.element)
@@ -1788,7 +1809,7 @@ final class WindowManager {
             render()   // restore the tiles' tab bars & focus border
             return
         }
-        let screen = screenUnderMouse()
+        guard let screen = screenUnderMouse() else { return }   // no screen → nothing to float on
         if let space = Spaces.currentSpaceID(for: screen), let wid = AX.windowID(w.element) {
             Spaces.move(window: wid, toSpace: space)   // bring it to the desktop I'm on
         }
@@ -1956,8 +1977,11 @@ final class WindowManager {
         root.arrange(in: area)
         root.raiseVisibleWindows()
 
+        // One enumeration reused by the activate check and updateFocusIndicator below, instead
+        // of two identical CGWindowList calls per render.
+        let onScreen = AX.onScreenWindowIDs()
         if activate, let w = focused?.window,
-           let id = AX.windowID(w.element), AX.onScreenWindowIDs().contains(id) {
+           let id = AX.windowID(w.element), onScreen.contains(id) {
             // makeMain BEFORE activating: else activating the app first surfaces its old
             // main window (another tab of the same app) for a frame before we raise ours.
             AX.makeMain(w.element)
@@ -1967,7 +1991,7 @@ final class WindowManager {
         root.raiseVisibleStrips()
 
         sweepOrphanStrips()   // hide strips not on any desktop's visible path
-        updateFocusIndicator()
+        updateFocusIndicator(onScreen: onScreen)
         layoutResizeHandles()
         applyOpacity()
 
@@ -1995,7 +2019,9 @@ final class WindowManager {
 
     /// Move/hide the focus border only — no window re-arranging. Used on screen
     /// switches so the tab layout isn't reloaded just to refresh the border.
-    private func updateFocusIndicator() {
+    /// `onScreen` lets a caller (render) that already enumerated this pass avoid a second
+    /// identical CGWindowList enumeration; defaults to a fresh one for standalone callers.
+    private func updateFocusIndicator(onScreen: Set<CGWindowID>? = nil) {
         if scratchpadVisible { focusIndicator.hide(); return }   // never over the scratchpad
         let ps: Bool? = (preselect?.leaf === focused) ? preselect?.vertical : nil
         // Show if the border is enabled OR a preselect is armed (so the cue is visible
@@ -2004,7 +2030,7 @@ final class WindowManager {
         // Only draw around a window that's actually on the current Space & on screen — a
         // stale/off-space focused window would otherwise get a border in empty space.
         if let w = focused?.window, let frame = w.frame, !w.isFullscreen,
-           let id = AX.windowID(w.element), AX.onScreenWindowIDs().contains(id) {
+           let id = AX.windowID(w.element), (onScreen ?? AX.onScreenWindowIDs()).contains(id) {
             focusIndicator.show(around: Geometry.flip(frame), preselect: ps)
         } else {
             focusIndicator.hide()
@@ -2071,6 +2097,19 @@ final class WindowManager {
             ? (mouse.x - f.minX) / axis - before
             : (f.maxY - mouse.y) / axis - before
         commitPairResize(c, i, proposedRatioForI: frac, horizontal: handle.horizontal, live: true)
+    }
+
+    /// Drop `resizeMinCache` entries whose container has left every Space's tree. The cache is
+    /// keyed by object identity and otherwise cleared only in `build()`, so a container that was
+    /// pair-resized and then collapsed (e.g. by a window close) would keep its learned minimum
+    /// for the manager's lifetime — a slow, bounded leak. Cheap: the cache only ever holds
+    /// pair-resized split children, and this runs only when a reconcile actually removed a leaf.
+    private func pruneResizeCache() {
+        guard !resizeMinCache.isEmpty else { return }
+        var live = Set<ObjectIdentifier>()
+        func walk(_ n: Container) { live.insert(ObjectIdentifier(n)); n.children.forEach(walk) }
+        for (_, state) in spaces { if let r = state.root { walk(r) } }
+        resizeMinCache = resizeMinCache.filter { live.contains($0.key) }
     }
 
     /// Set the split point of the pair (i, i+1). Clamps UP FRONT using each tile's
@@ -2347,14 +2386,21 @@ final class WindowManager {
 
     // MARK: - Helpers
 
-    private func captureWindows(on screen: NSScreen) -> [ManagedWindow] {
+    /// `onScreen` lets a caller that already enumerated the on-screen window ids this pass
+    /// (e.g. reconcile) thread its snapshot in, instead of paying a second identical
+    /// CGWindowList enumeration microseconds later. Defaults to a fresh enumeration.
+    private func captureWindows(on screen: NSScreen, onScreen: Set<CGWindowID>? = nil) -> [ManagedWindow] {
         let __perf = DispatchTime.now(); defer { Perf.record("captureWindows", since: __perf) }
-        let onScreen = AX.onScreenWindowIDs()
+        let onScreen = onScreen ?? AX.onScreenWindowIDs()
         return AX.managedWindows()
             .compactMap(ManagedWindow.init)
             .filter { window in
-                guard !isFloating(window), !window.isFullscreen else { return false }
+                // Order matters: reject via cheap local checks and the on-screen gate BEFORE the
+                // cross-process isFullscreen / frame reads, so off-Space windows (most of a
+                // multi-desktop session) don't each waste an AXFullScreen IPC to then be discarded.
+                guard !isFloating(window) else { return false }                        // local: rules / floatingApps
                 guard let wid = AX.windowID(window.element), onScreen.contains(wid) else { return false }
+                guard !window.isFullscreen else { return false }                       // IPC — now only for on-screen wins
                 if window.app.bundleIdentifier == scratchpadBundleID { return false }   // scratchpad app floats
                 guard let axFrame = window.frame else { return false }
                 let cocoaFrame = Geometry.flip(axFrame)
@@ -2390,10 +2436,13 @@ final class WindowManager {
         return r
     }
 
-    private func screenUnderMouse() -> NSScreen {
+    /// The screen under the mouse (or the main/first screen). `nil` only in a screenless state
+    /// — all displays asleep mid-reconfiguration, or a headless Mac — where the old
+    /// `NSScreen.screens[0]` fallback trapped. Callers guard and no-op when there's no screen.
+    private func screenUnderMouse() -> NSScreen? {
         let mouse = NSEvent.mouseLocation
         return NSScreen.screens.first { $0.frame.contains(mouse) }
             ?? NSScreen.main
-            ?? NSScreen.screens[0]
+            ?? NSScreen.screens.first
     }
 }

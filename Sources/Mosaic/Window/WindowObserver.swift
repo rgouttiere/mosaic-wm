@@ -79,6 +79,23 @@ final class WindowObserver {
         }
     }
 
+    /// Undo `watchForClose` for windows that are CONFIRMED gone. AXObserverAddNotification
+    /// retains the element internally, so a window that closes while its app keeps running
+    /// would otherwise leave two dangling registrations + a retained dead element on that app's
+    /// observer until the whole app quits — an unbounded per-session leak proportional to
+    /// total-windows-ever-managed. Only call this for a window that is really gone (a real
+    /// close, or one dropped from the tree by same-app adoption): calling it for a window that
+    /// merely moved Space/tree would silently stop its future close/title events.
+    func unwatch(_ windows: [ManagedWindow]) {
+        for window in windows {
+            guard let observer = observers[window.pid] else { continue }
+            AXObserverRemoveNotification(observer, window.element,
+                                         kAXUIElementDestroyedNotification as CFString)
+            AXObserverRemoveNotification(observer, window.element,
+                                         kAXTitleChangedNotification as CFString)
+        }
+    }
+
     func scheduleTitleRefresh() {
         titlePending?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.onTitleChange?() }
@@ -106,8 +123,9 @@ final class WindowObserver {
         if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
            let observer = observers.removeValue(forKey: app.processIdentifier) {
             // Detach its run-loop source, else it (and its source) leaks for every app quit.
+            // Mode MUST match the add below (.commonModes), or the remove is a no-op and leaks.
             CFRunLoopRemoveSource(CFRunLoopGetCurrent(),
-                                  AXObserverGetRunLoopSource(observer), .defaultMode)
+                                  AXObserverGetRunLoopSource(observer), .commonModes)
         }
         scheduleChange()
     }
@@ -125,8 +143,13 @@ final class WindowObserver {
         for notification in appNotifications {
             AXObserverAddNotification(observer, appElement, notification as CFString, refcon)
         }
+        // .commonModes (not .defaultMode) so window create/destroy/hide/show notifications keep
+        // being delivered while a nested run loop is active — an open status-bar menu
+        // (.eventTracking) or the config-issue modal (.modalPanel). In .defaultMode those events
+        // freeze until the menu/modal closes, while GCD-scheduled reconcile work keeps running
+        // against stale state. Matches the deliberate .commonModes choice on CmdTabTap.
         CFRunLoopAddSource(CFRunLoopGetCurrent(),
-                           AXObserverGetRunLoopSource(observer), .defaultMode)
+                           AXObserverGetRunLoopSource(observer), .commonModes)
         observers[pid] = observer
     }
 }

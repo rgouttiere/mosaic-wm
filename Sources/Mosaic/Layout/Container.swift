@@ -135,6 +135,21 @@ final class Container {
         children.firstIndex { $0 === child }
     }
 
+    /// Remove the child at `index`, keeping `selected` pointing at the SAME element rather than
+    /// the same slot: removing a child BELOW `selected` shifts every later child down one, so
+    /// `selected` must decrement too — otherwise a tabbed/stacked group silently shows/raises
+    /// the wrong window (e.g. [A,B,C,D] sel=2 shows C; close A → [B,C,D] and sel=2 now shows D).
+    /// The `selected` didSet only clamps the upper bound, which never catches this lower shift.
+    /// Also drops the child's ratio slice. Does NOT collapse a now-single-child parent — the
+    /// caller decides that (it needs the owning SpaceState).
+    func removeChild(at index: Int) {
+        guard children.indices.contains(index) else { return }
+        children.remove(at: index)
+        if index < selected { selected -= 1 }
+        else { selected = min(selected, max(0, children.count - 1)) }
+        removeRatio(at: index)
+    }
+
     // MARK: - Ratios
 
     static func equalRatios(_ count: Int) -> [CGFloat] {
@@ -228,7 +243,9 @@ final class Container {
     private func arrangeTabbed(in rect: NSRect) {
         let bar = ensureTabBar()
         let strip = NSRect(x: rect.minX, y: rect.maxY - tabBarHeight, width: rect.width, height: tabBarHeight)
-        let content = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - tabBarHeight)
+        // Clamp to 0 (as arrangeStacked already does) so a tab group in a pane shorter than the
+        // bar can't compute a negative height that flows into a negative kAXSize write.
+        let content = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, rect.height - tabBarHeight))
         bar.tabView.vertical = false
         bar.tabView.rows = []
         bar.tabView.titles = children.map { $0.title }

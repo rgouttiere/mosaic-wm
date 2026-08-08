@@ -52,8 +52,11 @@ final class ManagedWindow {
            abs(last.size.width - axRect.size.width) < 1, abs(last.size.height - axRect.size.height) < 1 {
             return   // already where we put it → skip the costly AX write + app relayout
         }
-        AX.setFrame(element, axRect)
-        lastSetFrame = axRect
+        // Advance the cache only when the write was accepted. A transiently-rejected move must
+        // stay uncached so the next render re-issues it — otherwise the <1px skip above would
+        // pin the window to a frame it never actually took, with no self-heal until a manual
+        // re-tile. lastSetFrame is never otherwise reset.
+        if AX.setFrame(element, axRect) { lastSetFrame = axRect }
     }
 
     /// Last opacity we set (via CGS). `applyOpacity` runs over every window on each render,
