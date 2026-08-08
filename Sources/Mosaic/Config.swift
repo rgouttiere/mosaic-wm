@@ -174,6 +174,72 @@ final class Config {
         var dropHighlightEnabled: Bool?
         var dropHighlightColor: String?
         var keybindings: [String: String]?
+
+        /// Names of fields whose value was present but wrong-typed (surfaced via loadIssues).
+        var decodeIssues: [String] = []
+
+        /// Explicit keys (a custom `init(from:)` suppresses synthesis). `decodeIssues` is not a
+        /// config key — it's populated by the initializer, never decoded.
+        private enum CodingKeys: String, CodingKey {
+            case gap, outerGap, externalBarTop, workspaceNames, focusPulseWidth, focusPulseDuration
+            case exposeDim, exposeSwitch, focusSync, tabScrollCycle, switcherFadeIn, tabBarHeight
+            case warpMouseOnSwitch, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
+            case onWorkspaceChange, borderEnabled, borderColor, borderWidth, borderCornerRadius
+            case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
+            case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
+            case dropHighlightEnabled, dropHighlightColor, keybindings
+        }
+
+        /// Decode each field INDEPENDENTLY: a single wrong-typed field (e.g. `"gap":"10"` or
+        /// `"borderWidth":true`) then loses only that field and keeps its default, instead of
+        /// the stock `Decodable` behaviour where one bad value throws and reverts the user's
+        /// ENTIRE config to defaults. Structured fields (rules/keybindings/workspaceNames)
+        /// still decode as a unit — a malformed one loses only that field, not the whole file.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            var issues: [String] = []
+            func v<T: Decodable>(_ key: CodingKeys) -> T? {
+                do { return try c.decodeIfPresent(T.self, forKey: key) }
+                catch { issues.append(key.stringValue); return nil }
+            }
+            gap = v(.gap)
+            outerGap = v(.outerGap)
+            externalBarTop = v(.externalBarTop)
+            workspaceNames = v(.workspaceNames)
+            focusPulseWidth = v(.focusPulseWidth)
+            focusPulseDuration = v(.focusPulseDuration)
+            exposeDim = v(.exposeDim)
+            exposeSwitch = v(.exposeSwitch)
+            focusSync = v(.focusSync)
+            tabScrollCycle = v(.tabScrollCycle)
+            switcherFadeIn = v(.switcherFadeIn)
+            tabBarHeight = v(.tabBarHeight)
+            warpMouseOnSwitch = v(.warpMouseOnSwitch)
+            defaultMode = v(.defaultMode)
+            floatingApps = v(.floatingApps)
+            rules = v(.rules)
+            showWorkspaceHUD = v(.showWorkspaceHUD)
+            hudPosition = v(.hudPosition)
+            onWorkspaceChange = v(.onWorkspaceChange)
+            borderEnabled = v(.borderEnabled)
+            borderColor = v(.borderColor)
+            borderWidth = v(.borderWidth)
+            borderCornerRadius = v(.borderCornerRadius)
+            activeOpacity = v(.activeOpacity)
+            inactiveOpacity = v(.inactiveOpacity)
+            tabCornerRadius = v(.tabCornerRadius)
+            tabBarColor = v(.tabBarColor)
+            tabActiveColor = v(.tabActiveColor)
+            tabTextColor = v(.tabTextColor)
+            tabActiveTextColor = v(.tabActiveTextColor)
+            tabFontSize = v(.tabFontSize)
+            tabBarOpacity = v(.tabBarOpacity)
+            tabActivePadding = v(.tabActivePadding)
+            dropHighlightEnabled = v(.dropHighlightEnabled)
+            dropHighlightColor = v(.dropHighlightColor)
+            keybindings = v(.keybindings)
+            decodeIssues = issues
+        }
     }
 
     var configURL: URL {
@@ -246,7 +312,9 @@ final class Config {
         for key in raw.keys.sorted() where !key.hasPrefix("_") && !known.contains(key) {
             loadIssues.append("unknown key “\(key)” ignored (typo?)")
         }
-        // 3) Typed decode — on failure, report which field and keep defaults.
+        // 3) Typed decode — per-field lenient (see File.init(from:)), so one wrong-typed value
+        // loses only that field, not the whole config. A throw here now means the file isn't a
+        // decodable object at all (already screened at step 1), so keep the defensive catch.
         let file: File
         do {
             file = try JSONDecoder().decode(File.self, from: data)
@@ -254,6 +322,10 @@ final class Config {
             loadIssues.append("invalid value: \(describeDecodingError(error))")
             NSLog("Mosaic: config.json has an invalid value — using defaults (\(error))")
             return
+        }
+        for field in file.decodeIssues {
+            loadIssues.append("invalid value for “\(field)” — ignored, default kept")
+            NSLog("Mosaic: config.json field “\(field)” has an invalid value — keeping default")
         }
         if let g = file.gap { gap = CGFloat(g) }
         if let o = file.outerGap { outerGap = CGFloat(o) }
@@ -266,8 +338,22 @@ final class Config {
         if let b = file.tabScrollCycle { tabScrollCycle = b }
         if let b = file.switcherFadeIn { switcherFadeIn = b }
         if let wn = file.workspaceNames {
-            workspaceNames = Dictionary(uniqueKeysWithValues:
-                wn.compactMap { key, value in Int(key).map { ($0, value) } })
+            // Int(_:) is not injective ("1","01","+1" all → 1), so distinct JSON keys can
+            // collapse to the same number. uniqueKeysWithValues traps (fatalError) on a
+            // collision — a config typo must never crash-loop the app — so dedupe with
+            // uniquingKeysWith and report it, matching this file's degrade-gracefully design.
+            var names: [Int: String] = [:]
+            for (key, value) in wn {
+                guard let n = Int(key) else { continue }
+                if names[n] != nil {
+                    loadIssues.append("workspaceNames: duplicate key for workspace \(n) — keeping “\(value)”")
+                } else if !(1...9).contains(n) {
+                    loadIssues.append("workspaceNames: “\(key)” is outside 1…9 — ignored")
+                    continue
+                }
+                if (1...9).contains(n) { names[n] = value }
+            }
+            workspaceNames = names
         }
         if let t = file.tabBarHeight { tabBarHeight = CGFloat(t) }
         if let w = file.warpMouseOnSwitch { warpMouseOnSwitch = w }

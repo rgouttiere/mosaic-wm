@@ -193,6 +193,7 @@ The menu bar has a **"Debug: dump layout"** item that writes the live tree + vis
 - **Not notarized** — see the Gatekeeper note above.
 - Apple's native Split View can't be extended — Mosaic recreates the experience on regions it owns.
 - A window's own title bar still shows inside a tab/stack region.
+- **CLI channel is login-session-scoped.** `mosaic <action>` drives the app via a `DistributedNotificationCenter` message, which any process in your login session can send — so the CLI is *not* authenticated against other same-user processes. This matches the trust model (any same-user process can already move your windows or edit the config), and effects are local, reversible layout changes; just don't rely on it as a security boundary.
 - Apple Silicon only; alpha-quality; expect rough edges outside my own hardware/workflow.
 
 ## Contributing
