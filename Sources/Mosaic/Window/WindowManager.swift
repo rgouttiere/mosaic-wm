@@ -221,6 +221,7 @@ final class WindowManager {
             let now = Set(NSScreen.screens.map(self.displayID(of:)))
             guard now == before else { self.handleDisplayChange(); return }   // still settling
             self.suspended = false
+            self.rehomeDriftedWindows()   // undo macOS's display-reshuffle before reconcile follows it
             self.activeSpaceID = nil
             self.checkSpaceChange()
             self.refreshVisibleSpaces()
@@ -236,6 +237,7 @@ final class WindowManager {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             guard let self else { return }
             self.suspended = false
+            self.rehomeDriftedWindows()   // snap macOS's wake-time window scatter back home first
             self.activeSpaceID = nil   // force a fresh detect + render of the current desktop
             self.checkSpaceChange()
             self.refreshVisibleSpaces()   // re-show tab bars on ALL screens, not just the mouse's
@@ -246,9 +248,46 @@ final class WindowManager {
         }
     }
 
+    /// True when a window's center `mid` (Cocoa coords) sits on a screen OTHER than its home
+    /// display — i.e. macOS relocated it (typically on wake) to the wrong display. Off every
+    /// screen → false (don't touch a window we can't confidently place). Pure + unit-tested.
+    static func isDrifted(center mid: CGPoint, home: CGRect, screens: [CGRect]) -> Bool {
+        guard let on = screens.first(where: { $0.contains(mid) }) else { return false }
+        return on != home
+    }
+
+    /// Wake / display reconfiguration makes macOS scatter managed windows onto the wrong
+    /// display. Snap each one back to ITS OWN Space's display before reconcile can "follow" the
+    /// drift and pull its leaf into whatever workspace it landed on. Runs across EVERY managed
+    /// desktop — not just the visible ones — because a drifted window's own desktop is usually a
+    /// hidden background Space that `refreshVisibleSpaces` never re-arranges. Only invoked on
+    /// wake/display-change, so a deliberate drag to another display in normal use still stands.
+    private func rehomeDriftedWindows() {
+        let frames = NSScreen.screens.map { $0.frame }
+        for (sid, state) in spaces {
+            guard let home = screen(forDisplayID: state.displayID)?.frame else { continue }
+            var moved = false
+            state.root?.forEachLeaf { leaf in
+                guard let w = leaf.window, !w.isFullscreen,
+                      let wid = w.resolvedID(), let f = w.frame else { return }
+                let mid = Geometry.flip(f)
+                if WindowManager.isDrifted(center: CGPoint(x: mid.midX, y: mid.midY), home: home, screens: frames) {
+                    Spaces.move(window: wid, toSpace: sid)   // back to its own desktop
+                    moved = true
+                }
+            }
+            if moved { arrangeState(state) }   // re-tile so it lands in its slot on the right display
+        }
+    }
+
     private func focusWindowUnderMouse() {
         checkSpaceChange()
         guard let root else { return }
+        // Monocle/zoom: the focused window fills the screen while the tree still holds the
+        // other tiles' un-zoomed frames. A click anywhere lands on the zoomed window, so don't
+        // let tree geometry re-home focus onto a tile hidden underneath — the next render would
+        // then zoom THAT one to the front (the "click right → focus jumps to the app behind" bug).
+        if active?.isZoomed == true { return }
         let mouse = NSEvent.mouseLocation
         guard let leaf = visibleLeaf(at: mouse, in: root), leaf !== focused else { return }
         focused = leaf
@@ -597,8 +636,23 @@ final class WindowManager {
         lastReconcileOnScreen = onScreen
 
         let windows = captureWindows(on: screen, onScreen: onScreen)   // reuse this pass's enumeration
+
+        // Windows Mosaic already manages in ANOTHER present workspace stay THERE — never
+        // re-adopt one into the active workspace just because macOS relocated it onto this
+        // display (wake/unlock scatter). This makes tiled windows "sticky" to their workspace
+        // and kills the drift + the dedup oscillation at the source. Scoped to spaces whose
+        // display is still connected, so an undock still lets a window be re-adopted onto a
+        // remaining screen. Floating windows aren't tracked here, so they still drag freely.
+        var trackedElsewhere = Set<CGWindowID>()
+        for (sid, st) in spaces where sid != activeSpaceID {
+            guard self.screen(forDisplayID: st.displayID) != nil else { continue }   // home display gone → adoptable
+            st.root?.forEachLeaf { leaf in
+                if let w = leaf.window, let id = w.lastKnownID ?? w.resolvedID() { trackedElsewhere.insert(id) }
+            }
+        }
         var additions = windows.filter { window in
             guard let id = AX.windowID(window.element) else { return false }
+            if trackedElsewhere.contains(id) { return false }   // belongs to another workspace → leave it there
             return !aliveTreeIDs.contains(id)
         }
 

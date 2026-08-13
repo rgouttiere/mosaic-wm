@@ -28,8 +28,25 @@ enum SelfTest {
         let h = Harness()
         containerTests(h)
         configTests(h)
+        windowManagerTests(h)
         print("MosaicSelfTest: \(h.passed) passed, \(h.failed) failed")
         return h.failed == 0 ? 0 : 1
+    }
+
+    // MARK: - WindowManager: drifted-window detection (wake/display re-home)
+
+    private static func windowManagerTests(_ h: Harness) {
+        let left = CGRect(x: -1512, y: 0, width: 1512, height: 982)   // screen to the left (negative x)
+        let main = CGRect(x: 0, y: 0, width: 3440, height: 1440)
+        let screens = [left, main]
+        h.check(WindowManager.isDrifted(center: CGPoint(x: -700, y: 400), home: main, screens: screens),
+                "isDrifted: window on left but home is main → drifted")
+        h.check(!WindowManager.isDrifted(center: CGPoint(x: 1000, y: 400), home: main, screens: screens),
+                "isDrifted: window on its home (main) → not drifted")
+        h.check(!WindowManager.isDrifted(center: CGPoint(x: -700, y: 400), home: left, screens: screens),
+                "isDrifted: window on left, home left → not drifted")
+        h.check(!WindowManager.isDrifted(center: CGPoint(x: 99999, y: 0), home: main, screens: screens),
+                "isDrifted: off all screens → not touched (false)")
     }
 
     // MARK: - Container: layout-tree invariants
