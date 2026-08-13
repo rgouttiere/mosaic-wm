@@ -14,17 +14,19 @@ struct ExposeWorkspace {
     let jump: () -> Void
 }
 
-/// Schematic workspace overview on a SINGLE overlay (the screen it's invoked on): all
-/// workspaces of all screens together, one column per screen, workspaces stacked within.
-/// ←/→ move between columns, ↑/↓ within a column, ⏎ jump, Esc cancel.
+/// Schematic workspace overview: all workspaces of all screens together, one column per
+/// screen, workspaces stacked within. ←/→ move between columns, ↑/↓ within a column, ⏎ jump,
+/// Esc cancel. Rendered on the invoked screen, or mirrored on EVERY screen when
+/// `exposeAllScreens` is set — one panel per display, all sharing the same selection.
 final class ExposeOverlay {
     private static var shared: ExposeOverlay?
 
     static var isOpen: Bool { shared != nil }
-    static func show(_ ws: [ExposeWorkspace], on screen: NSScreen, commitOnRelease: Bool = false) {
+    static func show(_ ws: [ExposeWorkspace], on screen: NSScreen,
+                     allScreens: Bool = false, commitOnRelease: Bool = false) {
         shared?.dismiss()
         guard !ws.isEmpty else { return }
-        shared = ExposeOverlay(ws, screen: screen, commitOnRelease: commitOnRelease)
+        shared = ExposeOverlay(ws, screen: screen, allScreens: allScreens, commitOnRelease: commitOnRelease)
     }
     static func advance(_ d: Int) { shared?.move(d) }
     static func commit() { shared?.commitSelection() }
@@ -32,8 +34,8 @@ final class ExposeOverlay {
     static func commitIfRelease() { if let s = shared, s.commitOnRelease { s.commitSelection() } }
     static func cancel() { shared?.dismiss() }
 
-    private let panel: KeyPanel
-    private let view: ExposeView
+    private var panels: [KeyPanel] = []   // one overlay window per rendered screen
+    private var views: [ExposeView] = []
     private var monitor: Any?
     private let workspaces: [ExposeWorkspace]
     private let columns: [[Int]]   // grid: one column per screen (indices into workspaces)
@@ -42,7 +44,7 @@ final class ExposeOverlay {
 
     private var selected: Int { columns[col][row] }
 
-    private init(_ ws: [ExposeWorkspace], screen: NSScreen, commitOnRelease: Bool) {
+    private init(_ ws: [ExposeWorkspace], screen: NSScreen, allScreens: Bool, commitOnRelease: Bool) {
         self.commitOnRelease = commitOnRelease
         workspaces = ws
         columns = ExposeOverlay.buildColumns(ws)
@@ -50,20 +52,30 @@ final class ExposeOverlay {
             for (r, idx) in column.enumerated() where ws[idx].current { col = c; row = r; break outer }
         }
 
-        panel = KeyPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
-                         backing: .buffered, defer: false)
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.level = .modalPanel
-        panel.hasShadow = false
-        view = ExposeView(frame: NSRect(origin: .zero, size: screen.frame.size))
-        view.workspaces = ws
-        view.columns = columns
-        view.selected = selected
-        panel.contentView = view
+        // One panel per screen (mirroring the same grid) when allScreens, else just the invoked one.
+        let screens = allScreens ? NSScreen.screens : [screen]
+        for scr in screens {
+            let panel = KeyPanel(contentRect: scr.frame, styleMask: [.borderless, .nonactivatingPanel],
+                                 backing: .buffered, defer: false)
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.level = .modalPanel
+            panel.hasShadow = false
+            let v = ExposeView(frame: NSRect(origin: .zero, size: scr.frame.size))
+            v.workspaces = ws
+            v.columns = columns
+            v.selected = selected
+            panel.contentView = v
+            panels.append(panel)
+            views.append(v)
+        }
 
         NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
+        // The invoked screen's panel takes key focus (input); the rest are passive mirrors.
+        for (i, scr) in screens.enumerated() {
+            if scr === screen { panels[i].makeKeyAndOrderFront(nil) } else { panels[i].orderFrontRegardless() }
+        }
+        if !panels.contains(where: { $0.isKeyWindow }) { panels.first?.makeKeyAndOrderFront(nil) }
 
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             guard let self else { return e }
@@ -113,7 +125,7 @@ final class ExposeOverlay {
         }
         refresh()
     }
-    private func refresh() { view.selected = selected; view.needsDisplay = true }
+    private func refresh() { for v in views { v.selected = selected; v.needsDisplay = true } }
 
     private func commitSelection() {
         let jump = workspaces[selected].jump
@@ -123,7 +135,8 @@ final class ExposeOverlay {
 
     private func dismiss() {
         if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
-        panel.orderOut(nil)
+        for p in panels { p.orderOut(nil) }
+        panels.removeAll(); views.removeAll()
         if ExposeOverlay.shared === self { ExposeOverlay.shared = nil }
     }
 }

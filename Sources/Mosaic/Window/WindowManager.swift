@@ -1423,7 +1423,8 @@ final class WindowManager {
                 screen: wsScreen, tiles: tiles, current: n == current,
                 jump: { [weak self] in self?.switchToWorkspace(n) }))
         }
-        ExposeOverlay.show(wss, on: screen, commitOnRelease: commitOnCmdRelease)
+        ExposeOverlay.show(wss, on: screen, allScreens: Config.shared.exposeAllScreens,
+                           commitOnRelease: commitOnCmdRelease)
     }
 
     /// Remove a workspace number's assignment (unset it).

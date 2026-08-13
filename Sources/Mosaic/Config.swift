@@ -18,6 +18,7 @@ final class Config {
     var focusPulseDuration: Double = 0.38   // seconds the focus pulse takes to fade out
     var exposeDim: Double = 0.7   // exposé backdrop opacity (0 = transparent, 1 = opaque black)
     var exposeSwitch = ""   // hold-combo to drive the exposé (e.g. "cmd tab"); empty = disabled
+    var exposeAllScreens = false   // mirror the exposé/cmd-tab on every screen at once
     // Feature toggles (all on by default).
     var focusSync = true        // adopt keyboard/cmd-tab focus changes into the tabs
     var tabScrollCycle = true   // scroll over a tab bar to cycle its tabs
@@ -147,6 +148,7 @@ final class Config {
         var focusPulseDuration: Double?
         var exposeDim: Double?
         var exposeSwitch: String?
+        var exposeAllScreens: Bool?
         var focusSync: Bool?
         var tabScrollCycle: Bool?
         var switcherFadeIn: Bool?
@@ -183,7 +185,7 @@ final class Config {
         /// config key — it's populated by the initializer, never decoded.
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, workspaceNames, focusPulseWidth, focusPulseDuration
-            case exposeDim, exposeSwitch, focusSync, tabScrollCycle, switcherFadeIn, tabBarHeight
+            case exposeDim, exposeSwitch, exposeAllScreens, focusSync, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
             case onWorkspaceChange, borderEnabled, borderColor, borderWidth, borderCornerRadius
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
@@ -211,6 +213,7 @@ final class Config {
             focusPulseDuration = v(.focusPulseDuration)
             exposeDim = v(.exposeDim)
             exposeSwitch = v(.exposeSwitch)
+            exposeAllScreens = v(.exposeAllScreens)
             focusSync = v(.focusSync)
             tabScrollCycle = v(.tabScrollCycle)
             switcherFadeIn = v(.switcherFadeIn)
@@ -280,6 +283,7 @@ final class Config {
         focusPulseDuration = 0.38
         exposeDim = 0.7
         exposeSwitch = ""
+        exposeAllScreens = false
         focusSync = true
         tabScrollCycle = true
         switcherFadeIn = true
@@ -323,7 +327,7 @@ final class Config {
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
             "gap", "outerGap", "externalBarTop", "workspaceNames", "focusPulseWidth", "focusPulseDuration",
-            "exposeDim", "exposeSwitch", "focusSync", "tabScrollCycle", "switcherFadeIn",
+            "exposeDim", "exposeSwitch", "exposeAllScreens", "focusSync", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
             "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
@@ -356,6 +360,7 @@ final class Config {
         if let d = file.focusPulseDuration { focusPulseDuration = d }
         if let d = file.exposeDim { exposeDim = d }
         if let s = file.exposeSwitch { exposeSwitch = s }
+        if let b = file.exposeAllScreens { exposeAllScreens = b }
         if let b = file.focusSync { focusSync = b }
         if let b = file.tabScrollCycle { tabScrollCycle = b }
         if let b = file.switcherFadeIn { switcherFadeIn = b }

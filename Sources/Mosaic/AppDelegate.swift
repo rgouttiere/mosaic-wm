@@ -311,8 +311,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupCmdTabTap() {
         let wm = windowManager
         cmdTabTap.onTrigger = { dir in
+            // First press opens the overview highlighting the CURRENT workspace; only further
+            // presses move the selection. (Releasing ⌘ right away thus stays put — a no-op.)
             if ExposeOverlay.isOpen { ExposeOverlay.advance(dir) }
-            else { wm.showExpose(commitOnCmdRelease: true); ExposeOverlay.advance(dir) }
+            else { wm.showExpose(commitOnCmdRelease: true) }
         }
         cmdTabTap.onRelease = { ExposeOverlay.commitIfRelease() }
         applyExposeSwitch()
