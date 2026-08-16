@@ -36,23 +36,22 @@ enum SelfTest {
     // MARK: - Geometry: emulated-workspace parking (v2)
 
     private static func windowManagerTests(_ h: Harness) {
-        // Single screen at the origin: a parked workspace drops one screen-height below the
-        // desktop's bottom edge, same width/height/x → unparking is a pure vertical shift back.
+        // Single screen at the origin: a parked workspace sits past the desktop's bottom-RIGHT
+        // corner (off both the right and bottom edges) at full size → unpark is a pure shift back.
         let main = CGRect(x: 0, y: 0, width: 1512, height: 982)
         let parked = Geometry.parkRect(screenFrame: main, desktop: main)
-        h.eq(parked.origin.x, main.origin.x, "parkRect: x stays aligned to the screen")
         h.eq(parked.width, main.width, "parkRect: width preserved (no squish)")
         h.eq(parked.height, main.height, "parkRect: height preserved (no squish)")
-        h.eq(parked.origin.y, main.minY - main.height, "parkRect: dropped a full screen below the desktop")
+        h.check(parked.minX >= main.maxX, "parkRect: entirely off the right edge (no full-width bottom strip)")
         h.check(parked.maxY <= main.minY, "parkRect: entirely below the visible desktop")
 
-        // Two side-by-side screens: parking the RIGHT screen must clear BOTH (the desktop
-        // union's bottom edge), not just its own — else a taller left screen would still show it.
+        // Two side-by-side screens: parking must clear the whole desktop union — off the right
+        // of the rightmost screen AND below the lowest, so no window strip shows on any monitor.
         let left = CGRect(x: -1512, y: -200, width: 1512, height: 1182)   // extends lower than main
         let desktop = left.union(main)
         let parkedRight = Geometry.parkRect(screenFrame: main, desktop: desktop)
-        h.check(parkedRight.maxY <= desktop.minY, "parkRect: multi-screen park clears the whole desktop union")
-        h.eq(parkedRight.origin.x, main.origin.x, "parkRect: multi-screen keeps the target screen's x")
+        h.check(parkedRight.minX >= desktop.maxX, "parkRect: multi-screen park clears the right of the union")
+        h.check(parkedRight.maxY <= desktop.minY, "parkRect: multi-screen park clears the bottom of the union")
     }
 
     // MARK: - Container: layout-tree invariants
