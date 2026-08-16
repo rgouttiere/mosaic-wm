@@ -1490,14 +1490,18 @@ final class WindowManager {
         guard screens.count > 1,
               let idx = screens.firstIndex(where: { displayID(of: $0) == st.displayID }) else { return }
         let target = screens[(idx + (next ? 1 : screens.count - 1)) % screens.count]
-        guard displayID(of: target) != st.displayID,
-              let targetSpace = currentWorkspace(for: target) else { return }
+        let targetDID = displayID(of: target)
+        guard targetDID != st.displayID else { return }
+        // Bootstrap the target monitor's workspace if it's never been shown there (a monitor
+        // the mouse hasn't visited yet has no shown workspace — nil in the emulated model).
+        let targetSpace = currentWorkspace(for: target) ?? UInt64(defaultWorkspaceNumber(for: target))
+        shownOnDisplay[targetDID] = targetSpace
 
         detach(leaf)
         leaf.parent = nil
 
         let tst = spaces[targetSpace] ?? {
-            let s = SpaceState(displayID: displayID(of: target))
+            let s = SpaceState(displayID: targetDID)
             s.mode = defaultMode
             spaces[targetSpace] = s
             return s
