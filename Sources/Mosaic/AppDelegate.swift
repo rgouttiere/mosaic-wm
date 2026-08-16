@@ -178,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("zoom", "Zoom tile (monocle)", #selector(zoomTile)),
             ("scratchpad-send", "Send to scratchpad", #selector(scratchpadSend)),
             ("scratchpad-toggle", "Toggle scratchpad", #selector(scratchpadToggle)),
+            ("recover", "Recover windows (heal)", #selector(recoverWindows)),
         ]
         for entry in clickable2 {
             let combo = MenuFormat.combo(bindings[entry.action])
@@ -221,6 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func zoomTile() { windowManager.toggleZoom() }
     @objc private func scratchpadSend() { windowManager.sendToScratchpad() }
     @objc private func scratchpadToggle() { windowManager.toggleScratchpad() }
+    @objc private func recoverWindows() { windowManager.recover() }
     @objc private func assignFromMenu(_ sender: NSMenuItem) { windowManager.assignWorkspace(sender.tag) }
     @objc private func unassignThisDesktop() { windowManager.unassignCurrent() }
     @objc private func showSwitcher() { windowManager.showSwitcher() }
@@ -292,6 +294,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "expose": { wm.showExpose() },
             "unassign": { wm.unassignCurrent() },
             "workspace-back": { wm.workspaceBack() },
+            "recover": { wm.recover() },
             "reload-config": { [weak self] in self?.reloadConfig() },
             "dump-layout": { wm.dumpLayout() },
         ]

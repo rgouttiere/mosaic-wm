@@ -86,6 +86,10 @@ enum AX {
                                      minimized ? kCFBooleanTrue : kCFBooleanFalse)
     }
 
+    static func isMinimized(_ element: AXUIElement) -> Bool {
+        (copy(element, kAXMinimizedAttribute as String) as Bool?) ?? false
+    }
+
     // MARK: Window identity & visibility
 
     static func windowID(_ element: AXUIElement) -> CGWindowID? {

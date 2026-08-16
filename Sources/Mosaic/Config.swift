@@ -131,6 +131,7 @@ final class Config {
         "expose": "cmd alt o",     // schematic workspace overview
         "unassign": "cmd alt ctrl 0",   // unset the current desktop's workspace number
         "workspace-back": "cmd alt b",   // bounce to the previous workspace (i3 back-and-forth)
+        "recover": "cmd alt shift return",   // panic heal: un-minimize + re-assert every workspace
         "scratchpad-toggle": "cmd alt minus",
         "scratchpad-send": "cmd alt shift minus",
         "move-screen-next": "cmd alt ]",

@@ -465,6 +465,24 @@ final class WindowManager {
         build()
     }
 
+    /// Panic recovery / stuck-off-screen heal (M5): bring every managed window back to a
+    /// known-good state. Un-minimizes any window that got stuck minimized (e.g. minimized while
+    /// its workspace was parked — `setCocoaFrame` alone won't wake a minimized window), then
+    /// re-asserts every workspace's placement (re-tile the shown ones, re-park the rest). Use it
+    /// whenever a window seems lost: nothing is ever destroyed, only re-placed.
+    func recover() {
+        checkSpaceChange()
+        for ws in spaces.values {
+            ws.root?.forEachLeaf { leaf in
+                guard let w = leaf.window else { return }
+                if AX.isMinimized(w.element) { AX.setMinimized(w.element, false) }
+            }
+        }
+        reassertAllWorkspaces()
+        updateFocusIndicator()
+        NSLog("Mosaic: recover — un-minimized stuck windows + re-asserted all workspaces")
+    }
+
     /// Cycle the build strategy for the current desktop and rebuild it.
     func cycleMode() {
         checkSpaceChange()
