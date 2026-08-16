@@ -66,6 +66,9 @@ final class WindowManager {
     /// Persisted layouts for desktops not yet restored this session.
     private var savedState: [UInt64: SavedSpace] = [:]
     private var saveWork: DispatchWorkItem?
+    /// Which workspace number was shown on each monitor (left→right order) last session, so a
+    /// restart restores the exact view instead of guessing the first non-empty one.
+    private var savedShownByMonitor: [Int] = []
 
     /// Launch-time routing hints: for a short window after startup, a newly-appearing window
     /// whose app matches a saved layout is sent to the workspace it was saved in, not the active
@@ -2216,9 +2219,11 @@ final class WindowManager {
         let active = Float(Config.shared.activeOpacity)
         let inactive = Float(Config.shared.inactiveOpacity)
         guard active < 1 || inactive < 1 else { return }   // feature disabled
-        let activeID = focused?.window.flatMap { AX.windowID($0.element) }
+        // Reuse the cached window id (kept fresh by reconcile's resolvedID) instead of paying a
+        // cross-process AX id lookup per leaf on every render; setAlpha itself is already cached.
+        let activeID = focused?.window.flatMap { $0.lastKnownID ?? AX.windowID($0.element) }
         root.forEachLeaf { leaf in
-            guard let w = leaf.window, !w.isFullscreen, let id = AX.windowID(w.element) else { return }
+            guard let w = leaf.window, !w.isFullscreen, let id = w.lastKnownID ?? AX.windowID(w.element) else { return }
             w.setAlpha(id == activeID ? active : inactive, id: id)
         }
     }
@@ -2429,6 +2434,7 @@ final class WindowManager {
             if let id = UInt64(key), id >= 1, id <= 9 { savedState[id] = space }
         }
         scratchpadBundleID = state.scratchpadBundle
+        savedShownByMonitor = state.shownByMonitor ?? []
         NSLog("Mosaic: loaded \(savedState.count) saved workspace layout(s)")
     }
 
@@ -2468,13 +2474,19 @@ final class WindowManager {
         savedState.removeAll()   // consumed (matched windows removed from the pool)
         observer.watchForClose(AX.managedWindows().compactMap(ManagedWindow.init))
 
-        // Show the first non-empty workspace pinned to each monitor (else its default); park all
-        // the others. This never leaves a monitor showing an empty workspace while a populated
-        // one it owns sits parked out of sight.
-        for scr in NSScreen.screens {
-            let did = displayID(of: scr)
+        // Show the workspace each monitor showed last session (by left→right monitor index);
+        // else the first non-empty workspace pinned to it; else its default. Park the rest. Never
+        // leaves a monitor showing an empty workspace while a populated one it owns sits parked.
+        for (i, did) in orderedDisplays().enumerated() {
+            guard let scr = screen(forDisplayID: did) else { continue }
             let owned = (1...9).filter { assignedDisplay(forWorkspace: $0) == did }
-            let n = owned.first { spaces[UInt64($0)]?.root != nil } ?? defaultWorkspaceNumber(for: scr)
+            let remembered = savedShownByMonitor.indices.contains(i) ? savedShownByMonitor[i] : 0
+            let n: Int
+            if remembered >= 1, remembered <= 9, assignedDisplay(forWorkspace: remembered) == did {
+                n = remembered   // exact restored view
+            } else {
+                n = owned.first { spaces[UInt64($0)]?.root != nil } ?? defaultWorkspaceNumber(for: scr)
+            }
             shownOnDisplay[did] = UInt64(n)
             workspace(n, on: scr).displayID = did   // ensure it exists and is homed here
         }
@@ -2529,8 +2541,11 @@ final class WindowManager {
         for (id, saved) in savedState where spaces[id] == nil {
             out[String(id)] = saved
         }
+        // Which workspace is shown on each monitor, left→right, so a restart restores the view.
+        let shown = orderedDisplays().map { Int(shownOnDisplay[$0] ?? 0) }
         let state = SavedState(spaces: out, assignments: nil,
-                               assignmentApps: nil, scratchpadBundle: scratchpadBundleID)
+                               assignmentApps: nil, scratchpadBundle: scratchpadBundleID,
+                               shownByMonitor: shown)
         do {
             try FileManager.default.createDirectory(
                 at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
