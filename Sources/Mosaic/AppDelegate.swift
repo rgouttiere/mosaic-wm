@@ -178,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("zoom", "Zoom tile (monocle)", #selector(zoomTile)),
             ("scratchpad-send", "Send to scratchpad", #selector(scratchpadSend)),
             ("scratchpad-toggle", "Toggle scratchpad", #selector(scratchpadToggle)),
+            ("scratchpad-release", "Release scratchpad", #selector(scratchpadRelease)),
             ("recover", "Recover windows (heal)", #selector(recoverWindows)),
         ]
         for entry in clickable2 {
@@ -222,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func zoomTile() { windowManager.toggleZoom() }
     @objc private func scratchpadSend() { windowManager.sendToScratchpad() }
     @objc private func scratchpadToggle() { windowManager.toggleScratchpad() }
+    @objc private func scratchpadRelease() { windowManager.releaseScratchpad() }
     @objc private func recoverWindows() { windowManager.recover() }
     @objc private func assignFromMenu(_ sender: NSMenuItem) { windowManager.assignWorkspace(sender.tag) }
     @objc private func unassignThisDesktop() { windowManager.unassignCurrent() }
@@ -282,6 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "zoom": { wm.toggleZoom() },
             "scratchpad-send": { wm.sendToScratchpad() },
             "scratchpad-toggle": { wm.toggleScratchpad() },
+            "scratchpad-release": { wm.releaseScratchpad() },
             "move-screen-next": { wm.moveToScreen(next: true) },
             "move-screen-prev": { wm.moveToScreen(next: false) },
             "move-desktop-next": { wm.moveToDesktop(next: true) },

@@ -184,6 +184,19 @@ final class WindowManager {
         return Geometry.parkRect(screenFrame: screen.frame, desktop: desktop.isNull ? screen.frame : desktop)
     }
 
+    /// Map a parked window's off-screen Cocoa frame back onto its home monitor, for the exposé
+    /// preview. `arrange` lays a tree out affinely within its rect, so a frame produced in
+    /// `parkRect` maps to where it WOULD sit on-screen by the affine `parkRect → layoutRect`
+    /// transform (exact up to the constant tab-strip/gap insets — fine for a schematic overview).
+    private func mapParkedFrame(_ cocoa: CGRect, home: NSScreen) -> CGRect {
+        let from = parkRect(for: home), to = layoutRect(home)
+        guard from.width > 0, from.height > 0 else { return cocoa }
+        let sx = to.width / from.width, sy = to.height / from.height
+        return CGRect(x: to.minX + (cocoa.minX - from.minX) * sx,
+                      y: to.minY + (cocoa.minY - from.minY) * sy,
+                      width: cocoa.width * sx, height: cocoa.height * sy)
+    }
+
     /// Park a workspace: lay its tree out off-screen. `arrange` moves both the windows and
     /// their tab-bar overlays (they're placed relative to the layout rect), so the whole
     /// workspace slides off the visible desktop with a single call — no per-window state. Falls
@@ -1591,7 +1604,16 @@ final class WindowManager {
         var wss: [ExposeWorkspace] = []
         for n in ordered {
             let sid = UInt64(n)
-            let wsScreen = self.screen(forWorkspace: sid)?.frame ?? screen.frame
+            // Always place a workspace in ITS home monitor's column (even when parked), and map
+            // parked (off-screen) window frames back onto that monitor so tiles land in the box
+            // instead of scattering — otherwise the grid grouped every parked workspace under the
+            // invoked screen and the layout jumped around.
+            let home = homeScreen(forWorkspace: n) ?? screen
+            let wsScreen = home.frame
+            let parked = self.screen(forWorkspace: sid) == nil
+            let map: (CGRect) -> CGRect = parked
+                ? { [weak self] in self?.mapParkedFrame($0, home: home) ?? $0 }
+                : { $0 }
             var tiles: [ExposeTile] = []
             spaces[sid]?.root?.forEachTile { tile in
                 if tile.isLeaf {
@@ -1599,7 +1621,7 @@ final class WindowManager {
                     if w.isFullscreen {
                         tiles.append(ExposeTile(frame: wsScreen, tabs: [ExposeTab(label: "⛶ \(w.title)", icon: w.app.icon, selected: true)]))
                     } else if let f = w.frame {
-                        tiles.append(ExposeTile(frame: Geometry.flip(f), tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true)]))
+                        tiles.append(ExposeTile(frame: map(Geometry.flip(f)), tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true)]))
                     }
                 } else {
                     // Tabbed container → one tile with a tab per child (rep = child's first window).
@@ -1610,7 +1632,7 @@ final class WindowManager {
                         let w = c.firstLeaf().window
                         return ExposeTab(label: w?.title ?? "—", icon: w?.app.icon, selected: i == sel)
                     }
-                    tiles.append(ExposeTile(frame: Geometry.flip(repFrame), tabs: tabs))
+                    tiles.append(ExposeTile(frame: map(Geometry.flip(repFrame)), tabs: tabs))
                 }
             }
             wss.append(ExposeWorkspace(
@@ -1952,25 +1974,45 @@ final class WindowManager {
         }
     }
 
-    /// Designate the focused window's APP as the scratchpad (its windows leave tiling
-    /// and hide). If the scratchpad is currently shown, the same combo RELEASES it.
+    /// Designate the focused window's APP as the scratchpad (its windows leave tiling and hide).
+    /// The same combo RELEASES the scratchpad when it's shown OR when the focused window belongs
+    /// to the current scratchpad app — so you can always get an app back out (e.g. a multi-window
+    /// app like Firefox: focus any of its windows and press it again).
     func sendToScratchpad() {
         checkSpaceChange()
-        if scratchpadBundleID != nil, scratchpadVisible {
-            let w = scratchpadWindow()
-            scratchpadBundleID = nil
-            scratchpadVisible = false
-            saveNow()
-            if let w { insert(w); render() }   // back into the tree
+        if let bundle = scratchpadBundleID,
+           scratchpadVisible || focused?.window?.app.bundleIdentifier == bundle {
+            releaseScratchpad()
             return
         }
         guard let leaf = focused, let w = leaf.window, let bundle = w.app.bundleIdentifier else { return }
+        // The scratchpad floats the app's ENTIRE window set (it's tracked by bundle id, so it
+        // survives the app closing/reopening). For a multi-window app that means every window
+        // leaves tiling — warn, but honor it: releasing brings them all back.
+        if AX.standardWindows(ofPID: w.pid).count > 1 {
+            NSLog("Mosaic: scratchpad app \(w.appName) has multiple windows — all of them will float; press send-to-scratchpad again to release")
+        }
         scratchpadBundleID = bundle
         scratchpadVisible = false
         detach(leaf)
         AX.setMinimized(w.element, true)
         if focused == nil || !treeContainsLeaf(focused!) { focused = root?.firstLeaf() }
         saveNow()
+        render()
+    }
+
+    /// Release the scratchpad unconditionally: un-minimize EVERY window of the scratchpad app
+    /// and let reconcile re-tile them. The safety valve for "I can't get my app back out",
+    /// especially for a multi-window app whose whole window set was floated.
+    func releaseScratchpad() {
+        guard let bundle = scratchpadBundleID else { return }
+        scratchpadBundleID = nil   // clear FIRST so captureWindows stops excluding the app
+        scratchpadVisible = false
+        for app in NSWorkspace.shared.runningApplications where app.bundleIdentifier == bundle {
+            for win in AX.standardWindows(ofPID: app.processIdentifier) { AX.setMinimized(win, false) }
+        }
+        saveNow()
+        reconcile()   // re-adopt every now-visible window of the app into the active workspace
         render()
     }
 
