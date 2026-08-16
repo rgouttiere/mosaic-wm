@@ -74,6 +74,29 @@ enum SelfTest {
             }
         }
 
+        // previewFrames: pure layout geometry (the exposé uses it for parked workspaces, whose
+        // real window frames are clamped off-screen). splitH halves width; splitV halves height,
+        // first child on top (Cocoa y grows up).
+        do {
+            let a = Container(layout: .splitH, children: [])
+            let b = Container(layout: .splitH, children: [])
+            let root = Container(layout: .splitH, children: [a, b])
+            let f = root.previewFrames(in: NSRect(x: 0, y: 0, width: 1000, height: 800))
+            h.eq(f[ObjectIdentifier(a)]?.width ?? -1, 500, "previewFrames: splitH child half width")
+            h.eq(f[ObjectIdentifier(a)]?.minX ?? -1, 0, "previewFrames: splitH first child at left")
+            h.eq(f[ObjectIdentifier(b)]?.minX ?? -1, 500, "previewFrames: splitH second child offset right")
+            h.eq(f[ObjectIdentifier(a)]?.height ?? -1, 800, "previewFrames: splitH keeps full height")
+        }
+        do {
+            let a = Container(layout: .splitH, children: [])
+            let b = Container(layout: .splitH, children: [])
+            let root = Container(layout: .splitV, children: [a, b])
+            let f = root.previewFrames(in: NSRect(x: 0, y: 0, width: 1000, height: 800))
+            h.eq(f[ObjectIdentifier(a)]?.minY ?? -1, 400, "previewFrames: splitV first child on top")
+            h.eq(f[ObjectIdentifier(b)]?.minY ?? -1, 0, "previewFrames: splitV second child on bottom")
+            h.eq(f[ObjectIdentifier(a)]?.height ?? -1, 400, "previewFrames: splitV half height")
+        }
+
         // parseWorkspaceMonitors: lenient like parseWorkspaceNames.
         do {
             let (map, issues) = Config.parseWorkspaceMonitors(["1": 1, "5": 2, "9": 3])

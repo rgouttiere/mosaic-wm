@@ -239,6 +239,45 @@ final class Container {
         }
     }
 
+    /// Pure geometry: the on-screen rect each node WOULD occupy if arranged in `rect`, recorded
+    /// by object identity, WITHOUT moving any window. The exposé uses this to preview a workspace
+    /// whose windows are parked off-screen — macOS clamps a parked window to a ~1px corner, so
+    /// reading its real frame loses the layout entirely. Mirrors `arrange`'s split/tabbed/stacked
+    /// geometry; ignores the constant gap/strip insets where they'd only shift a schematic tile
+    /// by a couple of pixels.
+    func previewFrames(in rect: NSRect) -> [ObjectIdentifier: NSRect] {
+        var out: [ObjectIdentifier: NSRect] = [:]
+        collectPreview(in: rect, into: &out)
+        return out
+    }
+
+    private func collectPreview(in rect: NSRect, into out: inout [ObjectIdentifier: NSRect]) {
+        out[ObjectIdentifier(self)] = rect
+        guard !isLeaf, !children.isEmpty else { return }
+        let r = ratios.count == children.count ? ratios : Container.equalRatios(children.count)
+        switch layout {
+        case .splitH:
+            var x = rect.minX
+            for (i, child) in children.enumerated() {
+                let w = rect.width * r[i]
+                child.collectPreview(in: NSRect(x: x, y: rect.minY, width: w, height: rect.height), into: &out)
+                x += w
+            }
+        case .splitV:
+            var y = rect.maxY
+            for (i, child) in children.enumerated() {
+                let h = rect.height * r[i]
+                child.collectPreview(in: NSRect(x: rect.minX, y: y - h, width: rect.width, height: h), into: &out)
+                y -= h
+            }
+        case .tabbed:
+            if children.count == 1 { children[0].collectPreview(in: rect, into: &out); return }
+            let stripH = stacked ? min(tabBarHeight * CGFloat(children.count), rect.height) : tabBarHeight
+            let content = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, rect.height - stripH))
+            for child in children { child.collectPreview(in: content, into: &out) }
+        }
+    }
+
     /// Horizontal tabs: one strip row; children fill the content below.
     private func arrangeTabbed(in rect: NSRect) {
         let bar = ensureTabBar()

@@ -184,19 +184,6 @@ final class WindowManager {
         return Geometry.parkRect(screenFrame: screen.frame, desktop: desktop.isNull ? screen.frame : desktop)
     }
 
-    /// Map a parked window's off-screen Cocoa frame back onto its home monitor, for the exposé
-    /// preview. `arrange` lays a tree out affinely within its rect, so a frame produced in
-    /// `parkRect` maps to where it WOULD sit on-screen by the affine `parkRect → layoutRect`
-    /// transform (exact up to the constant tab-strip/gap insets — fine for a schematic overview).
-    private func mapParkedFrame(_ cocoa: CGRect, home: NSScreen) -> CGRect {
-        let from = parkRect(for: home), to = layoutRect(home)
-        guard from.width > 0, from.height > 0 else { return cocoa }
-        let sx = to.width / from.width, sy = to.height / from.height
-        return CGRect(x: to.minX + (cocoa.minX - from.minX) * sx,
-                      y: to.minY + (cocoa.minY - from.minY) * sy,
-                      width: cocoa.width * sx, height: cocoa.height * sy)
-    }
-
     /// Park a workspace: lay its tree out off-screen. `arrange` moves both the windows and
     /// their tab-bar overlays (they're placed relative to the layout rect), so the whole
     /// workspace slides off the visible desktop with a single call — no per-window state. Falls
@@ -1604,35 +1591,32 @@ final class WindowManager {
         var wss: [ExposeWorkspace] = []
         for n in ordered {
             let sid = UInt64(n)
-            // Always place a workspace in ITS home monitor's column (even when parked), and map
-            // parked (off-screen) window frames back onto that monitor so tiles land in the box
-            // instead of scattering — otherwise the grid grouped every parked workspace under the
-            // invoked screen and the layout jumped around.
+            // Place every workspace in ITS home monitor's column, and compute tile geometry from
+            // the tree itself (a pure dry-run into the home monitor's layout rect) rather than
+            // reading window frames: a parked workspace's windows are clamped to a ~1px corner by
+            // macOS, so their real frames are useless — this shows the true layout regardless.
             let home = homeScreen(forWorkspace: n) ?? screen
             let wsScreen = home.frame
-            let parked = self.screen(forWorkspace: sid) == nil
-            let map: (CGRect) -> CGRect = parked
-                ? { [weak self] in self?.mapParkedFrame($0, home: home) ?? $0 }
-                : { $0 }
+            let frames = spaces[sid]?.root?.previewFrames(in: layoutRect(home)) ?? [:]
             var tiles: [ExposeTile] = []
             spaces[sid]?.root?.forEachTile { tile in
                 if tile.isLeaf {
                     guard let w = tile.window else { return }
                     if w.isFullscreen {
                         tiles.append(ExposeTile(frame: wsScreen, tabs: [ExposeTab(label: "⛶ \(w.title)", icon: w.app.icon, selected: true)]))
-                    } else if let f = w.frame {
-                        tiles.append(ExposeTile(frame: map(Geometry.flip(f)), tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true)]))
+                    } else if let f = frames[ObjectIdentifier(tile)] {
+                        tiles.append(ExposeTile(frame: f, tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true)]))
                     }
                 } else {
                     // Tabbed container → one tile with a tab per child (rep = child's first window).
                     let sel = min(max(tile.selected, 0), tile.children.count - 1)
                     guard tile.children.indices.contains(sel),
-                          let repFrame = tile.children[sel].firstLeaf().window?.frame else { return }
+                          let f = frames[ObjectIdentifier(tile)] else { return }
                     let tabs = tile.children.enumerated().map { i, c -> ExposeTab in
                         let w = c.firstLeaf().window
                         return ExposeTab(label: w?.title ?? "—", icon: w?.app.icon, selected: i == sel)
                     }
-                    tiles.append(ExposeTile(frame: map(Geometry.flip(repFrame)), tabs: tabs))
+                    tiles.append(ExposeTile(frame: f, tabs: tabs))
                 }
             }
             wss.append(ExposeWorkspace(
