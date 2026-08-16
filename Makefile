@@ -7,7 +7,7 @@ BIN := .build/$(CONFIG)/$(APP_NAME)
 SIGN_ID := Mosaic Self-Signed
 
 PREFIX ?= /usr/local
-.PHONY: build bundle run clean cert dist install-cli test
+.PHONY: build bundle run clean cert dist install-cli test spike
 
 ## Create the stable self-signed dev identity (run once).
 cert:
@@ -59,6 +59,20 @@ install-cli: bundle
 	@mkdir -p $(PREFIX)/bin
 	ln -sf "$(CURDIR)/$(BUNDLE)/Contents/MacOS/$(APP_NAME)" "$(PREFIX)/bin/mosaic"
 	@echo "Installed 'mosaic' → $(PREFIX)/bin/mosaic. Try: mosaic --list"
+
+## Build + sign + run the M0 emulated-workspace spike (THROWAWAY, v2-emulated).
+## Signed with the stable identity so the Accessibility grant survives rebuilds.
+## First run: grant Accessibility to the printed binary path, then re-run.
+spike:
+	swift build --product MosaicSpike
+	@if security find-certificate -c "$(SIGN_ID)" >/dev/null 2>&1; then \
+		codesign --force --sign "$(SIGN_ID)" .build/debug/MosaicSpike; \
+	else \
+		echo "WARNING: '$(SIGN_ID)' not found — run 'make cert' (grant will reset each build)."; \
+		codesign --force --sign - .build/debug/MosaicSpike; \
+	fi
+	@echo "Running spike ($(CURDIR)/.build/debug/MosaicSpike)"
+	.build/debug/MosaicSpike
 
 clean:
 	rm -rf .build $(BUNDLE) dist Mosaic.zip
