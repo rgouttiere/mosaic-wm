@@ -14,6 +14,7 @@ final class Config {
     var outerGap: CGFloat = 0     // margin between the tiling area and the screen edges
     var externalBarTop: CGFloat = 0  // px reserved at the top for an external bar (e.g. sketchybar)
     var workspaceNames: [Int: String] = [:]  // optional i3-style labels: workspace number → name
+    var workspaceMonitors: [Int: Int] = [:]  // optional override: workspace number → monitor index (1-based, left→right)
     var focusPulseWidth: CGFloat = 5   // px added to the focus border at the peak of the switch pulse (0 = off)
     var focusPulseDuration: Double = 0.38   // seconds the focus pulse takes to fade out
     var exposeDim: Double = 0.7   // exposé backdrop opacity (0 = transparent, 1 = opaque black)
@@ -144,6 +145,7 @@ final class Config {
         var outerGap: Double?
         var externalBarTop: Double?
         var workspaceNames: [String: String]?
+        var workspaceMonitors: [String: Int]?
         var focusPulseWidth: Double?
         var focusPulseDuration: Double?
         var exposeDim: Double?
@@ -184,7 +186,7 @@ final class Config {
         /// Explicit keys (a custom `init(from:)` suppresses synthesis). `decodeIssues` is not a
         /// config key — it's populated by the initializer, never decoded.
         private enum CodingKeys: String, CodingKey {
-            case gap, outerGap, externalBarTop, workspaceNames, focusPulseWidth, focusPulseDuration
+            case gap, outerGap, externalBarTop, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration
             case exposeDim, exposeSwitch, exposeAllScreens, focusSync, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
             case onWorkspaceChange, borderEnabled, borderColor, borderWidth, borderCornerRadius
@@ -209,6 +211,7 @@ final class Config {
             outerGap = v(.outerGap)
             externalBarTop = v(.externalBarTop)
             workspaceNames = v(.workspaceNames)
+            workspaceMonitors = v(.workspaceMonitors)
             focusPulseWidth = v(.focusPulseWidth)
             focusPulseDuration = v(.focusPulseDuration)
             exposeDim = v(.exposeDim)
@@ -272,6 +275,28 @@ final class Config {
         return (names, issues)
     }
 
+    /// Parse the `workspaceMonitors` map (workspace number → 1-based monitor index). Same
+    /// lenient rules as `parseWorkspaceNames`: keys outside 1…9 or collisions are dropped and
+    /// surfaced. A non-positive monitor index is dropped too. Pure + static → unit-testable.
+    static func parseWorkspaceMonitors(_ wm: [String: Int]) -> (map: [Int: Int], issues: [String]) {
+        var map: [Int: Int] = [:]
+        var issues: [String] = []
+        for (key, value) in wm {
+            guard let n = Int(key) else { continue }
+            guard (1...9).contains(n) else {
+                issues.append("workspaceMonitors: “\(key)” is outside 1…9 — ignored"); continue
+            }
+            guard value >= 1 else {
+                issues.append("workspaceMonitors: monitor index \(value) for workspace \(n) must be ≥ 1 — ignored"); continue
+            }
+            if map[n] != nil {
+                issues.append("workspaceMonitors: duplicate key for workspace \(n) — keeping \(value)")
+            }
+            map[n] = value
+        }
+        return (map, issues)
+    }
+
     func load() {
         // Reset to defaults first so a reload also reflects keys/bindings removed from
         // the file (not just overrides).
@@ -279,6 +304,7 @@ final class Config {
         outerGap = 0
         externalBarTop = 0
         workspaceNames = [:]
+        workspaceMonitors = [:]
         focusPulseWidth = 5
         focusPulseDuration = 0.38
         exposeDim = 0.7
@@ -326,7 +352,7 @@ final class Config {
         }
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
-            "gap", "outerGap", "externalBarTop", "workspaceNames", "focusPulseWidth", "focusPulseDuration",
+            "gap", "outerGap", "externalBarTop", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "focusSync", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
@@ -367,6 +393,11 @@ final class Config {
         if let wn = file.workspaceNames {
             let parsed = Config.parseWorkspaceNames(wn)
             workspaceNames = parsed.names
+            loadIssues.append(contentsOf: parsed.issues)
+        }
+        if let wm = file.workspaceMonitors {
+            let parsed = Config.parseWorkspaceMonitors(wm)
+            workspaceMonitors = parsed.map
             loadIssues.append(contentsOf: parsed.issues)
         }
         if let t = file.tabBarHeight { tabBarHeight = CGFloat(t) }

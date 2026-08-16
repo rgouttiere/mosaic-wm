@@ -52,6 +52,44 @@ enum SelfTest {
         let parkedRight = Geometry.parkRect(screenFrame: main, desktop: desktop)
         h.check(parkedRight.minX >= desktop.maxX, "parkRect: multi-screen park clears the right of the union")
         h.check(parkedRight.maxY <= desktop.minY, "parkRect: multi-screen park clears the bottom of the union")
+
+        // Workspace→monitor partition (model A): 1...9 split into contiguous even-ish blocks.
+        // 1 monitor → everything on monitor 0.
+        for n in 1...9 { h.eq(WindowManager.monitorBlock(forWorkspace: n, monitorCount: 1), 0, "block: 1 monitor → 0 (ws \(n))") }
+        // 3 monitors → 1-3 | 4-6 | 7-9.
+        h.eq(WindowManager.monitorBlock(forWorkspace: 1, monitorCount: 3), 0, "block: 3 mon, ws1 → 0")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 3, monitorCount: 3), 0, "block: 3 mon, ws3 → 0")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 4, monitorCount: 3), 1, "block: 3 mon, ws4 → 1")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 6, monitorCount: 3), 1, "block: 3 mon, ws6 → 1")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 7, monitorCount: 3), 2, "block: 3 mon, ws7 → 2")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 9, monitorCount: 3), 2, "block: 3 mon, ws9 → 2")
+        // 2 monitors → 1-5 | 6-9 (remainder goes to the first monitor).
+        h.eq(WindowManager.monitorBlock(forWorkspace: 5, monitorCount: 2), 0, "block: 2 mon, ws5 → 0")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 6, monitorCount: 2), 1, "block: 2 mon, ws6 → 1")
+        // Every workspace maps to a valid monitor index for any plausible monitor count.
+        for count in 1...9 {
+            for n in 1...9 {
+                let b = WindowManager.monitorBlock(forWorkspace: n, monitorCount: count)
+                h.check(b >= 0 && b < count, "block: in range (count \(count), ws \(n) → \(b))")
+            }
+        }
+
+        // parseWorkspaceMonitors: lenient like parseWorkspaceNames.
+        do {
+            let (map, issues) = Config.parseWorkspaceMonitors(["1": 1, "5": 2, "9": 3])
+            h.eq(map, [1: 1, 5: 2, 9: 3], "wsMonitors: valid")
+            h.check(issues.isEmpty, "wsMonitors: valid → no issues")
+        }
+        do {
+            let (map, issues) = Config.parseWorkspaceMonitors(["0": 1, "10": 2, "3": 2])  // out of range dropped
+            h.eq(map, [3: 2], "wsMonitors: out-of-range dropped")
+            h.eq(issues.count, 2, "wsMonitors: out-of-range reported")
+        }
+        do {
+            let (map, issues) = Config.parseWorkspaceMonitors(["2": 0])  // monitor index must be ≥ 1
+            h.check(map.isEmpty, "wsMonitors: non-positive index dropped")
+            h.eq(issues.count, 1, "wsMonitors: non-positive index reported")
+        }
     }
 
     // MARK: - Container: layout-tree invariants

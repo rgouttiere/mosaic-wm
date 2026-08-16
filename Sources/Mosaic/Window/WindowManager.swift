@@ -119,13 +119,55 @@ final class WindowManager {
         shownOnDisplay[displayID(of: screen)]
     }
 
-    /// The default workspace number for a freshly-managed monitor: its 1-based index among
-    /// the present screens, ordered left→right. Gives each monitor a distinct starting
-    /// workspace (1 on the primary, 2 on the next, …) so two monitors never fight over one.
+    // MARK: Workspace ↔ monitor assignment (model A: global 1-9, each pinned to a monitor)
+
+    /// Present monitors ordered left→right by frame x. The basis for the workspace→monitor
+    /// partition, so the assignment is deterministic and recomputes on dock/undock.
+    private func orderedDisplays() -> [CGDirectDisplayID] {
+        NSScreen.screens.sorted { $0.frame.minX < $1.frame.minX }.map(displayID(of:))
+    }
+
+    /// The monitor workspace `n` (1-9) is pinned to, among the CURRENTLY PRESENT monitors.
+    /// Default: the nine workspaces split into contiguous blocks left→right, as even as
+    /// possible (3 monitors → 1-3 | 4-6 | 7-9; 2 monitors → 1-5 | 6-9; 1 monitor → all). A
+    /// config override (`workspaceMonitors: {"5": 2}`) pins a workspace to a monitor index
+    /// (1-based, left→right). Because it's computed from present monitors, unplugging a display
+    /// re-partitions the numbers over what's left — the emulated answer to home↔office.
+    private func assignedDisplay(forWorkspace n: Int) -> CGDirectDisplayID? {
+        let displays = orderedDisplays()
+        guard !displays.isEmpty, n >= 1, n <= 9 else { return displays.first }
+        if let idx = Config.shared.workspaceMonitors[n], idx >= 1, idx <= displays.count {
+            return displays[idx - 1]
+        }
+        return displays[WindowManager.monitorBlock(forWorkspace: n, monitorCount: displays.count)]
+    }
+
+    /// Pure: which 0-based monitor (left→right) workspace `n` (1-9) falls into when the nine
+    /// workspaces are split into `monitorCount` contiguous, as-even-as-possible blocks — the
+    /// first `9 % monitorCount` monitors get one extra. (1 mon → all 0; 3 → 1-3|4-6|7-9; 2 →
+    /// 1-5|6-9.) Clamped to a valid index. Unit-tested.
+    static func monitorBlock(forWorkspace n: Int, monitorCount: Int) -> Int {
+        guard monitorCount > 1 else { return 0 }
+        let per = 9 / monitorCount, remainder = 9 % monitorCount
+        var start = 1
+        for i in 0..<monitorCount {
+            let size = per + (i < remainder ? 1 : 0)
+            if n >= start && n < start + size { return i }
+            start += size
+        }
+        return monitorCount - 1
+    }
+
+    /// The screen workspace `n` is pinned to (its home monitor), if present.
+    private func homeScreen(forWorkspace n: Int) -> NSScreen? {
+        assignedDisplay(forWorkspace: n).flatMap(screen(forDisplayID:))
+    }
+
+    /// The default workspace to show when a monitor is first visited: the lowest-numbered
+    /// workspace pinned to it (left monitor → 1, middle → 4, right → 7 on a triple-screen).
     private func defaultWorkspaceNumber(for screen: NSScreen) -> Int {
-        let ordered = NSScreen.screens.sorted { $0.frame.minX < $1.frame.minX }
         let did = displayID(of: screen)
-        return (ordered.firstIndex { displayID(of: $0) == did } ?? 0) + 1
+        return (1...9).first { assignedDisplay(forWorkspace: $0) == did } ?? 1
     }
 
     /// Cocoa rect a parked workspace is laid out in — off the visible desktop (see
@@ -137,10 +179,13 @@ final class WindowManager {
 
     /// Park a workspace: lay its tree out off-screen. `arrange` moves both the windows and
     /// their tab-bar overlays (they're placed relative to the layout rect), so the whole
-    /// workspace slides off the visible desktop with a single call — no per-window state.
-    /// Skips a workspace with no root or no home monitor (nothing to hide).
+    /// workspace slides off the visible desktop with a single call — no per-window state. Falls
+    /// back to any present screen's park rect when the workspace has no home monitor (they all
+    /// clear the desktop union), so a workspace orphaned by an undock still gets hidden.
     private func parkWorkspace(_ ws: SpaceState) {
-        guard let r = ws.root, let screen = screen(forDisplayID: ws.displayID) else { return }
+        guard let r = ws.root else { return }
+        guard let screen = screen(forDisplayID: ws.displayID) ?? screenUnderMouse() ?? NSScreen.screens.first
+        else { return }
         r.arrange(in: parkRect(for: screen))
     }
 
@@ -1432,28 +1477,28 @@ final class WindowManager {
 
     // MARK: - i3-style numbered workspaces (v2: emulated — park/unpark, no CGS)
 
-    /// Switch the monitor under the mouse to workspace `n` (1-9): park whatever workspace it
-    /// shows now off the visible desktop, then place workspace `n` on it (empty on first use,
-    /// or restored from disk). No macOS Space transition — two off-screen ↔ on-screen `arrange`
-    /// passes. Numbers are global: a workspace already placed on another monitor is taken from
-    /// there (two monitors can't show the same workspace — the AeroSpace rule).
+    /// Switch to workspace `n` (1-9) on ITS pinned monitor (model A): each workspace has a home
+    /// monitor, so ⌘⌥5 goes to whichever monitor workspace 5 belongs to, parks whatever that
+    /// monitor shows now, and places workspace 5 there (empty on first use, or restored from
+    /// disk) — then moves focus/cursor onto that monitor. No macOS Space transition, just two
+    /// off-screen ↔ on-screen `arrange` passes.
     func switchToWorkspace(_ n: Int) {
-        guard let screen = screenUnderMouse() else { return }
+        guard let screen = homeScreen(forWorkspace: n) ?? screenUnderMouse() else { return }
         let did = displayID(of: screen)
         let target = UInt64(n)
-        guard shownOnDisplay[did] != target else { return }   // already shown on this monitor
-
-        // Steal workspace n back if it's currently placed on another monitor.
-        if let otherDid = shownOnDisplay.first(where: { $0.value == target && $0.key != did })?.key {
-            if let ws = spaces[target] { parkWorkspace(ws) }
-            shownOnDisplay[otherDid] = nil
+        guard shownOnDisplay[did] != target else {   // already shown on its monitor → just retarget
+            activeSpaceID = target
+            warpMouseToWorkspace(target, on: screen)
+            updateFocusIndicator()
+            return
         }
-        // Park the outgoing workspace on this monitor.
+
+        // Park the outgoing workspace on the target monitor.
         focusIndicator.hide()
         if let outgoing = shownOnDisplay[did], let ws = spaces[outgoing] { parkWorkspace(ws) }
         scratchpadVisible = false
 
-        // Place workspace n on this monitor: restore from disk on first load, else unpark.
+        // Place workspace n on its monitor: restore from disk on first load, else unpark.
         shownOnDisplay[did] = target
         activeSpaceID = target
         if spaces[target] == nil, restoreSaved(target, on: screen) {
@@ -1701,7 +1746,10 @@ final class WindowManager {
     private func workspaceOffscreen(_ n: Int) -> SpaceState {
         let key = UInt64(n)
         if let ws = spaces[key] { return ws }
-        let s = SpaceState(displayID: screenUnderMouse().map(displayID(of:)) ?? 0)
+        // Home it on its pinned monitor (model A) so a parked destination parks on the right
+        // display; fall back to the mouse's monitor if that one isn't present.
+        let did = assignedDisplay(forWorkspace: n) ?? screenUnderMouse().map(displayID(of:)) ?? 0
+        let s = SpaceState(displayID: did)
         s.mode = defaultMode
         spaces[key] = s
         return s
