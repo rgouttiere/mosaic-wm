@@ -67,6 +67,13 @@ final class WindowManager {
     private var savedState: [UInt64: SavedSpace] = [:]
     private var saveWork: DispatchWorkItem?
 
+    /// Launch-time routing hints: for a short window after startup, a newly-appearing window
+    /// whose app matches a saved layout is sent to the workspace it was saved in, not the active
+    /// one — so apps that relaunch AFTER Mosaic (a full reboot) still land on the right workspace
+    /// instead of piling onto whatever's focused. Keyed by "bundleID\u{1}title" (strong) and
+    /// "bundleID" (fallback). Cleared a few seconds after launch. See `restoreSavedWorkspaces`.
+    private var restoreHints: [String: Int] = [:]
+
     /// The scratchpad app (by bundle id, persisted): all its windows stay out of tiling
     /// and are shown/hidden as a floating panel. Survives app/Mosaic relaunch.
     private var scratchpadBundleID: String?
@@ -251,6 +258,10 @@ final class WindowManager {
 
     func startObserving() {
         loadState()
+        restoreSavedWorkspaces()   // eager, BEFORE the timer can lazily restore just one
+        // Stop routing late-launching apps to their saved workspace after a grace window, so
+        // windows opened deliberately later go to the active workspace as normal.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.restoreHints.removeAll() }
         observer.onTitleChange = { [weak self] in self?.refreshVisibleTitles() }
         observer.onFocusChange = { [weak self] in self?.syncFocusToSystem() }
         observer.start()
@@ -838,6 +849,10 @@ final class WindowManager {
             placeOnWorkspace(window, n: ws)
             return
         }
+
+        // Launch restore: an app relaunching after a reboot goes back to the workspace it was
+        // saved in, not whatever's focused right now.
+        if routeByHint(window) { return }
 
         let leaf = Container(window: window)
         guard root != nil else { self.root = leaf; focused = leaf; return }
@@ -2365,6 +2380,79 @@ final class WindowManager {
         }
         scratchpadBundleID = state.scratchpadBundle
         NSLog("Mosaic: loaded \(savedState.count) saved workspace layout(s)")
+    }
+
+    /// Restore EVERY saved workspace at once, at launch. In the emulated model all windows share
+    /// one on-screen Space, so a lazy per-visit restore lets the first-visited workspace swallow
+    /// every other workspace's currently-open windows. Instead: build all saved trees from ONE
+    /// shared pool of open windows (each window matched to the workspace it was saved in), then
+    /// show the first non-empty workspace on each monitor and park the rest. Windows for apps
+    /// that haven't relaunched yet are simply absent from a tree and re-adopted by reconcile
+    /// later; windows opened since the save fall through to the active workspace as usual.
+    private func restoreSavedWorkspaces() {
+        guard !savedState.isEmpty else { return }
+        // Build launch routing hints from EVERY saved window first, so apps that relaunch after
+        // us (reboot) can still be routed to their workspace even though they're absent from the
+        // pool right now. Cleared a few seconds later (in startObserving).
+        for (id, saved) in savedState {
+            var wins: [SavedWindow] = []
+            flattenSaved(saved.tree, into: &wins)
+            for sw in wins {
+                guard let b = sw.bundleID else { continue }
+                if let t = sw.title { restoreHints["\(b)\u{1}\(t)"] = Int(id) }
+                restoreHints[b] = Int(id)   // weaker bundle-only fallback
+            }
+        }
+        var pool = AX.managedWindows().compactMap(ManagedWindow.init).filter {
+            !isFloating($0) && !$0.isFullscreen && $0.app.bundleIdentifier != scratchpadBundleID
+        }
+        for (id, saved) in savedState.sorted(by: { $0.key < $1.key }) {
+            guard let tree = saved.tree, let root = rebuild(tree, pool: &pool) else { continue }
+            let st = SpaceState(displayID: assignedDisplay(forWorkspace: Int(id)) ?? 0)
+            st.mode = mode(named: saved.mode)
+            st.root = root
+            st.focused = root.firstLeaf()
+            spaces[id] = st
+            wireTabCallbacks(root)
+        }
+        savedState.removeAll()   // consumed (matched windows removed from the pool)
+        observer.watchForClose(AX.managedWindows().compactMap(ManagedWindow.init))
+
+        // Show the first non-empty workspace pinned to each monitor (else its default); park all
+        // the others. This never leaves a monitor showing an empty workspace while a populated
+        // one it owns sits parked out of sight.
+        for scr in NSScreen.screens {
+            let did = displayID(of: scr)
+            let owned = (1...9).filter { assignedDisplay(forWorkspace: $0) == did }
+            let n = owned.first { spaces[UInt64($0)]?.root != nil } ?? defaultWorkspaceNumber(for: scr)
+            shownOnDisplay[did] = UInt64(n)
+            workspace(n, on: scr).displayID = did   // ensure it exists and is homed here
+        }
+        activeSpaceID = screenUnderMouse().flatMap { shownOnDisplay[displayID(of: $0)] }
+        reassertAllWorkspaces()
+        updateFocusIndicator()
+        if let scr = screenUnderMouse() { showWorkspaceIndicator(for: scr) }
+        NSLog("Mosaic: restored \(spaces.count) workspace(s) at launch")
+    }
+
+    /// Collect every leaf window of a saved tree (depth-first) — used to build launch hints.
+    private func flattenSaved(_ node: SavedNode?, into out: inout [SavedWindow]) {
+        guard let node else { return }
+        if let w = node.window { out.append(w); return }
+        for c in node.children ?? [] { flattenSaved(c, into: &out) }
+    }
+
+    /// If a just-appeared window matches a launch hint, route it to the workspace it was saved
+    /// in (creating/parking as needed) instead of the active one. Returns true if it was routed.
+    /// Consumes the hint so a second window of the same app doesn't chase it.
+    private func routeByHint(_ window: ManagedWindow) -> Bool {
+        guard !restoreHints.isEmpty, let b = window.app.bundleIdentifier else { return false }
+        let strong = "\(b)\u{1}\(window.title)"
+        guard let n = restoreHints[strong] ?? restoreHints[b], n >= 1, n <= 9,
+              UInt64(n) != activeSpaceID else { return false }
+        restoreHints[strong] = nil
+        placeOnWorkspace(window, n: n)
+        return true
     }
 
     /// Debounced save of all known layouts (live + not-yet-restored).
