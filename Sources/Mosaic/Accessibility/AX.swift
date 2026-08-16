@@ -90,6 +90,13 @@ enum AX {
         (copy(element, kAXMinimizedAttribute as String) as Bool?) ?? false
     }
 
+    /// Whether the window exposes a native full-screen button. Real app windows have one;
+    /// dialogs, palettes and settings panels usually don't — the AeroSpace heuristic for
+    /// "this isn't a tileable window". A nil button element means absent.
+    static func hasFullscreenButton(_ element: AXUIElement) -> Bool {
+        (copy(element, "AXFullScreenButton") as AXUIElement?) != nil
+    }
+
     // MARK: Window identity & visibility
 
     static func windowID(_ element: AXUIElement) -> CGWindowID? {

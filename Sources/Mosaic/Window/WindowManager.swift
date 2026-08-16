@@ -2673,10 +2673,28 @@ final class WindowManager {
     }
 
     private func isFloating(_ window: ManagedWindow) -> Bool {
+        // An explicit per-app rule wins both ways: float:true floats, float:false pins to tiling
+        // (overrides floatingApps AND the auto-dialog heuristic below).
+        if let ruled = ruleFor(window)?.float { return ruled }
         if floatingApps.contains(window.appName.lowercased()) { return true }
         if let bundle = window.app.bundleIdentifier?.lowercased(), floatingApps.contains(bundle) { return true }
-        if ruleFor(window)?.float == true { return true }
+        if Config.shared.autoFloatDialogs, isDialogLike(window) { return true }
         return false
+    }
+
+    /// Terminal bundle ids that mis-report as dialog-like (no full-screen button) but should
+    /// still tile — the AeroSpace exception. Extend via a `float:false` rule for others.
+    private static let terminalBundles: Set<String> = [
+        "org.alacritty", "io.alacritty", "com.github.wez.wezterm", "com.googlecode.iterm2",
+        "com.apple.terminal", "net.kovidgoyal.kitty", "dev.warp.warp-stable", "com.mitchellh.ghostty",
+    ]
+
+    /// Heuristic (AeroSpace): a standard-subrole window with no native full-screen button is
+    /// almost always a dialog / palette / settings panel — float it. Terminals are excepted
+    /// (they lack the button but should tile). Only consulted when `autoFloatDialogs` is on.
+    private func isDialogLike(_ window: ManagedWindow) -> Bool {
+        if let b = window.app.bundleIdentifier?.lowercased(), WindowManager.terminalBundles.contains(b) { return false }
+        return !AX.hasFullscreenButton(window.element)
     }
 
     private func clamp(_ v: CGFloat) -> CGFloat { min(0.9, max(0.1, v)) }

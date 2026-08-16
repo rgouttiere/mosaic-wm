@@ -30,6 +30,7 @@ final class Config {
     /// the mouse-follows model consistent → fewer stale-desktop refresh glitches).
     var warpMouseOnSwitch: Bool = true
     var ejectNativeFullscreen: Bool = false  // v2: send a managed window that enters native full screen back to windowed (strict emulated)
+    var autoFloatDialogs: Bool = false       // v2: auto-float standard windows with no full-screen button (dialogs/palettes), except terminals
     static let defaultFloatingApps: Set<String> = [
         "skitch", "shottr", "cleanshot", "cleanshot x", "monosnap", "snagit",
     ]
@@ -159,6 +160,7 @@ final class Config {
         var tabBarHeight: Double?
         var warpMouseOnSwitch: Bool?
         var ejectNativeFullscreen: Bool?
+        var autoFloatDialogs: Bool?
         var defaultMode: String?
         var floatingApps: [String]?
         var rules: [AppRule]?
@@ -191,7 +193,7 @@ final class Config {
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration
             case exposeDim, exposeSwitch, exposeAllScreens, focusSync, tabScrollCycle, switcherFadeIn, tabBarHeight
-            case warpMouseOnSwitch, ejectNativeFullscreen, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
+            case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
             case onWorkspaceChange, borderEnabled, borderColor, borderWidth, borderCornerRadius
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
@@ -226,6 +228,7 @@ final class Config {
             tabBarHeight = v(.tabBarHeight)
             warpMouseOnSwitch = v(.warpMouseOnSwitch)
             ejectNativeFullscreen = v(.ejectNativeFullscreen)
+            autoFloatDialogs = v(.autoFloatDialogs)
             defaultMode = v(.defaultMode)
             floatingApps = v(.floatingApps)
             rules = v(.rules)
@@ -321,6 +324,7 @@ final class Config {
         defaultMode = "columns"
         warpMouseOnSwitch = true
         ejectNativeFullscreen = false
+        autoFloatDialogs = false
         floatingApps = Config.defaultFloatingApps
         rules = []
         showWorkspaceHUD = true
@@ -359,7 +363,7 @@ final class Config {
         let known: Set<String> = [
             "gap", "outerGap", "externalBarTop", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "focusSync", "tabScrollCycle", "switcherFadeIn",
-            "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "defaultMode",
+            "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
             "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
@@ -408,6 +412,7 @@ final class Config {
         if let t = file.tabBarHeight { tabBarHeight = CGFloat(t) }
         if let w = file.warpMouseOnSwitch { warpMouseOnSwitch = w }
         if let b = file.ejectNativeFullscreen { ejectNativeFullscreen = b }
+        if let b = file.autoFloatDialogs { autoFloatDialogs = b }
         if let m = file.defaultMode { defaultMode = m }
         if let f = file.floatingApps { floatingApps = Set(f.map { $0.lowercased() }) }
         if let r = file.rules { rules = r }
