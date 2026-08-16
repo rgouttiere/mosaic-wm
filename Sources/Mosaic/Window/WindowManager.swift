@@ -540,7 +540,27 @@ final class WindowManager {
         guard !suspended else { return }
         checkSpaceChange()
         enforceFullscreenRules()
+        enforceEmulatedFullscreen()
         reconcile()
+    }
+
+    /// Global "strict emulated" eject (opt-in `ejectNativeFullscreen`): a MANAGED window that
+    /// enters native macOS full screen escapes onto its own Space, out of the emulated
+    /// workspace. When enabled, send it back to windowed so it stays tiled. Apps a per-app rule
+    /// pins to `fullscreen: true` are left alone. OFF by default — native full screen otherwise
+    /// degrades gracefully (the tile keeps its slot and reclaims it on exit), and the non-native
+    /// "maximize" is the monocle zoom (⌘⌥Return). Zero cost when off.
+    private func enforceEmulatedFullscreen() {
+        guard Config.shared.ejectNativeFullscreen else { return }
+        let allowed = Config.shared.rules.filter { $0.fullscreen == true }.map { $0.app.lowercased() }
+        for ws in spaces.values {
+            ws.root?.forEachLeaf { leaf in
+                guard let w = leaf.window, w.isFullscreen else { return }
+                let name = w.appName.lowercased(), bundle = (w.app.bundleIdentifier ?? "").lowercased()
+                if allowed.contains(where: { name.contains($0) || bundle.contains($0) }) { return }
+                AX.setFullscreen(w.element, false)   // back to windowed → stays in its tile
+            }
+        }
     }
 
     /// Windows we've already applied an on-open `fullscreen` rule to, so we set the state
