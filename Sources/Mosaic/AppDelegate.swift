@@ -180,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("scratchpad-toggle", "Toggle scratchpad", #selector(scratchpadToggle)),
             ("scratchpad-release", "Release scratchpad", #selector(scratchpadRelease)),
             ("recover", "Recover windows (heal)", #selector(recoverWindows)),
+            ("dump-layout", "Dump layout (debug → /tmp/mosaic-dump.txt)", #selector(dumpLayout)),
         ]
         for entry in clickable2 {
             let combo = MenuFormat.combo(bindings[entry.action])

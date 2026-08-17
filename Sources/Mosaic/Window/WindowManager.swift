@@ -2433,20 +2433,38 @@ final class WindowManager {
     /// /tmp/mosaic-dump.txt for diagnostics.
     func dumpLayout() {
         var out = "=== Mosaic layout dump ===\n"
-        out += "activeSpaceID=\(activeSpaceID.map(String.init) ?? "nil")  screens=\(NSScreen.screens.count)  suspended=\(suspended)\n\n"
+        out += "activeSpaceID=\(activeSpaceID.map(String.init) ?? "nil")  screens=\(NSScreen.screens.count)  suspended=\(suspended)\n"
+        for scr in NSScreen.screens {
+            out += "  monitor \(displayID(of: scr)) frame=\(rectStr(scr.frame)) visible=\(rectStr(scr.visibleFrame)) shows=\(shownOnDisplay[displayID(of: scr)].map(String.init) ?? "—")\n"
+        }
+        let screenFrames = NSScreen.screens.map { $0.frame }
+        let onScreen = AX.onScreenWindowIDs()
+        out += "\n"
         for (id, st) in spaces.sorted(by: { $0.key < $1.key }) {
             let scr = screen(forDisplayID: st.displayID)
-            out += "SPACE \(id)  display=\(st.displayID) (\(scr != nil ? "present" : "MISSING"))  mode=\(modeName(st.mode))  zoom=\(st.isZoomed)\n"
-            out += st.root?.dump(1, focused: st.focused) ?? "  (empty)\n"
+            let state = screen(forWorkspace: id) != nil ? "SHOWN" : "PARKED"
+            out += "WORKSPACE \(id) [\(state)]  homeDisplay=\(st.displayID) (\(scr != nil ? "present" : "MISSING"))  mode=\(modeName(st.mode))\n"
+            st.root?.forEachLeaf { leaf in
+                guard let w = leaf.window else { out += "    (dead leaf)\n"; return }
+                let id = w.lastKnownID ?? AX.windowID(w.element)
+                let f = w.frame.map { Geometry.flip($0) }   // Cocoa
+                let visible = f.map { rect in screenFrames.contains { $0.intersects(rect) } } ?? false
+                let onScr = id.map { onScreen.contains($0) } ?? false
+                out += "    \(w.appName.prefix(16).padding(toLength: 16, withPad: " ", startingAt: 0)) wid=\(id.map(String.init) ?? "nil")  frame=\(f.map(rectStr) ?? "nil")  intersectsScreen=\(visible)  cgOnScreen=\(onScr)\n"
+            }
+            if st.root == nil { out += "    (empty)\n" }
             out += "\n"
         }
         out += "--- visible tab bars (\(TabBarWindow.registry.allObjects.filter { $0.isVisible }.count)) ---\n"
         for bar in TabBarWindow.registry.allObjects where bar.isVisible {
-            let f = bar.frame
-            out += "  frame=(\(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))×\(Int(f.height)))\n"
+            out += "  frame=\(rectStr(bar.frame))\n"
         }
         try? out.write(to: URL(fileURLWithPath: "/tmp/mosaic-dump.txt"), atomically: true, encoding: .utf8)
         NSLog("Mosaic: layout dumped to /tmp/mosaic-dump.txt")
+    }
+
+    private func rectStr(_ r: CGRect) -> String {
+        "(\(Int(r.minX)),\(Int(r.minY)) \(Int(r.width))×\(Int(r.height)))"
     }
 
     private func sweepOrphanStrips() {
