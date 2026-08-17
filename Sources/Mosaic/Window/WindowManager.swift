@@ -41,6 +41,15 @@ final class WindowManager {
     private var shownOnDisplay: [CGDirectDisplayID: UInt64] = [:]
     private(set) var manageAll = false
 
+    /// Workspaces with unseen activity while PARKED (a parked window's title changed — a chat's
+    /// unread counter, a build finishing…). Published in status.json so an external bar can badge
+    /// the pill. Cleared when the user actually visits the workspace. Only the emulated model makes
+    /// this possible: parked windows still live on the one Space, so their AX titles stay readable.
+    private var attentionWorkspaces: Set<Int> = []
+    /// Last title we saw per managed window — the baseline `scanAttention` diffs against. Keyed by
+    /// window identity (a stable class ref while it's managed).
+    private var titleSnapshot: [ObjectIdentifier: String] = [:]
+
     private var floatingApps: Set<String> = Config.shared.floatingApps
 
     /// Initial build strategy from config (falls back to columns).
@@ -283,7 +292,7 @@ final class WindowManager {
         // Stop routing late-launching apps to their saved workspace after a grace window, so
         // windows opened deliberately later go to the active workspace as normal.
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.restoreHints.removeAll() }
-        observer.onTitleChange = { [weak self] in self?.refreshVisibleTitles() }
+        observer.onTitleChange = { [weak self] in self?.refreshVisibleTitles(); self?.scanAttention() }
         observer.onFocusChange = { [weak self] in self?.syncFocusToSystem() }
         observer.start()
         // Poll which monitor the mouse is on so the active workspace follows it (the emulated
@@ -1433,6 +1442,47 @@ final class WindowManager {
         }
     }
 
+    /// Diff every managed window's title against its snapshot. A change on a window whose workspace
+    /// is PARKED flags that workspace for attention (a chat message arrived, a task finished). A
+    /// change on a SHOWN workspace only refreshes the baseline — the user is already looking at it,
+    /// and a fresh baseline means the FIRST change after it parks is caught. Rising-edge only: the
+    /// hook fires once per attention episode, not per title tick. Runs on the (debounced) title-
+    /// change event, so it costs a cheap AX title read per window at most a few times a second.
+    private func scanAttention() {
+        var changed = false
+        var live = Set<ObjectIdentifier>()
+        for (id, ws) in spaces {
+            guard let n = workspaceNumber(for: id), let r = ws.root else { continue }
+            let parked = screen(forWorkspace: id) == nil
+            if !parked, attentionWorkspaces.remove(n) != nil { changed = true }   // shown → seen
+            r.forEachLeaf { leaf in
+                guard let w = leaf.window else { return }
+                let key = ObjectIdentifier(w)
+                live.insert(key)
+                let previous = titleSnapshot.updateValue(w.title, forKey: key)
+                if parked, let previous, previous != w.title,
+                   attentionWorkspaces.insert(n).inserted { changed = true }
+            }
+        }
+        // Drop snapshots for windows that are gone, so the map stays bounded to live windows (and a
+        // reused object address can't false-match a stale title).
+        if titleSnapshot.count > live.count { titleSnapshot = titleSnapshot.filter { live.contains($0.key) } }
+        if changed { publishAttention() }
+    }
+
+    /// Drop a workspace's attention flag because the user is now looking at it. Cheap no-op if it
+    /// wasn't flagged. Called from the switch path so the badge clears the instant you visit.
+    private func clearAttention(_ n: Int) {
+        if attentionWorkspaces.remove(n) != nil { publishAttention() }
+    }
+
+    /// Re-publish status.json and poke the external bar after the attention set changed.
+    private func publishAttention() {
+        let focused = screenUnderMouse().flatMap { currentWorkspace(for: $0) }.flatMap { workspaceNumber(for: $0) }
+        writeStatusFile(focused: focused)
+        runWorkspaceHook(focused)
+    }
+
     /// Purge dead leaves (and adopt same-app replacements) on a Space that is VISIBLE on a
     /// secondary monitor but is NOT the active one. `reconcile()` only runs on the active
     /// Space, so a window that closed on another monitor while focus was elsewhere — e.g.
@@ -1594,6 +1644,7 @@ final class WindowManager {
         // Place workspace n on its monitor: restore from disk on first load, else unpark.
         shownOnDisplay[did] = target
         activeSpaceID = target
+        clearAttention(n)   // visiting it dismisses its badge
         if spaces[target] == nil, restoreSaved(target, on: screen) {
             // restoreSaved built the tree, set focus, and rendered it on-screen
         } else {
@@ -1964,6 +2015,7 @@ final class WindowManager {
             "workspaces": numbers.sorted(),
             "workspaceNames": names,
             "workspaceDisplays": wsDisplays,
+            "attention": attentionWorkspaces.sorted(),   // parked workspaces with unseen activity
             "monitors": monitors,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict,
