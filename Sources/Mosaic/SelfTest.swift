@@ -36,24 +36,41 @@ enum SelfTest {
     // MARK: - Geometry: emulated-workspace parking (v2)
 
     private static func windowManagerTests(_ h: Harness) {
-        // A parked workspace is the on-screen layout rect shifted off the desktop's RIGHT edge:
-        // same size and same Y (a pure horizontal translation, so windows never resize), only X
-        // pushed past every screen. The remaining sliver lands on the far right, clear of a Dock.
+        // A parked workspace is the on-screen layout rect pushed off ITS OWN home monitor's void-
+        // facing edge — never onto a neighbour — so size is always preserved (no cross-resolution
+        // clamp) and the strip lands on that same monitor.
         let layout = CGRect(x: 10, y: 40, width: 1490, height: 900)   // an on-screen tiling rect
         let main = CGRect(x: 0, y: 0, width: 1512, height: 982)
-        let parked = Geometry.parkRect(layoutRect: layout, desktop: main)
+        // Single monitor: void on both sides → push off the right edge, size preserved.
+        let parked = Geometry.parkRect(layoutRect: layout, screenFrame: main, desktop: main)
         h.eq(parked.width, layout.width, "parkRect: width preserved (pure translation)")
         h.eq(parked.height, layout.height, "parkRect: height preserved (no vertical clamp)")
         h.eq(parked.minY, layout.minY, "parkRect: Y unchanged → window keeps its exact height")
-        h.check(parked.minX >= main.maxX, "parkRect: entirely off the right edge")
+        h.check(parked.minX >= main.maxX, "parkRect: single monitor parks off its right edge")
 
-        // Two side-by-side screens: parking must clear the RIGHTMOST screen's right edge so no
-        // sliver shows on any monitor; Y still preserved.
-        let leftScreen = CGRect(x: -1512, y: -200, width: 1512, height: 1182)
-        let desktop = leftScreen.union(main)
-        let parkedRight = Geometry.parkRect(layoutRect: layout, desktop: desktop)
-        h.check(parkedRight.minX >= desktop.maxX, "parkRect: multi-screen park clears the union's right edge")
-        h.eq(parkedRight.minY, layout.minY, "parkRect: multi-screen keeps Y (no resize)")
+        // Three monitors in a row. The INTERIOR (centre) monitor has neighbours on both sides, so a
+        // horizontal push would land a foreign-sized window on a neighbour (the 1080p-clamp bug).
+        // It must push straight DOWN off its own bottom edge instead — X/width/Y-height unchanged.
+        let leftScreen  = CGRect(x: -1512, y: 0, width: 1512, height: 982)
+        let centre      = main                                          // 0..1512, the interior one
+        let rightScreen = CGRect(x: 1512, y: 0, width: 1920, height: 1080)
+        let desktop = leftScreen.union(centre).union(rightScreen)
+        let centreLayout = CGRect(x: 10, y: 40, width: 1490, height: 900)
+        let parkedCentre = Geometry.parkRect(layoutRect: centreLayout, screenFrame: centre, desktop: desktop)
+        h.eq(parkedCentre.minX, centreLayout.minX, "parkRect: interior monitor keeps X (no sideways clamp onto a neighbour)")
+        h.eq(parkedCentre.width, centreLayout.width, "parkRect: interior monitor keeps width")
+        h.eq(parkedCentre.height, centreLayout.height, "parkRect: interior monitor keeps height (down push, not corner)")
+        h.check(parkedCentre.maxY <= centre.minY + 1, "parkRect: interior monitor parks below its own bottom edge")
+        // The rightmost monitor pushes off its own right edge (its width, not the desktop's).
+        let rightLayout = CGRect(x: 1522, y: 40, width: 1900, height: 1000)
+        let parkedRight = Geometry.parkRect(layoutRect: rightLayout, screenFrame: rightScreen, desktop: desktop)
+        h.check(parkedRight.minX >= rightScreen.maxX, "parkRect: rightmost monitor parks off its own right edge")
+        h.eq(parkedRight.minY, rightLayout.minY, "parkRect: rightmost monitor keeps Y (no resize)")
+        // The leftmost monitor pushes off its own left edge (into the void on the left).
+        let leftLayout = CGRect(x: -1502, y: 40, width: 1490, height: 900)
+        let parkedLeft = Geometry.parkRect(layoutRect: leftLayout, screenFrame: leftScreen, desktop: desktop)
+        h.check(parkedLeft.maxX <= leftScreen.minX + 1, "parkRect: leftmost monitor parks off its own left edge")
+        h.eq(parkedLeft.minY, leftLayout.minY, "parkRect: leftmost monitor keeps Y (no resize)")
 
         // Workspace→monitor partition (model A): 1...9 split into contiguous even-ish blocks.
         // 1 monitor → everything on monitor 0.

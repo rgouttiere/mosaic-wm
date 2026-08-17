@@ -180,22 +180,24 @@ final class WindowManager {
         return (1...9).first { assignedDisplay(forWorkspace: $0) == did } ?? 1
     }
 
-    /// Cocoa rect a parked workspace is laid out in — the screen's ON-SCREEN tiling rect shifted
-    /// off the desktop's right edge (see `Geometry.parkRect`). Using `layoutRect(screen)` (the
-    /// exact rect unpark uses) makes park a pure translation: no resize, so windows never come
-    /// back shorter.
+    /// Cocoa rect a parked workspace is laid out in — the screen's ON-SCREEN tiling rect pushed off
+    /// its OWN home monitor's void-facing edge (see `Geometry.parkRect`). Using `layoutRect(screen)`
+    /// (the exact rect unpark restores) makes park a pure translation on that monitor: no cross-
+    /// resolution clamp, so windows never come back resized, and the strip stays on the home screen.
     private func parkRect(for screen: NSScreen) -> NSRect {
         let desktop = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
-        return Geometry.parkRect(layoutRect: layoutRect(screen), desktop: desktop.isNull ? screen.frame : desktop)
+        return Geometry.parkRect(layoutRect: layoutRect(screen),
+                                 screenFrame: screen.frame,
+                                 desktop: desktop.isNull ? screen.frame : desktop)
     }
 
-    /// Park a workspace: lay its tree off the desktop's right edge. macOS keeps a ~40px strip on
-    /// screen (it won't fully off-screen a window) and cross-app CGS alpha is blocked on recent
-    /// macOS, so neither position nor transparency can hide that strip. Instead we let it land on
-    /// the right edge of the rightmost monitor and keep the SHOWN tiling on top of it (see
-    /// `coverParkedSlivers`) — animation-free, and the strip disappears behind the visible windows
-    /// that fill that monitor. (Set `externalBarTop:0` if you don't run an external bar, so the
-    /// shown tiling reaches the very top edge and nothing peeks.)
+    /// Park a workspace: lay its tree off its OWN home monitor's void-facing edge. macOS keeps a
+    /// ~40px strip on screen (it won't fully off-screen a window) and cross-app CGS alpha is blocked
+    /// on recent macOS, so neither position nor transparency can hide that strip. Keeping the push
+    /// on the home monitor means (a) no cross-resolution clamp, so windows never come back resized,
+    /// and (b) the strip stays on that monitor's outer edge, mostly behind the SHOWN tiling (see
+    /// `coverParkedSlivers`) — animation-free. (Set `externalBarTop:0` and a small `outerGap` so the
+    /// shown tiling reaches the screen edge and covers as much of the strip as possible.)
     private func parkWorkspace(_ ws: SpaceState) {
         guard let r = ws.root else { return }
         guard let screen = screen(forDisplayID: ws.displayID) ?? screenUnderMouse() ?? NSScreen.screens.first
