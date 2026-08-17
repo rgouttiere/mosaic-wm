@@ -189,31 +189,39 @@ final class WindowManager {
         return Geometry.parkRect(layoutRect: layoutRect(screen), desktop: desktop.isNull ? screen.frame : desktop)
     }
 
-    /// Park a workspace: MINIMIZE its windows (to the Dock), then lay the tree off-screen.
-    /// macOS never lets a window go *fully* off-screen — it always keeps a ~40px strip, and how
-    /// big/where depends on the monitor geometry — and cross-app CGS window alpha (which could
-    /// hide that strip) is blocked on recent macOS. So the reliable full hide with SIP enabled is
-    /// a real minimize (the same thing the scratchpad does): the window genies to the Dock, fully
-    /// gone and still findable there. The off-screen `arrange` still runs afterward — it moves the
-    /// tab-bar overlays out of sight and off-screens any window that *refused* to minimize (a rare
-    /// app), so that one at least degrades to the old sliver instead of overlapping the tiles.
+    /// Park a workspace: lay its tree off the desktop's right edge. macOS keeps a ~40px strip on
+    /// screen (it won't fully off-screen a window) and cross-app CGS alpha is blocked on recent
+    /// macOS, so neither position nor transparency can hide that strip. Instead we let it land on
+    /// the right edge of the rightmost monitor and keep the SHOWN tiling on top of it (see
+    /// `coverParkedSlivers`) — animation-free, and the strip disappears behind the visible windows
+    /// that fill that monitor. (Set `externalBarTop:0` if you don't run an external bar, so the
+    /// shown tiling reaches the very top edge and nothing peeks.)
     private func parkWorkspace(_ ws: SpaceState) {
         guard let r = ws.root else { return }
         guard let screen = screen(forDisplayID: ws.displayID) ?? screenUnderMouse() ?? NSScreen.screens.first
         else { return }
-        r.forEachLeaf { if let w = $0.window { AX.setMinimized(w.element, true) } }
         r.arrange(in: parkRect(for: screen))
     }
 
-    /// Unpark a workspace onto `screen`: un-minimize its windows, lay the tree on-screen, and
-    /// lift its windows and strips above unmanaged windows. `setCocoaFrame`'s cache skips windows
-    /// already at their on-screen frame, so an unpark right after a park only pays for what moved.
+    /// Unpark a workspace onto `screen`: un-minimize (in case a window was minimized — by the
+    /// user, or a previous build), lay the tree on-screen, and lift its windows and strips above
+    /// unmanaged windows. `setCocoaFrame`'s cache skips windows already at their on-screen frame.
     private func unparkWorkspace(_ ws: SpaceState, on screen: NSScreen) {
         guard let r = ws.root else { return }
-        r.forEachLeaf { if let w = $0.window { AX.setMinimized(w.element, false) } }
+        r.forEachLeaf { if let w = $0.window, AX.isMinimized(w.element) { AX.setMinimized(w.element, false) } }
         r.arrange(in: layoutRect(screen))
         r.raiseVisibleWindows()
         r.raiseVisibleStrips()
+    }
+
+    /// Raise every SHOWN workspace's windows so they sit above the parked workspaces' off-screen
+    /// slivers (macOS keeps ~40px of a parked window on the nearest monitor edge; we can't hide it
+    /// with alpha on recent macOS, so we cover it with the visible tiling instead). Called after
+    /// any park so a just-parked window can't stay on top of the tiles that should hide it.
+    private func coverParkedSlivers() {
+        for (id, ws) in spaces where screen(forWorkspace: id) != nil {
+            ws.root?.raiseVisibleWindows()
+        }
     }
 
     /// Fetch (or create) the workspace numbered `n`, ensuring it's marked as placed on `screen`.
@@ -376,11 +384,12 @@ final class WindowManager {
     private func reassertAllWorkspaces() {
         for (id, ws) in spaces {
             if let scr = screen(forWorkspace: id) {
-                unparkWorkspace(ws, on: scr)   // opaque + on-screen + raised
+                unparkWorkspace(ws, on: scr)   // on-screen + raised
             } else {
-                parkWorkspace(ws)              // transparent + off-screen
+                parkWorkspace(ws)              // off-screen
             }
         }
+        coverParkedSlivers()   // shown tiling back on top of any parked sliver
         sweepOrphanStrips()
     }
 
@@ -1573,9 +1582,11 @@ final class WindowManager {
             return
         }
 
-        // Park the outgoing workspace on the target monitor.
+        // Park the outgoing workspace on the target monitor, then put every still-shown
+        // workspace's tiling back on top of the parked slivers (incoming is raised last, below).
         focusIndicator.hide()
         if let outgoing = shownOnDisplay[did], let ws = spaces[outgoing] { parkWorkspace(ws) }
+        coverParkedSlivers()
         scratchpadVisible = false
 
         // Place workspace n on its monitor: restore from disk on first load, else unpark.
