@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let windowManager = WindowManager()
     private var hotkeys: HotkeyManager?
     private let cmdTabTap = CmdTabTap()
+    private let comboTap = ComboTap()
+    /// Actions routed through the event tap (not Carbon) so they beat reserved system shortcuts —
+    /// e.g. workspace nav on Ctrl+←/→ works without disabling Mission Control's "move a space".
+    private let tapRoutedActions: Set<String> = ["workspace-next", "workspace-prev"]
     private var statusItem: NSStatusItem!
     private var configWatch: DispatchSourceFileSystemObject?
     private var configReloadWork: DispatchWorkItem?
@@ -359,6 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hk.unregisterAll()
         let actions = makeActions()
 
+        var tapBindings: [ComboTap.Binding] = []
         for (action, combo) in Config.shared.keybindings {
             guard let run = actions[action] else {
                 NSLog("Mosaic: unknown action '\(action)' in keybindings"); continue
@@ -366,8 +371,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let parsed = KeyCombo.parse(combo) else {
                 NSLog("Mosaic: invalid key combo '\(combo)' for '\(action)'"); continue
             }
-            hk.register(keyCode: parsed.keyCode, modifiers: parsed.modifiers, action: run)
+            if tapRoutedActions.contains(action) {
+                // Route through the CGEventTap so it fires BEFORE macOS' reserved shortcut (and is
+                // swallowed from apps). Carbon RegisterEventHotKey would lose the race to the system.
+                tapBindings.append(.init(keyCode: Int64(parsed.keyCode),
+                                         mods: Self.cgFlags(fromCarbon: parsed.modifiers), action: run))
+            } else {
+                hk.register(keyCode: parsed.keyCode, modifiers: parsed.modifiers, action: run)
+            }
         }
+        comboTap.setBindings(tapBindings)   // empty list tears the tap down
+    }
+
+    /// Carbon modifier mask (⌘⌥⌃⇧ from `KeyCombo.parse`) → `CGEventFlags` for the event tap.
+    private static func cgFlags(fromCarbon mods: UInt32) -> CGEventFlags {
+        var flags: CGEventFlags = []
+        if mods & UInt32(cmdKey)     != 0 { flags.insert(.maskCommand) }
+        if mods & UInt32(optionKey)  != 0 { flags.insert(.maskAlternate) }
+        if mods & UInt32(controlKey) != 0 { flags.insert(.maskControl) }
+        if mods & UInt32(shiftKey)   != 0 { flags.insert(.maskShift) }
+        return flags
     }
 
     /// Watch config.json and hot-reload it on save. Editors save atomically (write a temp
