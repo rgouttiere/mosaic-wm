@@ -236,6 +236,30 @@ final class WindowManager {
         }
     }
 
+    /// Lift every app in the just-shown workspace above the app-layer of whatever we parked, then
+    /// re-assert the focused window on top. macOS stacks windows by APP, and `AX.raise` only
+    /// reorders within an app — so a non-focused tile of another app can stay UNDER a parked
+    /// window whose app was frontmost (the "adjacent app peeks over my non-focused tile" bug).
+    /// Activating an app is the only thing that reliably reorders app layers; we activate each
+    /// OTHER app, then the focused one last so it ends frontmost. No-op on a single-app workspace
+    /// (focusing it already covers everything) so we don't churn activations for nothing.
+    private func liftAppsAboveParked(_ ws: SpaceState) {
+        guard let r = ws.root else { return }
+        let focusedWin = (ws.focused ?? r.firstLeaf()).window
+        let focusedPid = focusedWin?.app.processIdentifier
+        var seen = Set<pid_t>()
+        var others: [NSRunningApplication] = []
+        r.forEachVisibleLeaf { leaf in
+            guard let w = leaf.window, w.app.processIdentifier != focusedPid else { return }
+            if seen.insert(w.app.processIdentifier).inserted { others.append(w.app) }
+        }
+        guard !others.isEmpty else { return }          // single-app workspace → nothing to lift
+        for app in others { app.activate() }           // each other app's layer above the parked one
+        if let w = focusedWin {                         // focused app/window back on top
+            AX.makeMain(w.element); w.activateApp(); AX.raise(w.element)
+        }
+    }
+
     /// Fetch (or create) the workspace numbered `n`, ensuring it's marked as placed on `screen`.
     @discardableResult
     private func workspace(_ n: Int, on screen: NSScreen) -> SpaceState {
@@ -1654,6 +1678,7 @@ final class WindowManager {
             if ws.focused == nil { ws.focused = ws.root?.firstLeaf() }
             render()
         }
+        if let ws = spaces[target] { liftAppsAboveParked(ws) }   // multi-app: beat macOS' app-layer order
         layoutResizeHandles()
         showWorkspaceIndicator(for: screen)
         warpMouseToWorkspace(target, on: screen)
