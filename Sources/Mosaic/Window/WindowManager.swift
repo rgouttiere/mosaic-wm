@@ -1800,7 +1800,8 @@ final class WindowManager {
     func showHints() {
         let onScreen = AX.onScreenWindowIDs()
         var targets: [HintTarget] = []
-        for screen in NSScreen.screens {
+        // Screens left→right (leftmost first), so the earliest letters land on the left.
+        for screen in NSScreen.screens.sorted(by: { $0.frame.minX < $1.frame.minX }) {
             guard let sid = currentWorkspace(for: screen), let root = spaces[sid]?.root else { continue }
             var perScreen: [HintTarget] = []
             root.forEachVisibleLeaf { leaf in   // skip hidden tabs/stacks
@@ -1809,8 +1810,8 @@ final class WindowManager {
                 perScreen.append(HintTarget(frameCocoa: Geometry.flip(axFrame),
                                             focus: { [weak self] in self?.focusVisibleWindow(leaf) }))
             }
-            // Assign letters in reading order (top→bottom, then left→right) instead of the tree's
-            // traversal order, so the labels feel laid out spatially rather than scattered.
+            // Reading order within the screen: top→bottom, then left→right, so labels flow spatially
+            // from the top-left instead of following the tree's traversal order.
             perScreen.sort {
                 abs($0.frameCocoa.maxY - $1.frameCocoa.maxY) > 1
                     ? $0.frameCocoa.maxY > $1.frameCocoa.maxY
