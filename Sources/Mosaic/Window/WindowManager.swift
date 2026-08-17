@@ -180,11 +180,13 @@ final class WindowManager {
         return (1...9).first { assignedDisplay(forWorkspace: $0) == did } ?? 1
     }
 
-    /// Cocoa rect a parked workspace is laid out in — off the visible desktop (see
-    /// `Geometry.parkRect`). Sized like `screen`, dropped below the whole desktop union.
+    /// Cocoa rect a parked workspace is laid out in — the screen's ON-SCREEN tiling rect shifted
+    /// off the desktop's right edge (see `Geometry.parkRect`). Using `layoutRect(screen)` (the
+    /// exact rect unpark uses) makes park a pure translation: no resize, so windows never come
+    /// back shorter.
     private func parkRect(for screen: NSScreen) -> NSRect {
         let desktop = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
-        return Geometry.parkRect(screenFrame: screen.frame, desktop: desktop.isNull ? screen.frame : desktop)
+        return Geometry.parkRect(layoutRect: layoutRect(screen), desktop: desktop.isNull ? screen.frame : desktop)
     }
 
     /// Park a workspace: lay its tree out off-screen. `arrange` moves both the windows and

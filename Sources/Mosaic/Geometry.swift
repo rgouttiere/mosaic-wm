@@ -20,26 +20,22 @@ enum Geometry {
     }
 
     /// Emulated-workspace parking (v2): the Cocoa rect a parked workspace is laid out in —
-    /// off the visible desktop, past the global BOTTOM-RIGHT corner. macOS refuses to place a
-    /// window *fully* off-screen and clamps it back toward the nearest screen edge; a window
-    /// pushed straight down keeps a full-width strip visible at the bottom (its nearest edge is
-    /// the whole bottom), so we push it off BOTH the right and the bottom — then the nearest
-    /// point is a single corner and only a ~1px corner sliver can remain (the AeroSpace-
-    /// documented limit, mitigated by an auto-hiding Dock).
+    /// off the visible desktop, past its RIGHT edge. This is a PURE HORIZONTAL TRANSLATION of the
+    /// on-screen layout rect: same size and same Y, shifted right until it clears every screen.
+    /// Two reasons it must be horizontal-only, not a bottom/corner push:
+    ///   • macOS clamps an off-screen window back toward the nearest edge. Pushed straight down,
+    ///     it keeps a full-width bottom strip; pushed to the bottom-right *corner*, macOS also
+    ///     shrinks its HEIGHT to keep it within vertical bounds — so windows came back shorter on
+    ///     every park/unpark. Pushed only sideways, Y is untouched → the window keeps its exact
+    ///     height, and unpark is the exact reverse shift (no resize at all).
+    ///   • The remaining ~1px sliver lands on the far-right edge, clear of a bottom Dock.
     ///
-    /// Sized like the target screen (not squished) so unparking is a pure translation back —
-    /// every window keeps the exact frame it had while parked, and `setCocoaFrame`'s cache
-    /// then skips windows whose on-screen frame is unchanged. Pure + unit-tested.
-    ///
-    /// `screenFrame` is the destination screen's Cocoa frame; `desktop` is the union of all
-    /// screens' Cocoa frames (the whole visible area to clear). The slab's top-left corner sits
-    /// exactly on the desktop's bottom-right corner and extends down-and-right, off every screen.
-    static func parkRect(screenFrame: CGRect, desktop: CGRect) -> CGRect {
-        // Cocoa origin is bottom-left; the desktop's bottom-right corner is (maxX, minY). Put
-        // the slab's TOP-left there (origin.y = corner.y - height) so it spills down and right.
+    /// `layoutRect` is the on-screen tiling rect for the destination screen; `desktop` is the
+    /// union of all screens' Cocoa frames. Pure + unit-tested.
+    static func parkRect(layoutRect: CGRect, desktop: CGRect) -> CGRect {
         CGRect(x: desktop.maxX,
-               y: desktop.minY - screenFrame.height,
-               width: screenFrame.width,
-               height: screenFrame.height)
+               y: layoutRect.minY,
+               width: layoutRect.width,
+               height: layoutRect.height)
     }
 }

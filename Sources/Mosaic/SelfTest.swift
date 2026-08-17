@@ -36,22 +36,24 @@ enum SelfTest {
     // MARK: - Geometry: emulated-workspace parking (v2)
 
     private static func windowManagerTests(_ h: Harness) {
-        // Single screen at the origin: a parked workspace sits past the desktop's bottom-RIGHT
-        // corner (off both the right and bottom edges) at full size → unpark is a pure shift back.
+        // A parked workspace is the on-screen layout rect shifted off the desktop's RIGHT edge:
+        // same size and same Y (a pure horizontal translation, so windows never resize), only X
+        // pushed past every screen. The remaining sliver lands on the far right, clear of a Dock.
+        let layout = CGRect(x: 10, y: 40, width: 1490, height: 900)   // an on-screen tiling rect
         let main = CGRect(x: 0, y: 0, width: 1512, height: 982)
-        let parked = Geometry.parkRect(screenFrame: main, desktop: main)
-        h.eq(parked.width, main.width, "parkRect: width preserved (no squish)")
-        h.eq(parked.height, main.height, "parkRect: height preserved (no squish)")
-        h.check(parked.minX >= main.maxX, "parkRect: entirely off the right edge (no full-width bottom strip)")
-        h.check(parked.maxY <= main.minY, "parkRect: entirely below the visible desktop")
+        let parked = Geometry.parkRect(layoutRect: layout, desktop: main)
+        h.eq(parked.width, layout.width, "parkRect: width preserved (pure translation)")
+        h.eq(parked.height, layout.height, "parkRect: height preserved (no vertical clamp)")
+        h.eq(parked.minY, layout.minY, "parkRect: Y unchanged → window keeps its exact height")
+        h.check(parked.minX >= main.maxX, "parkRect: entirely off the right edge")
 
-        // Two side-by-side screens: parking must clear the whole desktop union — off the right
-        // of the rightmost screen AND below the lowest, so no window strip shows on any monitor.
-        let left = CGRect(x: -1512, y: -200, width: 1512, height: 1182)   // extends lower than main
-        let desktop = left.union(main)
-        let parkedRight = Geometry.parkRect(screenFrame: main, desktop: desktop)
-        h.check(parkedRight.minX >= desktop.maxX, "parkRect: multi-screen park clears the right of the union")
-        h.check(parkedRight.maxY <= desktop.minY, "parkRect: multi-screen park clears the bottom of the union")
+        // Two side-by-side screens: parking must clear the RIGHTMOST screen's right edge so no
+        // sliver shows on any monitor; Y still preserved.
+        let leftScreen = CGRect(x: -1512, y: -200, width: 1512, height: 1182)
+        let desktop = leftScreen.union(main)
+        let parkedRight = Geometry.parkRect(layoutRect: layout, desktop: desktop)
+        h.check(parkedRight.minX >= desktop.maxX, "parkRect: multi-screen park clears the union's right edge")
+        h.eq(parkedRight.minY, layout.minY, "parkRect: multi-screen keeps Y (no resize)")
 
         // Workspace→monitor partition (model A): 1...9 split into contiguous even-ish blocks.
         // 1 monitor → everything on monitor 0.
