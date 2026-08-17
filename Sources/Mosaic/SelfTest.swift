@@ -72,14 +72,6 @@ enum SelfTest {
         h.check(parkedLeft.maxX <= leftScreen.minX + 1, "parkRect: leftmost monitor parks off its own left edge")
         h.eq(parkedLeft.minY, leftLayout.minY, "parkRect: leftmost monitor keeps Y (no resize)")
 
-        // underBar experiment: push straight UP off the monitor's own top edge (sliver hides under
-        // an opaque top bar), keeping X/width/height so there's still no resize.
-        let parkedUp = Geometry.parkRect(layoutRect: centreLayout, screenFrame: centre, desktop: desktop, underBar: true)
-        h.check(parkedUp.minY >= centre.maxY - 1, "parkRect: underBar parks above the monitor's top edge")
-        h.eq(parkedUp.minX, centreLayout.minX, "parkRect: underBar keeps X (no sideways shift)")
-        h.eq(parkedUp.width, centreLayout.width, "parkRect: underBar keeps width (no resize)")
-        h.eq(parkedUp.height, centreLayout.height, "parkRect: underBar keeps height (no resize)")
-
         // Workspace→monitor partition (model A): 1...9 split into contiguous even-ish blocks.
         // 1 monitor → everything on monitor 0.
         for n in 1...9 { h.eq(WindowManager.monitorBlock(forWorkspace: n, monitorCount: 1), 0, "block: 1 monitor → 0 (ws \(n))") }

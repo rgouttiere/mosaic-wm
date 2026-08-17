@@ -197,8 +197,7 @@ final class WindowManager {
         let desktop = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
         return Geometry.parkRect(layoutRect: layoutRect(screen),
                                  screenFrame: screen.frame,
-                                 desktop: desktop.isNull ? screen.frame : desktop,
-                                 underBar: Config.shared.parkUnderBar)
+                                 desktop: desktop.isNull ? screen.frame : desktop)
     }
 
     /// Park a workspace: lay its tree off its OWN home monitor's void-facing edge. macOS keeps a
