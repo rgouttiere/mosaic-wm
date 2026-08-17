@@ -1869,11 +1869,15 @@ final class WindowManager {
         guard let space = currentWorkspace(for: screen) else { return }
         let number = workspaceNumber(for: space)
         emitWorkspaceState(number)   // menu-bar icon + status file + shell hook (sketchybar…)
-        // Only pop the HUD on a *managed* desktop → never flash a number over an
-        // unmanaged Space such as a full-screen video.
-        if let number, Config.shared.showWorkspaceHUD, spaces[space] != nil {
-            workspaceHUD.show("\(number)", on: screen, position: Config.shared.hudPosition)
-        }
+        // HUD: the row of THIS monitor's workspaces, so the switch also shows which of the
+        // others hold windows (a dot) — the at-a-glance answer to "where did my window go?".
+        guard let current = number, Config.shared.showWorkspaceHUD else { return }
+        let did = displayID(of: screen)
+        let items: [WorkspaceHUDItem] = (1...9)
+            .filter { assignedDisplay(forWorkspace: $0) == did }
+            .map { n in WorkspaceHUDItem(number: n, name: Config.shared.workspaceNames[n],
+                                         occupied: spaces[UInt64(n)]?.root != nil, current: n == current) }
+        workspaceHUD.show(items, on: screen, position: Config.shared.hudPosition)
     }
 
     private var statusURL: URL {
