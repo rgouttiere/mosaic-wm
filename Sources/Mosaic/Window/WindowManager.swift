@@ -1945,14 +1945,17 @@ final class WindowManager {
         }
         // Optional i3-style names, only for workspaces that have one.
         var names: [String: String] = [:]
-        // The monitor (CGDirectDisplayID) each workspace is currently placed on, so an external
-        // bar can show each workspace only on the monitor it's shown on.
+        // The monitor (CGDirectDisplayID) each workspace is pinned to — its HOME display, stable
+        // whether the workspace is currently shown or parked. An external bar pins each pill to its
+        // own monitor with this; using the *shown* display instead made parked workspaces (absent
+        // here) fall back and pile their pills onto one screen. `assignedDisplay` recomputes over
+        // present monitors, so an undocked workspace still maps to a present screen.
         var wsDisplays: [String: Int] = [:]
         let numbers = spaces.keys.compactMap { workspaceNumber(for: $0) }
         for n in numbers {
             if let nm = Config.shared.workspaceNames[n], !nm.isEmpty { names[String(n)] = nm }
-            if let scr = screen(forWorkspace: UInt64(n)) {
-                wsDisplays[String(n)] = Int(displayID(of: scr))
+            if let did = assignedDisplay(forWorkspace: n) {
+                wsDisplays[String(n)] = Int(did)
             }
         }
         let dict: [String: Any] = [
