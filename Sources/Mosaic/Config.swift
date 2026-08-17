@@ -31,6 +31,7 @@ final class Config {
     var warpMouseOnSwitch: Bool = true
     var ejectNativeFullscreen: Bool = false  // v2: send a managed window that enters native full screen back to windowed (strict emulated)
     var autoFloatDialogs: Bool = false       // v2: auto-float standard windows with no full-screen button (dialogs/palettes), except terminals
+    var parkUnderBar: Bool = false           // v2 experiment: park workspaces UP (off the top) so the residual sliver tucks under an opaque top bar (sketchybar), instead of a bottom band / side sliver
     static let defaultFloatingApps: Set<String> = [
         "skitch", "shottr", "cleanshot", "cleanshot x", "monosnap", "snagit",
     ]
@@ -162,6 +163,7 @@ final class Config {
         var tabBarHeight: Double?
         var warpMouseOnSwitch: Bool?
         var ejectNativeFullscreen: Bool?
+        var parkUnderBar: Bool?
         var autoFloatDialogs: Bool?
         var defaultMode: String?
         var floatingApps: [String]?
@@ -195,7 +197,7 @@ final class Config {
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration
             case exposeDim, exposeSwitch, exposeAllScreens, focusSync, tabScrollCycle, switcherFadeIn, tabBarHeight
-            case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
+            case warpMouseOnSwitch, ejectNativeFullscreen, parkUnderBar, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
             case onWorkspaceChange, borderEnabled, borderColor, borderWidth, borderCornerRadius
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
@@ -230,6 +232,7 @@ final class Config {
             tabBarHeight = v(.tabBarHeight)
             warpMouseOnSwitch = v(.warpMouseOnSwitch)
             ejectNativeFullscreen = v(.ejectNativeFullscreen)
+            parkUnderBar = v(.parkUnderBar)
             autoFloatDialogs = v(.autoFloatDialogs)
             defaultMode = v(.defaultMode)
             floatingApps = v(.floatingApps)
@@ -326,6 +329,7 @@ final class Config {
         defaultMode = "columns"
         warpMouseOnSwitch = true
         ejectNativeFullscreen = false
+        parkUnderBar = false
         autoFloatDialogs = false
         floatingApps = Config.defaultFloatingApps
         rules = []
@@ -365,7 +369,7 @@ final class Config {
         let known: Set<String> = [
             "gap", "outerGap", "externalBarTop", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "focusSync", "tabScrollCycle", "switcherFadeIn",
-            "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
+            "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "parkUnderBar", "autoFloatDialogs", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
             "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
@@ -414,6 +418,7 @@ final class Config {
         if let t = file.tabBarHeight { tabBarHeight = CGFloat(t) }
         if let w = file.warpMouseOnSwitch { warpMouseOnSwitch = w }
         if let b = file.ejectNativeFullscreen { ejectNativeFullscreen = b }
+        if let b = file.parkUnderBar { parkUnderBar = b }
         if let b = file.autoFloatDialogs { autoFloatDialogs = b }
         if let m = file.defaultMode { defaultMode = m }
         if let f = file.floatingApps { floatingApps = Set(f.map { $0.lowercased() }) }

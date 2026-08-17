@@ -36,9 +36,18 @@ enum Geometry {
     ///   • leftmost monitor   → off its left edge   (void to the left)   → 40px sliver, left edge
     ///   • interior monitor   → straight DOWN off its bottom edge        → 40px band, bottom edge
     ///
+    /// `underBar` (experiment): push straight UP off the monitor's own top edge instead, so the
+    /// residual sliver lands at the top where an opaque top bar (sketchybar) covers it. macOS
+    /// protects the title bar from leaving the top, so this MAY keep more of the window on-screen
+    /// than a down/side push — it's gated behind config and validated on real hardware.
+    ///
     /// `layoutRect` is the on-screen tiling rect (what unpark restores); `screenFrame` is the home
     /// monitor's Cocoa frame; `desktop` is the union of all screens' frames. Pure + unit-tested.
-    static func parkRect(layoutRect: CGRect, screenFrame: CGRect, desktop: CGRect) -> CGRect {
+    static func parkRect(layoutRect: CGRect, screenFrame: CGRect, desktop: CGRect, underBar: Bool = false) -> CGRect {
+        if underBar {   // push up: bottom of window at the monitor's top edge, same X/size → no resize
+            return CGRect(x: layoutRect.minX, y: screenFrame.maxY,
+                          width: layoutRect.width, height: layoutRect.height)
+        }
         let onRightEdge = screenFrame.maxX >= desktop.maxX - 1
         let onLeftEdge  = screenFrame.minX <= desktop.minX + 1
         if onRightEdge {   // push off this monitor's right edge — same monitor, no resize
