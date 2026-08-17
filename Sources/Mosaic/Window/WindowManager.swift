@@ -1669,6 +1669,24 @@ final class WindowManager {
         switchToWorkspace(workspaceRecency[1])
     }
 
+    /// Cycle to the next/prev workspace ON THE MONITOR UNDER THE MOUSE, among the ones that matter
+    /// there (named or non-empty). Lets Ctrl+←/→ flip through a screen's real workspaces without
+    /// landing on empty unnamed slots or jumping to another monitor — the natural replacement for
+    /// macOS' now-defunct "move a space" gesture in the emulated model. No-op with fewer than two.
+    func cycleWorkspace(next: Bool) {
+        guard let screen = screenUnderMouse() ?? NSScreen.main else { return }
+        let did = displayID(of: screen)
+        let candidates = (1...9).filter {
+            assignedDisplay(forWorkspace: $0) == did
+                && (Config.shared.workspaceNames[$0] != nil || spaces[UInt64($0)]?.root != nil)
+        }
+        guard candidates.count >= 2 else { return }
+        let current = currentWorkspace(for: screen).flatMap { workspaceNumber(for: $0) }
+        let idx = current.flatMap { candidates.firstIndex(of: $0) } ?? 0
+        let target = candidates[(idx + (next ? 1 : -1) + candidates.count) % candidates.count]
+        if target != current { switchToWorkspace(target) }
+    }
+
     /// Schematic workspace overview (exposé): a grid of workspaces, each drawn with its
     /// windows as scaled rectangles. Pick one to jump.
     func showExpose(commitOnCmdRelease: Bool = false) {

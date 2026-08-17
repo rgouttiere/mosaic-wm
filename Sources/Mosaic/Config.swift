@@ -133,6 +133,8 @@ final class Config {
         "expose": "cmd alt o",     // schematic workspace overview
         "unassign": "cmd alt ctrl 0",   // unset the current desktop's workspace number
         "workspace-back": "cmd alt b",   // bounce to the previous workspace (i3 back-and-forth)
+        "workspace-next": "ctrl right",  // cycle this monitor's workspaces (needs macOS "Move a space" off)
+        "workspace-prev": "ctrl left",   // ← see README: disable Mission Control's Ctrl+←/→ first
         "recover": "cmd alt shift return",   // panic heal: un-minimize + re-assert every workspace
         "scratchpad-toggle": "cmd alt minus",
         "scratchpad-send": "cmd alt shift minus",

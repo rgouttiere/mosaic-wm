@@ -112,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("switcher", "Quick-switcher / palette", #selector(showSwitcher)),
             ("hints", "Window hints", #selector(showHints)),
             ("workspace-back", "Back to previous workspace", #selector(workspaceBack)),
+            ("workspace-prev", "Previous workspace (this screen)", #selector(workspacePrev)),
+            ("workspace-next", "Next workspace (this screen)", #selector(workspaceNext)),
         ]
         for entry in nav {
             let combo = MenuFormat.combo(bindings[entry.action])
@@ -232,6 +234,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showHints() { windowManager.showHints() }
     @objc private func showExpose() { windowManager.showExpose() }
     @objc private func workspaceBack() { windowManager.workspaceBack() }
+    @objc private func workspaceNext() { windowManager.cycleWorkspace(next: true) }
+    @objc private func workspacePrev() { windowManager.cycleWorkspace(next: false) }
     @objc private func clearLayout() { windowManager.clear() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.shared.configURL) }
     @objc private func dumpLayout() { windowManager.dumpLayout() }
@@ -298,6 +302,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "expose": { wm.showExpose() },
             "unassign": { wm.unassignCurrent() },
             "workspace-back": { wm.workspaceBack() },
+            "workspace-next": { wm.cycleWorkspace(next: true) },
+            "workspace-prev": { wm.cycleWorkspace(next: false) },
             "recover": { wm.recover() },
             "reload-config": { [weak self] in self?.reloadConfig() },
             "dump-layout": { wm.dumpLayout() },
