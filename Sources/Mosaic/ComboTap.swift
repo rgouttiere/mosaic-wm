@@ -58,7 +58,10 @@ final class ComboTap {
             return matches(event) != nil
         }
         guard let action = matches(event) else { return false }
-        action()
+        // Run the action (a full workspace switch — many AX calls) on the NEXT main-loop tick, not
+        // synchronously inside the tap callback, so a slow switch can't trip tapDisabledByTimeout
+        // (which would drop the triggering keypress). The event is still swallowed immediately.
+        DispatchQueue.main.async(execute: action)
         return true
     }
 

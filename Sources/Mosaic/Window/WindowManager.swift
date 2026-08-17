@@ -244,20 +244,26 @@ final class WindowManager {
     /// OTHER app, then the focused one last so it ends frontmost. No-op on a single-app workspace
     /// (focusing it already covers everything) so we don't churn activations for nothing.
     private func liftAppsAboveParked(_ ws: SpaceState) {
-        guard let r = ws.root else { return }
-        let focusedWin = (ws.focused ?? r.firstLeaf()).window
-        let focusedPid = focusedWin?.app.processIdentifier
+        guard let r = ws.root, let focusedWin = (ws.focused ?? r.firstLeaf()).window else { return }
+        let focusedPid = focusedWin.app.processIdentifier
+        // Apps that ALSO own a window on a parked workspace: activating them raises that parked
+        // window too (activation is app-wide) — back above the tiling meant to hide it. Skip them
+        // and accept the rarer peek for those, rather than resurfacing a sliver.
+        var parkedPids = Set<pid_t>()
+        for (id, other) in spaces where screen(forWorkspace: id) == nil {
+            other.root?.forEachLeaf { if let w = $0.window { parkedPids.insert(w.app.processIdentifier) } }
+        }
         var seen = Set<pid_t>()
         var others: [NSRunningApplication] = []
         r.forEachVisibleLeaf { leaf in
-            guard let w = leaf.window, w.app.processIdentifier != focusedPid else { return }
-            if seen.insert(w.app.processIdentifier).inserted { others.append(w.app) }
+            guard let w = leaf.window, !w.isFullscreen else { return }   // activating a FS app can yank Spaces
+            let pid = w.app.processIdentifier
+            guard pid != focusedPid, !parkedPids.contains(pid) else { return }
+            if seen.insert(pid).inserted { others.append(w.app) }
         }
-        guard !others.isEmpty else { return }          // single-app workspace → nothing to lift
+        guard !others.isEmpty else { return }          // nothing safe to lift → focusing alone covers it
         for app in others { app.activate() }           // each other app's layer above the parked one
-        if let w = focusedWin {                         // focused app/window back on top
-            AX.makeMain(w.element); w.activateApp(); AX.raise(w.element)
-        }
+        AX.makeMain(focusedWin.element); focusedWin.activateApp(); AX.raise(focusedWin.element)
     }
 
     /// Fetch (or create) the workspace numbered `n`, ensuring it's marked as placed on `screen`.
@@ -1484,8 +1490,9 @@ final class WindowManager {
                 guard let w = leaf.window else { return }
                 let key = ObjectIdentifier(w)
                 live.insert(key)
-                let previous = titleSnapshot.updateValue(w.title, forKey: key)
-                if parked, let previous, previous != w.title,
+                let title = w.title                                  // one AX read, not two
+                let previous = titleSnapshot.updateValue(title, forKey: key)
+                if parked, let previous, previous != title,
                    attentionWorkspaces.insert(n).inserted { changed = true }
             }
         }
@@ -1708,8 +1715,12 @@ final class WindowManager {
         }
         guard candidates.count >= 2 else { return }
         let current = currentWorkspace(for: screen).flatMap { workspaceNumber(for: $0) }
-        let idx = current.flatMap { candidates.firstIndex(of: $0) } ?? 0
-        let target = candidates[(idx + (next ? 1 : -1) + candidates.count) % candidates.count]
+        let target: Int
+        if let idx = current.flatMap({ candidates.firstIndex(of: $0) }) {
+            target = candidates[(idx + (next ? 1 : -1) + candidates.count) % candidates.count]
+        } else {
+            target = next ? candidates[0] : candidates[candidates.count - 1]   // from a non-candidate view
+        }
         if target != current { switchToWorkspace(target) }
     }
 
