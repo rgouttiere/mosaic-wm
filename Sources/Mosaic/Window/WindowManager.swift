@@ -1802,12 +1802,21 @@ final class WindowManager {
         var targets: [HintTarget] = []
         for screen in NSScreen.screens {
             guard let sid = currentWorkspace(for: screen), let root = spaces[sid]?.root else { continue }
+            var perScreen: [HintTarget] = []
             root.forEachVisibleLeaf { leaf in   // skip hidden tabs/stacks
                 guard let w = leaf.window, let id = AX.windowID(w.element), onScreen.contains(id),
                       let axFrame = w.frame else { return }
-                targets.append(HintTarget(frameCocoa: Geometry.flip(axFrame),
-                                          focus: { [weak self] in self?.focusVisibleWindow(leaf) }))
+                perScreen.append(HintTarget(frameCocoa: Geometry.flip(axFrame),
+                                            focus: { [weak self] in self?.focusVisibleWindow(leaf) }))
             }
+            // Assign letters in reading order (top→bottom, then left→right) instead of the tree's
+            // traversal order, so the labels feel laid out spatially rather than scattered.
+            perScreen.sort {
+                abs($0.frameCocoa.maxY - $1.frameCocoa.maxY) > 1
+                    ? $0.frameCocoa.maxY > $1.frameCocoa.maxY
+                    : $0.frameCocoa.minX < $1.frameCocoa.minX
+            }
+            targets.append(contentsOf: perScreen)
         }
         HintsOverlay.show(targets)
     }
