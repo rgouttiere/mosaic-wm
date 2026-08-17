@@ -66,7 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        windowManager.resetAllOpacity()
+        windowManager.unparkAll()   // bring parked (off-screen, transparent) windows back so none is stranded
         windowManager.saveNow()
     }
 

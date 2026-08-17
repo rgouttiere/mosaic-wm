@@ -189,26 +189,43 @@ final class WindowManager {
         return Geometry.parkRect(layoutRect: layoutRect(screen), desktop: desktop.isNull ? screen.frame : desktop)
     }
 
-    /// Park a workspace: lay its tree out off-screen. `arrange` moves both the windows and
-    /// their tab-bar overlays (they're placed relative to the layout rect), so the whole
-    /// workspace slides off the visible desktop with a single call — no per-window state. Falls
-    /// back to any present screen's park rect when the workspace has no home monitor (they all
-    /// clear the desktop union), so a workspace orphaned by an undock still gets hidden.
+    /// Park a workspace: make its windows fully transparent, then lay the tree off-screen.
+    /// macOS never lets a window go *fully* off-screen — it always keeps a visible strip, and
+    /// how big that strip is depends on the screen geometry (worse on a shorter/oddly-placed
+    /// monitor). Chasing the position is a losing game, so instead we set the parked windows to
+    /// `alpha 0` (server-side CGS compositing — the same mechanism as `inactiveOpacity`): the
+    /// leftover strip becomes invisible wherever it lands. The off-screen move still gets the
+    /// windows out of the way of clicks/focus. Falls back to any present screen when the
+    /// workspace has no home monitor, so an undock-orphaned workspace still hides.
     private func parkWorkspace(_ ws: SpaceState) {
         guard let r = ws.root else { return }
         guard let screen = screen(forDisplayID: ws.displayID) ?? screenUnderMouse() ?? NSScreen.screens.first
         else { return }
+        setWorkspaceAlpha(ws, 0)
         r.arrange(in: parkRect(for: screen))
     }
 
-    /// Unpark a workspace onto `screen`: lay its tree out on-screen and lift its windows and
-    /// strips above unmanaged windows. `setCocoaFrame`'s cache skips windows already at their
-    /// on-screen frame, so an unpark right after a park only pays for what actually moved.
+    /// Unpark a workspace onto `screen`: make its windows opaque again, lay the tree on-screen,
+    /// and lift its windows and strips above unmanaged windows. `setCocoaFrame`'s cache skips
+    /// windows already at their on-screen frame, so an unpark right after a park only pays for
+    /// what actually moved. `applyOpacity` (in the following render) then re-dims non-focused
+    /// tiles per config.
     private func unparkWorkspace(_ ws: SpaceState, on screen: NSScreen) {
         guard let r = ws.root else { return }
+        setWorkspaceAlpha(ws, 1)
         r.arrange(in: layoutRect(screen))
         r.raiseVisibleWindows()
         r.raiseVisibleStrips()
+    }
+
+    /// Set every window of a workspace to `alpha` (0 = invisible while parked, 1 = opaque when
+    /// shown). Uses the cached window id to avoid an AX id lookup per leaf; `setAlpha` is itself
+    /// write-cached, so re-parking an already-hidden workspace is free.
+    private func setWorkspaceAlpha(_ ws: SpaceState, _ alpha: Float) {
+        ws.root?.forEachLeaf { leaf in
+            guard let w = leaf.window, let id = w.lastKnownID ?? AX.windowID(w.element) else { return }
+            w.setAlpha(alpha, id: id)
+        }
     }
 
     /// Fetch (or create) the workspace numbered `n`, ensuring it's marked as placed on `screen`.
@@ -252,8 +269,9 @@ final class WindowManager {
     /// and re-render (gaps, tab-bar height & rules are read live from Config).
     func reloadConfig() {
         floatingApps = Config.shared.floatingApps
-        resetAllOpacity()       // clear previous dimming; render re-applies per new config
-        render()                // re-arrange with new gap / tab-bar height / border / opacity
+        resetAllOpacity()          // clear previous dimming (incl. parked windows at alpha 0)
+        render()                   // re-arrange the active workspace with new gap / bar / opacity
+        reassertAllWorkspaces()    // re-hide parked workspaces (alpha 0) that reset made opaque
         // Workspace names may have changed → republish status.json and fire the hook so
         // the external bar picks up new labels immediately (even if the number is unchanged).
         let num = screenUnderMouse().flatMap { currentWorkspace(for: $0) }.flatMap { workspaceNumber(for: $0) }
@@ -370,14 +388,26 @@ final class WindowManager {
     private func reassertAllWorkspaces() {
         for (id, ws) in spaces {
             if let scr = screen(forWorkspace: id) {
-                ws.root?.arrange(in: layoutRect(scr))
-                ws.root?.raiseVisibleWindows()
-                ws.root?.raiseVisibleStrips()
+                unparkWorkspace(ws, on: scr)   // opaque + on-screen + raised
             } else {
-                parkWorkspace(ws)
+                parkWorkspace(ws)              // transparent + off-screen
             }
         }
         sweepOrphanStrips()
+    }
+
+    /// Bring EVERY workspace's windows back on-screen (on its home monitor) and fully opaque —
+    /// called on quit so no parked window is left stranded off the visible desktop. Workspaces
+    /// sharing a monitor overlap, but everything is reachable and visible again.
+    func unparkAll() {
+        for (id, ws) in spaces {
+            guard let r = ws.root,
+                  let scr = screen(forWorkspace: id) ?? homeScreen(forWorkspace: Int(id))
+                            ?? screenUnderMouse() ?? NSScreen.main else { continue }
+            setWorkspaceAlpha(ws, 1)
+            r.arrange(in: layoutRect(scr))
+            r.raiseVisibleWindows()
+        }
     }
 
     private func focusWindowUnderMouse() {
