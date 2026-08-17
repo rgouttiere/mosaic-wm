@@ -189,43 +189,31 @@ final class WindowManager {
         return Geometry.parkRect(layoutRect: layoutRect(screen), desktop: desktop.isNull ? screen.frame : desktop)
     }
 
-    /// Park a workspace: make its windows fully transparent, then lay the tree off-screen.
-    /// macOS never lets a window go *fully* off-screen — it always keeps a visible strip, and
-    /// how big that strip is depends on the screen geometry (worse on a shorter/oddly-placed
-    /// monitor). Chasing the position is a losing game, so instead we set the parked windows to
-    /// `alpha 0` (server-side CGS compositing — the same mechanism as `inactiveOpacity`): the
-    /// leftover strip becomes invisible wherever it lands. The off-screen move still gets the
-    /// windows out of the way of clicks/focus. Falls back to any present screen when the
-    /// workspace has no home monitor, so an undock-orphaned workspace still hides.
+    /// Park a workspace: MINIMIZE its windows (to the Dock), then lay the tree off-screen.
+    /// macOS never lets a window go *fully* off-screen — it always keeps a ~40px strip, and how
+    /// big/where depends on the monitor geometry — and cross-app CGS window alpha (which could
+    /// hide that strip) is blocked on recent macOS. So the reliable full hide with SIP enabled is
+    /// a real minimize (the same thing the scratchpad does): the window genies to the Dock, fully
+    /// gone and still findable there. The off-screen `arrange` still runs afterward — it moves the
+    /// tab-bar overlays out of sight and off-screens any window that *refused* to minimize (a rare
+    /// app), so that one at least degrades to the old sliver instead of overlapping the tiles.
     private func parkWorkspace(_ ws: SpaceState) {
         guard let r = ws.root else { return }
         guard let screen = screen(forDisplayID: ws.displayID) ?? screenUnderMouse() ?? NSScreen.screens.first
         else { return }
-        setWorkspaceAlpha(ws, 0)
+        r.forEachLeaf { if let w = $0.window { AX.setMinimized(w.element, true) } }
         r.arrange(in: parkRect(for: screen))
     }
 
-    /// Unpark a workspace onto `screen`: make its windows opaque again, lay the tree on-screen,
-    /// and lift its windows and strips above unmanaged windows. `setCocoaFrame`'s cache skips
-    /// windows already at their on-screen frame, so an unpark right after a park only pays for
-    /// what actually moved. `applyOpacity` (in the following render) then re-dims non-focused
-    /// tiles per config.
+    /// Unpark a workspace onto `screen`: un-minimize its windows, lay the tree on-screen, and
+    /// lift its windows and strips above unmanaged windows. `setCocoaFrame`'s cache skips windows
+    /// already at their on-screen frame, so an unpark right after a park only pays for what moved.
     private func unparkWorkspace(_ ws: SpaceState, on screen: NSScreen) {
         guard let r = ws.root else { return }
-        setWorkspaceAlpha(ws, 1)
+        r.forEachLeaf { if let w = $0.window { AX.setMinimized(w.element, false) } }
         r.arrange(in: layoutRect(screen))
         r.raiseVisibleWindows()
         r.raiseVisibleStrips()
-    }
-
-    /// Set every window of a workspace to `alpha` (0 = invisible while parked, 1 = opaque when
-    /// shown). Uses the cached window id to avoid an AX id lookup per leaf; `setAlpha` is itself
-    /// write-cached, so re-parking an already-hidden workspace is free.
-    private func setWorkspaceAlpha(_ ws: SpaceState, _ alpha: Float) {
-        ws.root?.forEachLeaf { leaf in
-            guard let w = leaf.window, let id = w.lastKnownID ?? AX.windowID(w.element) else { return }
-            w.setAlpha(alpha, id: id)
-        }
     }
 
     /// Fetch (or create) the workspace numbered `n`, ensuring it's marked as placed on `screen`.
@@ -404,7 +392,7 @@ final class WindowManager {
             guard let r = ws.root,
                   let scr = screen(forWorkspace: id) ?? homeScreen(forWorkspace: Int(id))
                             ?? screenUnderMouse() ?? NSScreen.main else { continue }
-            setWorkspaceAlpha(ws, 1)
+            r.forEachLeaf { if let w = $0.window { AX.setMinimized(w.element, false) } }
             r.arrange(in: layoutRect(scr))
             r.raiseVisibleWindows()
         }
