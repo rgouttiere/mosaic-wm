@@ -67,6 +67,8 @@ final class WindowManager {
     private var spaceTimer: Timer?
     private var mouseMonitor: Any?
     private var mouseUpMonitor: Any?
+    private var mouseMoveMonitor: Any?
+    private var lastMouseDisplayID: CGDirectDisplayID = 0
     private var handles: [ResizeHandle] = []
     /// Discovered minimum size (points) per child container, so resize clamps up front
     /// instead of overshooting and snapping back every drag event.
@@ -351,6 +353,20 @@ final class WindowManager {
             TabDragGhost.shared.hide()
             self.dropHighlight.hide()
             self.sweepOrphanStrips()
+        }
+        // Snappy monitor-follow: react the instant the cursor crosses to another display instead of
+        // waiting up to 0.4s for the poll. The handler is trivial — a display-id compare — and only
+        // calls checkSpaceChange when the display ACTUALLY changes, so a firehose mouse-moved
+        // monitor stays cheap. The poll above remains the safety net if this doesn't fire in some
+        // context (e.g. over a window that swallows moved events).
+        mouseMoveMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+        ) { [weak self] _ in
+            guard let self, !self.suspended, !self.tabDragging, let scr = self.screenUnderMouse() else { return }
+            let did = self.displayID(of: scr)
+            guard did != self.lastMouseDisplayID else { return }
+            self.lastMouseDisplayID = did
+            self.checkSpaceChange()
         }
 
         // Sleep/lock corrupts window AX state; suspend reconcile so we never mistake a
