@@ -400,6 +400,7 @@ final class WindowManager {
             self.rehomeToPresentMonitors()
             self.activeSpaceID = nil
             self.checkSpaceChange()
+            self.ensureAllPresentMonitorsShown()   // dock: show/home ALL monitors, not just the mouse's
             self.reassertAllWorkspaces()
         }
         displayChangeWork = work
@@ -416,6 +417,7 @@ final class WindowManager {
             self.suspended = false
             self.activeSpaceID = nil   // force a fresh detect of the current workspace
             self.checkSpaceChange()
+            self.ensureAllPresentMonitorsShown()   // guard against wake re-assigning display ids
             self.reassertAllWorkspaces()
             // A slow wake can re-hide the overlays after we refresh; do it once more.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
@@ -432,6 +434,28 @@ final class WindowManager {
         for (did, _) in shownOnDisplay where !present.contains(did) { shownOnDisplay[did] = nil }
         for (_, ws) in spaces where ws.displayID != 0 && !present.contains(ws.displayID) {
             ws.displayID = 0   // parked, no home monitor until re-shown
+        }
+    }
+
+    /// Make sure EVERY present monitor has a workspace assigned AND homed on it — not just the one
+    /// under the mouse (all `checkSpaceChange` bootstraps). After docking, newly-attached monitors
+    /// have no `shownOnDisplay` entry and workspaces whose home display was just re-added still have
+    /// `displayID == 0` (cleared on the prior undock), so `screen(forWorkspace:)` returns nil for
+    /// them and `reassertAllWorkspaces` PARKS them → those screens stay blank until the user
+    /// manually ⌘⌥-switches each. Assign every present monitor its shown-or-default workspace and
+    /// re-home it via `workspace(_:on:)` (which sets `displayID`), so reassert can tile them all.
+    private func ensureAllPresentMonitorsShown() {
+        for screen in NSScreen.screens {
+            let did = displayID(of: screen)
+            let n: Int
+            if let existing = shownOnDisplay[did] {
+                n = Int(existing)                       // keep what's shown; just re-home it below
+            } else {
+                let owned = (1...9).filter { assignedDisplay(forWorkspace: $0) == did }
+                n = owned.first { spaces[UInt64($0)]?.root != nil } ?? defaultWorkspaceNumber(for: screen)
+                shownOnDisplay[did] = UInt64(n)
+            }
+            workspace(n, on: screen)   // ensure it exists AND is homed on this monitor (sets displayID)
         }
     }
 
