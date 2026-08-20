@@ -13,6 +13,7 @@ final class Config {
     var gap: CGFloat = 0          // inner gap between tiles
     var outerGap: CGFloat = 0     // margin between the tiling area and the screen edges
     var externalBarTop: CGFloat = 0  // px reserved at the top for an external bar (e.g. sketchybar)
+    var notchBarOffset: CGFloat = 40 // extra top reserve on a SOLE notched built-in display, where an external bar is shifted below the notch (must match sketchybar's y_offset there); 0 = off
     var workspaceNames: [Int: String] = [:]  // optional i3-style labels: workspace number → name
     var workspaceMonitors: [Int: Int] = [:]  // optional override: workspace number → monitor index (1-based, left→right)
     var focusPulseWidth: CGFloat = 5   // px added to the focus border at the peak of the switch pulse (0 = off)
@@ -149,6 +150,7 @@ final class Config {
         var gap: Double?
         var outerGap: Double?
         var externalBarTop: Double?
+        var notchBarOffset: Double?
         var workspaceNames: [String: String]?
         var workspaceMonitors: [String: Int]?
         var focusPulseWidth: Double?
@@ -193,7 +195,7 @@ final class Config {
         /// Explicit keys (a custom `init(from:)` suppresses synthesis). `decodeIssues` is not a
         /// config key — it's populated by the initializer, never decoded.
         private enum CodingKeys: String, CodingKey {
-            case gap, outerGap, externalBarTop, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration
+            case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration
             case exposeDim, exposeSwitch, exposeAllScreens, focusSync, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
             case onWorkspaceChange, borderEnabled, borderColor, borderWidth, borderCornerRadius
@@ -217,6 +219,7 @@ final class Config {
             gap = v(.gap)
             outerGap = v(.outerGap)
             externalBarTop = v(.externalBarTop)
+            notchBarOffset = v(.notchBarOffset)
             workspaceNames = v(.workspaceNames)
             workspaceMonitors = v(.workspaceMonitors)
             focusPulseWidth = v(.focusPulseWidth)
@@ -312,6 +315,7 @@ final class Config {
         gap = 0
         outerGap = 0
         externalBarTop = 0
+        notchBarOffset = 40
         workspaceNames = [:]
         workspaceMonitors = [:]
         focusPulseWidth = 5
@@ -363,7 +367,7 @@ final class Config {
         }
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
-            "gap", "outerGap", "externalBarTop", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
+            "gap", "outerGap", "externalBarTop", "notchBarOffset", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "focusSync", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
@@ -393,6 +397,7 @@ final class Config {
         if let g = file.gap { gap = CGFloat(g) }
         if let o = file.outerGap { outerGap = CGFloat(o) }
         if let e = file.externalBarTop { externalBarTop = CGFloat(e) }
+        if let e = file.notchBarOffset { notchBarOffset = CGFloat(e) }
         if let p = file.focusPulseWidth { focusPulseWidth = CGFloat(p) }
         if let d = file.focusPulseDuration { focusPulseDuration = d }
         if let d = file.exposeDim { exposeDim = d }

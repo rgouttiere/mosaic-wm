@@ -2926,7 +2926,14 @@ final class WindowManager {
         let bar = Config.shared.externalBarTop
         if bar > 0 {
             let alreadyReserved = screen.frame.maxY - screen.visibleFrame.maxY  // menu bar / notch
-            let extra = max(0, bar - alreadyReserved)
+            var extra = max(0, bar - alreadyReserved)
+            // Sole notched built-in: the external bar is shifted BELOW the notch (sketchybar
+            // y_offset), so its whole height sits inside the tiling area. Reserve that offset too,
+            // else tiles slide under the bar. Same condition as the sketchybar-side notch offset:
+            // exactly one display AND it has a notch (safe-area top inset > 0).
+            if NSScreen.screens.count == 1, screen.safeAreaInsets.top > 0 {
+                extra += Config.shared.notchBarOffset
+            }
             r.size.height -= extra   // Cocoa origin is bottom-left → shrinking height frees the TOP
         }
         return r
