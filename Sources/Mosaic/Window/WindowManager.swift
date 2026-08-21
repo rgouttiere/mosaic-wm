@@ -1849,14 +1849,23 @@ final class WindowManager {
                 perScreen.append(HintTarget(frameCocoa: Geometry.flip(axFrame),
                                             focus: { [weak self] in self?.focusVisibleWindow(leaf) }))
             }
-            // Reading order within the screen: top→bottom, then left→right, so labels flow spatially
-            // from the top-left instead of following the tree's traversal order.
-            perScreen.sort {
-                abs($0.frameCocoa.maxY - $1.frameCocoa.maxY) > 1
-                    ? $0.frameCocoa.maxY > $1.frameCocoa.maxY
-                    : $0.frameCocoa.minX < $1.frameCocoa.minX
+            // Reading order within the screen: group windows into ROWS (tops within a tolerance —
+            // real AX frames jitter by a title bar or two even when tiled to the same top), then
+            // order each row left→right. A single tolerance-band comparator is NOT a valid strict
+            // weak ordering (intransitive across a chain of near-equal tops), which made Swift's
+            // sort swap adjacent labels — the "f/g inverted" bug. Explicit clustering is deterministic.
+            let rowTolerance: CGFloat = 40
+            var rows: [[HintTarget]] = []
+            for t in perScreen.sorted(by: { $0.frameCocoa.maxY > $1.frameCocoa.maxY }) {   // top→bottom
+                if let head = rows.last?.first, abs(head.frameCocoa.maxY - t.frameCocoa.maxY) <= rowTolerance {
+                    rows[rows.count - 1].append(t)
+                } else {
+                    rows.append([t])
+                }
             }
-            targets.append(contentsOf: perScreen)
+            for row in rows {
+                targets.append(contentsOf: row.sorted { $0.frameCocoa.minX < $1.frameCocoa.minX })   // left→right
+            }
         }
         HintsOverlay.show(targets)
     }
