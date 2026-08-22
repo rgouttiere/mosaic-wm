@@ -219,11 +219,11 @@ final class WindowManager {
     /// Unpark a workspace onto `screen`: un-minimize (in case a window was minimized — by the
     /// user, or a previous build), lay the tree on-screen, and lift its windows and strips above
     /// unmanaged windows. `setCocoaFrame`'s cache skips windows already at their on-screen frame.
-    private func unparkWorkspace(_ ws: SpaceState, on screen: NSScreen) {
+    private func unparkWorkspace(_ ws: SpaceState, on screen: NSScreen, raise: Bool = true) {
         guard let r = ws.root else { return }
         r.forEachLeaf { if let w = $0.window, AX.isMinimized(w.element) { AX.setMinimized(w.element, false) } }
         r.arrange(in: layoutRect(screen))
-        r.raiseVisibleWindows()
+        if raise { r.raiseVisibleWindows() }   // caller may skip when a render() right after re-raises the same windows
         r.raiseVisibleStrips()
     }
 
@@ -1708,11 +1708,11 @@ final class WindowManager {
             return
         }
 
-        // Park the outgoing workspace on the target monitor, then put every still-shown
-        // workspace's tiling back on top of the parked slivers (incoming is raised last, below).
+        // Park the outgoing workspace off the target monitor. No coverParkedSlivers() here: it only
+        // re-raises the OTHER monitors' workspaces (unchanged by this switch, already covering their
+        // own slivers), while the incoming's own render below raises it above the sliver it leaves.
         focusIndicator.hide()
         if let outgoing = shownOnDisplay[did], let ws = spaces[outgoing] { parkWorkspace(ws) }
-        coverParkedSlivers()
         scratchpadVisible = false
 
         // Place workspace n on its monitor: restore from disk on first load, else unpark.
@@ -1723,7 +1723,7 @@ final class WindowManager {
             // restoreSaved built the tree, set focus, and rendered it on-screen
         } else {
             let ws = workspace(n, on: screen)
-            unparkWorkspace(ws, on: screen)
+            unparkWorkspace(ws, on: screen, raise: false)   // render() below raises — don't raise twice
             if ws.focused == nil { ws.focused = ws.root?.firstLeaf() }
             render()
         }
