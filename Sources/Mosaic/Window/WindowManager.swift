@@ -245,6 +245,7 @@ final class WindowManager {
     /// OTHER app, then the focused one last so it ends frontmost. No-op on a single-app workspace
     /// (focusing it already covers everything) so we don't churn activations for nothing.
     private func liftAppsAboveParked(_ ws: SpaceState) {
+        let __perf = DispatchTime.now(); defer { Perf.record("liftApps", since: __perf) }
         guard let r = ws.root, let focusedWin = (ws.focused ?? r.firstLeaf()).window else { return }
         let focusedPid = focusedWin.app.processIdentifier
         // Apps that ALSO own a window on a parked workspace: activating them raises that parked
@@ -1519,6 +1520,7 @@ final class WindowManager {
     /// hook fires once per attention episode, not per title tick. Runs on the (debounced) title-
     /// change event, so it costs a cheap AX title read per window at most a few times a second.
     private func scanAttention() {
+        let __perf = DispatchTime.now(); defer { Perf.record("scanAttention", since: __perf) }
         var changed = false
         var live = Set<ObjectIdentifier>()
         for (id, ws) in spaces {
@@ -1695,6 +1697,7 @@ final class WindowManager {
     /// disk) — then moves focus/cursor onto that monitor. No macOS Space transition, just two
     /// off-screen ↔ on-screen `arrange` passes.
     func switchToWorkspace(_ n: Int) {
+        let __perf = DispatchTime.now(); defer { Perf.record("switch", since: __perf) }
         guard let screen = homeScreen(forWorkspace: n) ?? screenUnderMouse() else { return }
         let did = displayID(of: screen)
         let target = UInt64(n)
