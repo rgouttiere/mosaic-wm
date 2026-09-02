@@ -2873,8 +2873,12 @@ final class WindowManager {
     /// Find a live window matching a saved one (by id, then bundle+title, then bundle)
     /// and remove it from the pool so it isn't reused.
     private func takeMatch(_ sw: SavedWindow, from pool: inout [ManagedWindow]) -> ManagedWindow? {
+        // Match by id, but only if the bundle also agrees: a saved CGWindowID is stable only while
+        // the app keeps running (Persistence.swift), and macOS REUSES ids across a reboot — an id
+        // alone can collide with an unrelated app's window and graft the wrong app into a saved slot.
         if let wid = sw.windowID,
-           let i = pool.firstIndex(where: { AX.windowID($0.element) == wid }) {
+           let i = pool.firstIndex(where: { AX.windowID($0.element) == wid
+                                            && (sw.bundleID == nil || $0.app.bundleIdentifier == sw.bundleID) }) {
             return pool.remove(at: i)
         }
         if let b = sw.bundleID, let t = sw.title,
