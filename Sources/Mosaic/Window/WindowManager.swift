@@ -848,7 +848,8 @@ final class WindowManager {
         let onScreen = AX.onScreenWindowIDs()
         dedupTrees()
 
-        var aliveTreeIDs = Set<CGWindowID>()
+        var aliveTreeIDs = Set<CGWindowID>()          // ids we must not re-add as "new" (incl. a stale leaf's, during grace)
+        var aliveConfirmedIDs = Set<CGWindowID>()     // ids we POSITIVELY resolved as alive — for switch-detection only
         var deadLeaves: [Container] = []
         var staleLeaves: [Container] = []   // has a window, but AX couldn't resolve its id now
         root.forEachLeaf { leaf in
@@ -858,7 +859,7 @@ final class WindowManager {
                 // Keep it in the tree — neither counted as present nor detached — so it
                 // returns to its exact place when it leaves full screen. Only its content
                 // isn't arranged/raised while full screen (handled in Container).
-                if !w.isFullscreen { aliveTreeIDs.insert(id) }
+                if !w.isFullscreen { aliveTreeIDs.insert(id); aliveConfirmedIDs.insert(id) }
                 return
             }
             // A hidden app (Cmd-H) leaves the screen but must keep its slot — treat like
@@ -866,7 +867,7 @@ final class WindowManager {
             // so they won't be re-inserted elsewhere.)
             if w.app.isHidden {
                 w.missCount = 0
-                if let cached = w.lastKnownID { aliveTreeIDs.insert(cached) }
+                if let cached = w.lastKnownID { aliveTreeIDs.insert(cached); aliveConfirmedIDs.insert(cached) }
                 return
             }
             // AX couldn't resolve the window. It might be a transient glitch, a real close,
@@ -876,7 +877,7 @@ final class WindowManager {
             // a leaf with no replacement is aged out. Meanwhile keep the slot alive.
             if let cached = w.lastKnownID, onScreen.contains(cached) {
                 w.missCount = 0
-                aliveTreeIDs.insert(cached)
+                aliveTreeIDs.insert(cached); aliveConfirmedIDs.insert(cached)
             } else {
                 staleLeaves.append(leaf)
                 if let cached = w.lastKnownID { aliveTreeIDs.insert(cached) }   // keep during grace
@@ -884,9 +885,11 @@ final class WindowManager {
         }
 
         // None of our windows visible → we've switched desktops; leave it untouched.
-        // (Per-leaf glitch/close handling above already keeps transiently-invalid windows,
-        // so an empty aliveTreeIDs here means a real switch or a real empty desktop.)
-        if !aliveTreeIDs.isEmpty && aliveTreeIDs.isDisjoint(with: onScreen) { return }
+        // Gate on POSITIVELY-alive ids only, never aliveTreeIDs: a stale leaf (a just-closed window,
+        // incl. the workspace's LAST one) keeps its cached id in aliveTreeIDs during grace — counting
+        // it here would make a real close look like a desktop switch, skip the removal, and then
+        // block every new window from being adopted until a manual rebuild (reset/cycle/tile).
+        if !aliveConfirmedIDs.isEmpty && aliveConfirmedIDs.isDisjoint(with: onScreen) { return }
 
         // Fast path: nothing closed or vanishing, and the on-screen window set is unchanged
         // since the last full reconcile → nothing could have been added or removed. Skip the
