@@ -617,6 +617,10 @@ final class WindowManager {
                 if AX.isMinimized(w.element) { AX.setMinimized(w.element, false) }
             }
         }
+        // A "lost"/stuck-off-screen window got there by an external move we didn't track, so its
+        // frame cache is stale — drop it, else reassert recomputes the same rect and setCocoaFrame
+        // skips the corrective write (the heal would no-op on exactly the windows it's meant to save).
+        invalidateAllFrameCaches()
         reassertAllWorkspaces()
         updateFocusIndicator()
         NSLog("Mosaic: recover — un-minimized stuck windows + re-asserted all workspaces")
