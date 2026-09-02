@@ -1985,6 +1985,9 @@ final class WindowManager {
         if let screen = screenUnderMouse(), currentWorkspace(for: screen) != UInt64(n) {
             switchToWorkspace(n)
         }
+        // A native-fullscreen window lives on its own Space: makeMain/raise (both do kAXRaiseAction)
+        // would yank that Space forward uncontrollably. Activating its app is the controlled way in.
+        guard !w.isFullscreen else { w.activateApp(); return }
         AX.makeMain(w.element)
         w.activateApp()
         AX.raise(w.element)
