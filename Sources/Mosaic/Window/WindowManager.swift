@@ -2717,7 +2717,7 @@ final class WindowManager {
             let st = SpaceState(displayID: assignedDisplay(forWorkspace: Int(id)) ?? 0)
             st.mode = mode(named: saved.mode)
             st.root = root
-            st.focused = root.firstLeaf()
+            st.focused = root.firstVisibleLeaf()   // honor the saved tab selection, not always tab 0
             spaces[id] = st
             wireTabCallbacks(root)
         }

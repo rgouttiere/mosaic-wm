@@ -81,6 +81,18 @@ final class Container {
         isLeaf ? self : (children.first?.firstLeaf() ?? self)
     }
 
+    /// The first ON-SCREEN leaf, honoring tab/stack selection: a tabbed container descends into its
+    /// `selected` child, splits into their first. Unlike `firstLeaf` this lands on the tab actually
+    /// visible — used to restore focus onto last session's selected tab instead of snapping to tab 0.
+    func firstVisibleLeaf() -> Container {
+        guard !isLeaf, !children.isEmpty else { return self }
+        if layout == .tabbed {
+            let i = min(max(selected, 0), children.count - 1)
+            return children[i].firstVisibleLeaf()
+        }
+        return children[0].firstVisibleLeaf()
+    }
+
     func forEachLeaf(_ body: (Container) -> Void) {
         if isLeaf { body(self) } else { children.forEach { $0.forEachLeaf(body) } }
     }

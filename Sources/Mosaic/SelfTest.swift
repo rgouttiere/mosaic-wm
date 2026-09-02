@@ -193,6 +193,30 @@ enum SelfTest {
             h.eq(p.selected, 0, "selected clamps low → 0")
         }
 
+        // firstVisibleLeaf — descends into the SELECTED tab, unlike firstLeaf (RESTORE-SELECTED-TAB)
+        do {
+            let (p, kids) = tabbedParent(3)          // [A,B,C]
+            p.selected = 2
+            h.check(p.firstVisibleLeaf() === kids[2], "firstVisibleLeaf → selected tab C")
+            p.selected = 0
+            h.check(p.firstVisibleLeaf() === kids[0], "firstVisibleLeaf → selected tab A")
+        }
+        do {
+            // nested tabbed: root selected=1 → inner, inner selected=2 → its 3rd child
+            let a = Container(layout: .splitH, children: [])
+            let (inner, ik) = tabbedParent(3); inner.selected = 2
+            let root = Container(layout: .tabbed, children: [a, inner]); root.selected = 1
+            h.check(root.firstVisibleLeaf() === ik[2], "firstVisibleLeaf: nested tabbed honors both selections")
+            h.check(root.firstLeaf() === a, "firstLeaf ignores selection → first child")
+        }
+        do {
+            // split picks its first child regardless of any tabbed sibling's selection
+            let leafX = Container(layout: .splitH, children: [])
+            let (tab, _) = tabbedParent(2); tab.selected = 1
+            let root = Container(layout: .splitH, children: [leafX, tab])
+            h.check(root.firstVisibleLeaf() === leafX, "firstVisibleLeaf: split → first child")
+        }
+
         // ratios stay consistent with child count
         do {
             let (p, _) = tabbedParent(4)
