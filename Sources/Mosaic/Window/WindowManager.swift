@@ -63,6 +63,7 @@ final class WindowManager {
 
     private lazy var observer = WindowObserver { [weak self] in self?.tick() }
     private let focusIndicator = FocusIndicator()
+    private let zoomBadge = ZoomBadge()
     private let dropHighlight = DropHighlight()
     private var spaceTimer: Timer?
     private var mouseMonitor: Any?
@@ -2436,16 +2437,18 @@ final class WindowManager {
         if active?.isZoomed == true, let w = focused?.window {
             w.setCocoaFrame(area)
             if activate { w.activateApp() }
-            AX.raise(w.element)
+            if !w.isFullscreen { AX.raise(w.element) }   // raising a fullscreen tile would yank its Space
             if let id = AX.windowID(w.element) { w.setAlpha(1, id: id) }   // zoomed = full opacity
             root.forEachTabbed { $0.hideStrip() }   // only THIS desktop's strips, not other screens'
             hideAllHandles()
-            // Monocle = a single window fills the screen: the focus border only adds
-            // noise over the content (nothing to disambiguate), so never draw it here.
-            focusIndicator.hide()
+            // Keep the focus contour framing the zoomed window, and a persistent ZOOM badge, so it
+            // stays obvious you're in monocle (siblings hidden) and haven't just lost your layout.
+            if Config.shared.borderEnabled { focusIndicator.show(around: area) } else { focusIndicator.hide() }
+            zoomBadge.show(on: screen)
             scheduleSave()
             return
         }
+        zoomBadge.hide()   // not (or no longer) zoomed → drop the badge
 
         if let f = focused { selectTabsOnPath(to: f) }
         root.arrange(in: area)
