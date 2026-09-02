@@ -2757,9 +2757,14 @@ final class WindowManager {
     private func routeByHint(_ window: ManagedWindow) -> Bool {
         guard !restoreHints.isEmpty, let b = window.app.bundleIdentifier else { return false }
         let strong = "\(b)\u{1}\(window.title)"
-        guard let n = restoreHints[strong] ?? restoreHints[b], n >= 1, n <= 9,
+        // Consume the key we actually matched. Clearing only `strong` left the weaker bundle-only
+        // fallback in place, so every later window of the same app (any relaunch whose live title
+        // differs from the saved one) kept matching it and got yanked to the saved workspace for the
+        // ~20s until the hints expire.
+        let key = restoreHints[strong] != nil ? strong : b
+        guard let n = restoreHints[key], n >= 1, n <= 9,
               UInt64(n) != activeSpaceID else { return false }
-        restoreHints[strong] = nil
+        restoreHints[key] = nil
         placeOnWorkspace(window, n: n)
         return true
     }
