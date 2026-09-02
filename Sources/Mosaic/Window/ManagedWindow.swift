@@ -55,9 +55,16 @@ final class ManagedWindow {
         // Advance the cache only when the write was accepted. A transiently-rejected move must
         // stay uncached so the next render re-issues it — otherwise the <1px skip above would
         // pin the window to a frame it never actually took, with no self-heal until a manual
-        // re-tile. lastSetFrame is never otherwise reset.
+        // re-tile. Otherwise the cache is only reset by `invalidateFrameCache` below.
         if AX.setFrame(element, axRect) { lastSetFrame = axRect }
     }
+
+    /// Forget the last frame we wrote so the next `setCocoaFrame` re-issues the AX write even when
+    /// the target is unchanged. macOS relocates windows out from under us during sleep/wake and
+    /// display reconfigures; since we don't track external moves, the <1px skip above would
+    /// otherwise no-op the corrective write and leave the window where the system scattered it
+    /// (the "I must revisit every workspace after wake for it to lay out" bug).
+    func invalidateFrameCache() { lastSetFrame = nil }
 
     /// Last opacity we set (via CGS). `applyOpacity` runs over every window on each render,
     /// so skipping unchanged writes avoids a burst of redundant private-API calls. ALL

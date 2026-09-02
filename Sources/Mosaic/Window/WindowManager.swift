@@ -402,6 +402,7 @@ final class WindowManager {
             self.activeSpaceID = nil
             self.checkSpaceChange()
             self.ensureAllPresentMonitorsShown()   // dock: show/home ALL monitors, not just the mouse's
+            self.invalidateAllFrameCaches()   // docking scattered windows out from under us → force re-placement
             self.reassertAllWorkspaces()
         }
         displayChangeWork = work
@@ -419,10 +420,14 @@ final class WindowManager {
             self.activeSpaceID = nil   // force a fresh detect of the current workspace
             self.checkSpaceChange()
             self.ensureAllPresentMonitorsShown()   // guard against wake re-assigning display ids
+            self.invalidateAllFrameCaches()   // macOS scattered windows while asleep → force the re-tile writes
             self.reassertAllWorkspaces()
-            // A slow wake can re-hide the overlays after we refresh; do it once more.
+            // A slow wake can re-hide the overlays AND nudge windows again after we refresh; drop the
+            // frame cache once more so this second pass re-issues the corrective writes too.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                self?.reassertAllWorkspaces()
+                guard let self else { return }
+                self.invalidateAllFrameCaches()
+                self.reassertAllWorkspaces()
             }
         }
     }
@@ -463,6 +468,15 @@ final class WindowManager {
     /// Re-assert every workspace's placement: tile the ones shown on a present monitor, park
     /// the rest off-screen. The single source of truth for "where every window should be" —
     /// the emulated-model replacement for the whole drift/rehome/refresh machinery.
+    /// Forget every managed window's last-written frame so the next `reassertAllWorkspaces` re-issues
+    /// its AX placement even when the computed target is unchanged. Needed whenever the SYSTEM moved
+    /// windows without us — sleep/wake, display reconfigure — because `setCocoaFrame`'s <1px cache
+    /// would otherwise skip the corrective write and leave them where macOS scattered them (which is
+    /// why revisiting each workspace by hand "fixed" it: park→unpark writes two different rects).
+    private func invalidateAllFrameCaches() {
+        for (_, ws) in spaces { ws.root?.forEachLeaf { $0.window?.invalidateFrameCache() } }
+    }
+
     private func reassertAllWorkspaces() {
         for (id, ws) in spaces {
             if let scr = screen(forWorkspace: id) {
