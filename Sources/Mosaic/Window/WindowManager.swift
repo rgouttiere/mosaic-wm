@@ -268,6 +268,37 @@ final class WindowManager {
         AX.makeMain(focusedWin.element); focusedWin.activateApp(); AX.raise(focusedWin.element)
     }
 
+    /// Opt-in (`robustCrossAppTabs`): after switching the active workspace, cross-app tabbed groups on
+    /// OTHER shown monitors can be left showing the wrong app — macOS z-orders windows by app GLOBALLY,
+    /// so the switch's activation buries their selected tab under a sibling app (tab bar says Firefox,
+    /// Chrome sits on top). Re-activate each such group's apps (selected tab last per group), then
+    /// re-focus the ACTIVE workspace last so keyboard focus stays where the user is. Best-effort: two
+    /// shown groups that need different apps of the SAME pair on top at once is a hard macOS limit.
+    private func reassertShownTabApps() {
+        guard Config.shared.robustCrossAppTabs else { return }
+        for (id, ws) in spaces where id != activeSpaceID && screen(forWorkspace: id) != nil {
+            guard let r = ws.root, hasMultiAppTabGroup(r) else { continue }
+            r.forEachLeaf { if let w = $0.window, !w.isFullscreen { w.app.activate() } }         // every app…
+            r.forEachVisibleLeaf { if let w = $0.window, !w.isFullscreen { w.app.activate() } }  // …selected on top
+        }
+        if let a = active, let r = a.root, let w = (a.focused ?? r.firstLeaf()).window, !w.isFullscreen {
+            AX.makeMain(w.element); w.activateApp(); AX.raise(w.element)   // focus back to the active workspace
+        }
+    }
+
+    /// True if any tabbed container in this tree stacks windows from more than one app — the only
+    /// case whose on-screen tab is fragile to global app-layer activation (same-app stacks are fine).
+    private func hasMultiAppTabGroup(_ root: Container) -> Bool {
+        var found = false
+        root.forEachTabbed { group in
+            guard !found else { return }
+            var pids = Set<pid_t>()
+            group.forEachLeaf { if let w = $0.window { pids.insert(w.app.processIdentifier) } }
+            if pids.count > 1 { found = true }
+        }
+        return found
+    }
+
     /// Fetch (or create) the workspace numbered `n`, ensuring it's marked as placed on `screen`.
     @discardableResult
     private func workspace(_ n: Int, on screen: NSScreen) -> SpaceState {
@@ -587,6 +618,7 @@ final class WindowManager {
         layoutResizeHandles()   // reposition handles for the now-active workspace
         showWorkspaceIndicator(for: screen)
         focusIndicator.pulse()
+        reassertShownTabApps()   // mouse-cross also changes the active workspace → re-assert other monitors
     }
 
     // MARK: - Entry points
@@ -1753,6 +1785,7 @@ final class WindowManager {
         showWorkspaceIndicator(for: screen)
         warpMouseToWorkspace(target, on: screen)
         focusIndicator.pulse()
+        reassertShownTabApps()   // opt-in: fix cross-app tab groups left wrong on OTHER shown monitors
     }
 
     /// With intrinsic numbering there is nothing to "assign" — the ⌘⌥⌃1-9 binding just

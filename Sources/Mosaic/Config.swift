@@ -23,6 +23,11 @@ final class Config {
     var exposeAllScreens = false   // mirror the exposé/cmd-tab on every screen at once
     // Feature toggles (all on by default).
     var focusSync = true        // adopt keyboard/cmd-tab focus changes into the tabs
+    var robustCrossAppTabs = false   // opt-in: after a workspace switch, re-assert the selected tab of
+                                     // cross-app tabbed groups on OTHER shown monitors (macOS z-orders by
+                                     // app globally, so activating one monitor's app can bury another's
+                                     // selected tab). Costs a burst of app activations; can't satisfy two
+                                     // shown groups needing different apps of the same pair on top at once.
     var tabScrollCycle = true   // scroll over a tab bar to cycle its tabs
     var switcherFadeIn = true   // fade the quick-switcher popup in
     var tabBarHeight: CGFloat = 22
@@ -159,6 +164,7 @@ final class Config {
         var exposeSwitch: String?
         var exposeAllScreens: Bool?
         var focusSync: Bool?
+        var robustCrossAppTabs: Bool?
         var tabScrollCycle: Bool?
         var switcherFadeIn: Bool?
         var tabBarHeight: Double?
@@ -196,7 +202,7 @@ final class Config {
         /// config key — it's populated by the initializer, never decoded.
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration
-            case exposeDim, exposeSwitch, exposeAllScreens, focusSync, tabScrollCycle, switcherFadeIn, tabBarHeight
+            case exposeDim, exposeSwitch, exposeAllScreens, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
             case onWorkspaceChange, borderEnabled, borderColor, borderWidth, borderCornerRadius
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
@@ -228,6 +234,7 @@ final class Config {
             exposeSwitch = v(.exposeSwitch)
             exposeAllScreens = v(.exposeAllScreens)
             focusSync = v(.focusSync)
+            robustCrossAppTabs = v(.robustCrossAppTabs)
             tabScrollCycle = v(.tabScrollCycle)
             switcherFadeIn = v(.switcherFadeIn)
             tabBarHeight = v(.tabBarHeight)
@@ -324,6 +331,7 @@ final class Config {
         exposeSwitch = ""
         exposeAllScreens = false
         focusSync = true
+        robustCrossAppTabs = false
         tabScrollCycle = true
         switcherFadeIn = true
         tabBarHeight = 22
@@ -368,7 +376,7 @@ final class Config {
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
             "gap", "outerGap", "externalBarTop", "notchBarOffset", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
-            "exposeDim", "exposeSwitch", "exposeAllScreens", "focusSync", "tabScrollCycle", "switcherFadeIn",
+            "exposeDim", "exposeSwitch", "exposeAllScreens", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
             "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
@@ -404,6 +412,7 @@ final class Config {
         if let s = file.exposeSwitch { exposeSwitch = s }
         if let b = file.exposeAllScreens { exposeAllScreens = b }
         if let b = file.focusSync { focusSync = b }
+        if let b = file.robustCrossAppTabs { robustCrossAppTabs = b }
         if let b = file.tabScrollCycle { tabScrollCycle = b }
         if let b = file.switcherFadeIn { switcherFadeIn = b }
         if let wn = file.workspaceNames {
