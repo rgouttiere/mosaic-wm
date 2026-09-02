@@ -1687,7 +1687,7 @@ final class WindowManager {
         appendLeaf(leaf, to: tst)
         tst.root?.arrange(in: layoutRect(target))          // physically moves the window
         if let r = tst.root { wireTabCallbacks(r) }
-        tst.root?.forEachLeaf { $0.window?.raiseWindowOnly() }
+        tst.root?.raiseVisibleWindows()   // skips fullscreen (Space yank) + hidden tabs (wrong tab surfacing)
 
         if focused == nil || !treeContainsLeaf(focused!) { focused = root?.firstLeaf() }
         render()
@@ -2009,7 +2009,7 @@ final class WindowManager {
         if let r = tst.root { wireTabCallbacks(r) }
         if let scr = screen(forWorkspace: target) {   // shown somewhere → tile it there
             tst.root?.arrange(in: layoutRect(scr))
-            tst.root?.forEachLeaf { $0.window?.raiseWindowOnly() }
+            tst.root?.raiseVisibleWindows()   // skips fullscreen (Space yank) + hidden tabs (wrong tab surfacing)
         } else {
             parkWorkspace(tst)   // parked destination → the moved window follows off-screen
         }
@@ -2052,7 +2052,7 @@ final class WindowManager {
         if let r = tst.root { wireTabCallbacks(r) }
         if let scr = screen(forWorkspace: target) {
             tst.root?.arrange(in: layoutRect(scr))
-            tst.root?.forEachLeaf { $0.window?.raiseWindowOnly() }
+            tst.root?.raiseVisibleWindows()   // skips fullscreen (Space yank) + hidden tabs (wrong tab surfacing)
         } else {
             parkWorkspace(tst)
         }
