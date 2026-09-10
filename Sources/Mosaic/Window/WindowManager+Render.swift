@@ -121,6 +121,7 @@ extension WindowManager {
             // stays obvious you're in monocle (siblings hidden) and haven't just lost your layout.
             if Config.shared.borderEnabled { focusIndicator.show(around: area) } else { focusIndicator.hide() }
             zoomBadge.show(on: screen)
+            letterbox.hideAll()   // monocle fills the screen — no gap to letterbox
             scheduleSave()
             return
         }
@@ -142,11 +143,13 @@ extension WindowManager {
             AX.raise(w.element)
         }
         root.raiseVisibleStrips()
+        parkHiddenCrossAppTabs(on: screen)
 
         sweepOrphanStrips()   // hide strips not on any desktop's visible path
         updateFocusIndicator(onScreen: onScreen)
         layoutResizeHandles()
         applyOpacity()
+        updateLetterboxFill()   // black-fill letterbox gaps so parked slivers can't peek through
 
         // While the scratchpad is up, keep the tiles' overlays hidden so nothing floats
         // over it (a reconcile-triggered render would otherwise re-show them).
@@ -155,6 +158,61 @@ extension WindowManager {
             hideAllHandles()
         }
         scheduleSave()
+    }
+
+    /// Cross-app tab groups can't rely on z-order: macOS stacks by app LAYER, so a hidden tab from
+    /// another app can cover the selected one whenever that app's layer floats up — and activating
+    /// the selected app above it is unreliable (Tahoe cooperative activation). Decouple visibility
+    /// from z-order: translate each hidden tab whose app differs from the selected one's OFF-SCREEN
+    /// (the same shift a workspace park uses, driven off the leaf's arranged rect so it keeps its
+    /// size — no relayout), so nothing from another app can ever cover the selected tab. arrange()
+    /// brings a tab straight back to its slot the instant it's selected.
+    func parkHiddenCrossAppTabs(on screen: NSScreen) {
+        guard let root else { return }
+        let lr = layoutRect(screen), pr = parkRect(for: screen)
+        let dx = pr.minX - lr.minX, dy = pr.minY - lr.minY
+        root.forEachTabbed { group in
+            let kids = group.children
+            guard kids.count > 1 else { return }
+            let sel = min(max(group.selected, 0), kids.count - 1)
+            guard let selPid = kids[sel].firstLeaf().window?.app.processIdentifier else { return }
+            // Only mixed-app groups need this; a same-app group's z-order (AX.raise) already works.
+            guard Set(kids.compactMap { $0.firstLeaf().window?.app.processIdentifier }).count > 1 else { return }
+            for (i, child) in kids.enumerated() where i != sel {
+                child.forEachLeaf { leaf in
+                    // Drive off lastFrame (the Cocoa rect arrange just wrote), NOT the live AX frame,
+                    // so a re-park each render can't compound the window further off-screen.
+                    guard let w = leaf.window, !w.isFullscreen,
+                          w.app.processIdentifier != selPid, leaf.lastFrame.width > 0 else { return }
+                    w.setCocoaFrame(leaf.lastFrame.offsetBy(dx: dx, dy: dy))
+                }
+            }
+        }
+    }
+
+    /// Paint black bars over the gap of every SHOWN tile whose window doesn't fill it (e.g. IINA
+    /// keeping video aspect), across all monitors — so a parked window's ~40px residual strip (macOS
+    /// won't move a window fully off-screen) can't poke through, and the tile reads as a clean
+    /// letterbox. Runs on every render off the leaf's arranged rect vs the window's live AX frame.
+    func updateLetterboxFill() {
+        guard !scratchpadVisible else { letterbox.hideAll(); return }
+        letterbox.begin()
+        let t: CGFloat = 8   // ignore sub-8px mismatches — too small to be worth a bar
+        for (did, wsNum) in shownOnDisplay {
+            guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
+            root.forEachVisibleLeaf { leaf in
+                guard let w = leaf.window, !w.isFullscreen, let wf = w.frame else { return }
+                let tile = leaf.lastFrame
+                guard tile.width > 0, tile.height > 0 else { return }
+                let win = Geometry.flip(wf)
+                func bar(_ r: NSRect) { letterbox.fill(r.intersection(tile)) }
+                if win.minY > tile.minY + t { bar(NSRect(x: tile.minX, y: tile.minY, width: tile.width, height: win.minY - tile.minY)) }
+                if win.maxY < tile.maxY - t { bar(NSRect(x: tile.minX, y: win.maxY, width: tile.width, height: tile.maxY - win.maxY)) }
+                if win.minX > tile.minX + t { bar(NSRect(x: tile.minX, y: win.minY, width: win.minX - tile.minX, height: win.height)) }
+                if win.maxX < tile.maxX - t { bar(NSRect(x: win.maxX, y: win.minY, width: tile.maxX - win.maxX, height: win.height)) }
+            }
+        }
+        letterbox.end()
     }
 
     /// Dim unfocused windows per config (focused → activeOpacity, others → inactiveOpacity).

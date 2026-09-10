@@ -64,6 +64,7 @@ final class WindowManager {
     lazy var observer = WindowObserver { [weak self] in self?.tick() }
     let focusIndicator = FocusIndicator()
     let zoomBadge = ZoomBadge()
+    let letterbox = LetterboxFill()
     let dropHighlight = DropHighlight()
     var spaceTimer: Timer?
     var mouseMonitor: Any?
