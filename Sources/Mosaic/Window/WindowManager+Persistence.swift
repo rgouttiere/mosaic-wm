@@ -49,7 +49,11 @@ extension WindowManager {
             spaces[id] = st
             wireTabCallbacks(root)
         }
-        savedState.removeAll()   // consumed (matched windows removed from the pool)
+        // Drop ONLY the entries we actually rebuilt (their windows were consumed from the pool).
+        // Keep the rest: their apps weren't running yet, so they stay in savedState for the lazy
+        // restoreSaved() path on first switch AND for saveNow() to keep persisting — otherwise a
+        // workspace whose apps start slower than Mosaic loses its tab/split structure every reboot.
+        for id in spaces.keys { savedState[id] = nil }
         observer.watchForClose(AX.managedWindows().compactMap(ManagedWindow.init))
 
         // Show the workspace each monitor showed last session (by left→right monitor index);
