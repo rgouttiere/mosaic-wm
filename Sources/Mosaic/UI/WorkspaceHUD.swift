@@ -1,10 +1,11 @@
 import AppKit
 
-/// One workspace cell in the HUD strip: its number, optional name, whether it holds any
-/// windows, and whether it's the one just switched to.
+/// One workspace cell in the HUD strip: its number, optional name, the distinct app icons of the
+/// windows it holds, whether it holds any windows, and whether it's the one just switched to.
 struct WorkspaceHUDItem {
     let number: Int
     let name: String?
+    let icons: [NSImage]
     let occupied: Bool
     let current: Bool
 }
@@ -77,17 +78,34 @@ final class WorkspaceHUD {
 }
 
 /// Draws the workspace strip: rounded dark backdrop, one cell per workspace. Current = accent
-/// pill; occupied (non-current) = bright number + accent dot; empty = dimmed number.
+/// pill; every occupied workspace shows the distinct app icons of its windows (dimmed when it's
+/// not the current one); empty = a dimmed number alone.
 private final class WorkspaceStripView: NSView {
     var items: [WorkspaceHUDItem] = []
 
-    private let cellW: CGFloat = 46, barH: CGFloat = 60, pad: CGFloat = 9, gap: CGFloat = 5
+    private let barH: CGFloat = 64, pad: CGFloat = 9, gap: CGFloat = 5
+    private let numFont: CGFloat = 15
+    private let iconSize: CGFloat = 16, iconGap: CGFloat = 3, maxIcons = 4
+    private let minCellW: CGFloat = 42
     private var accent: NSColor { Palette.accent }
     private var inkOnAccent: NSColor { Palette.ink }
 
+    /// Width the icon row (with a "+N" overflow chip) needs for `count` distinct apps.
+    private func iconsWidth(_ count: Int) -> CGFloat {
+        let n = min(count, maxIcons)
+        guard n > 0 else { return 0 }
+        var w = CGFloat(n) * iconSize + CGFloat(n - 1) * iconGap
+        if count > maxIcons { w += iconGap + 14 }
+        return w
+    }
+    private func cellWidth(_ item: WorkspaceHUDItem) -> CGFloat {
+        max(minCellW, iconsWidth(item.icons.count) + 12)
+    }
+
     override var intrinsicContentSize: NSSize {
+        let total = items.reduce(0) { $0 + cellWidth($1) }
         let n = CGFloat(items.count)
-        return NSSize(width: pad * 2 + n * cellW + max(0, n - 1) * gap, height: barH)
+        return NSSize(width: pad * 2 + total + max(0, n - 1) * gap, height: barH)
     }
     override var isFlipped: Bool { false }
 
@@ -98,28 +116,47 @@ private final class WorkspaceStripView: NSView {
 
         var x = pad
         for item in items {
-            let cell = NSRect(x: x, y: pad, width: cellW, height: barH - 2 * pad)
+            let cw = cellWidth(item)
+            let cell = NSRect(x: x, y: pad, width: cw, height: barH - 2 * pad)
             if item.current {
                 accent.setFill()
-                NSBezierPath(roundedRect: cell, xRadius: 11, yRadius: 11).fill()
+                NSBezierPath(roundedRect: cell, xRadius: 8, yRadius: 8).fill()
             }
-            let color: NSColor = item.current ? inkOnAccent
+            let hasIcons = !item.icons.isEmpty
+            let lit = item.current || item.occupied
+
+            // Number: top when there are icons below, centred otherwise.
+            let numColor: NSColor = item.current ? inkOnAccent
                 : (item.occupied ? .white : NSColor.white.withAlphaComponent(0.32))
-            let weight: NSFont.Weight = (item.current || item.occupied) ? .bold : .regular
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 22, weight: weight), .foregroundColor: color,
-            ]
+                .font: NSFont.systemFont(ofSize: numFont, weight: lit ? .bold : .regular),
+                .foregroundColor: numColor]
             let s = "\(item.number)" as NSString
             let ts = s.size(withAttributes: attrs)
-            s.draw(at: NSPoint(x: cell.midX - ts.width / 2, y: cell.midY - ts.height / 2 + 2), withAttributes: attrs)
+            let numY = hasIcons ? cell.maxY - ts.height - 3 : cell.midY - ts.height / 2
+            s.draw(at: NSPoint(x: cell.midX - ts.width / 2, y: numY), withAttributes: attrs)
 
-            // Occupancy dot under the number for non-current workspaces that hold windows.
-            if item.occupied && !item.current {
-                accent.setFill()
-                let d: CGFloat = 5
-                NSBezierPath(ovalIn: NSRect(x: cell.midX - d / 2, y: cell.minY + 3, width: d, height: d)).fill()
+            // App icons: centred row along the bottom, dimmed when the workspace isn't current.
+            if hasIcons {
+                let iw = iconsWidth(item.icons.count)
+                var ix = cell.midX - iw / 2
+                let iy = cell.minY + 5
+                let frac: CGFloat = item.current ? 1 : 0.62
+                for icon in item.icons.prefix(maxIcons) {
+                    icon.draw(in: NSRect(x: ix, y: iy, width: iconSize, height: iconSize),
+                              from: .zero, operation: .sourceOver, fraction: frac)
+                    ix += iconSize + iconGap
+                }
+                if item.icons.count > maxIcons {
+                    let extra = "+\(item.icons.count - maxIcons)" as NSString
+                    let ea: [NSAttributedString.Key: Any] = [
+                        .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+                        .foregroundColor: item.current ? inkOnAccent : NSColor.white.withAlphaComponent(0.7)]
+                    let es = extra.size(withAttributes: ea)
+                    extra.draw(at: NSPoint(x: ix + 1, y: iy + iconSize / 2 - es.height / 2), withAttributes: ea)
+                }
             }
-            x += cellW + gap
+            x += cw + gap
         }
     }
 }

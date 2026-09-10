@@ -381,6 +381,18 @@ extension WindowManager {
     /// No-op in the emulated model: workspace numbers are intrinsic, nothing to prune.
     func pruneStaleAssignments() {}
 
+    /// Distinct app icons of the windows living in workspace `n`, in tree order (one per app, so a
+    /// workspace with three Finder windows shows one Finder icon). Feeds the HUD's at-a-glance row.
+    func workspaceAppIcons(_ n: Int) -> [NSImage] {
+        var seen = Set<pid_t>()
+        var icons: [NSImage] = []
+        spaces[UInt64(n)]?.root?.forEachLeaf { leaf in
+            guard let w = leaf.window else { return }
+            if seen.insert(w.app.processIdentifier).inserted, let icon = w.app.icon { icons.append(icon) }
+        }
+        return icons
+    }
+
     func showWorkspaceIndicator(for screen: NSScreen) {
         guard let space = currentWorkspace(for: screen) else { return }
         let number = workspaceNumber(for: space)
@@ -392,6 +404,7 @@ extension WindowManager {
         let items: [WorkspaceHUDItem] = (1...9)
             .filter { assignedDisplay(forWorkspace: $0) == did }
             .map { n in WorkspaceHUDItem(number: n, name: Config.shared.workspaceNames[n],
+                                         icons: workspaceAppIcons(n),
                                          occupied: spaces[UInt64(n)]?.root != nil, current: n == current) }
         workspaceHUD.show(items, on: screen, position: Config.shared.hudPosition)
     }
