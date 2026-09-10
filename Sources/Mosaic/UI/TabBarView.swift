@@ -33,6 +33,10 @@ final class TabBarView: NSView {
     private var didDrag = false
     private var scrollAccum: CGFloat = 0
 
+    /// Which segment the pointer is over, for hover highlighting. Horizontal mode = row 0.
+    private struct HoverKey: Equatable { let row: Int; let seg: Int }
+    private var hover: HoverKey? { didSet { if oldValue != hover { needsDisplay = true } } }
+
     private var isStackedRows: Bool { vertical && !rows.isEmpty }
     private var segmentWidth: CGFloat {
         titles.isEmpty ? bounds.width : bounds.width / CGFloat(titles.count)
@@ -44,6 +48,21 @@ final class TabBarView: NSView {
     private func index(at point: NSPoint) -> Int {
         guard !titles.isEmpty, segmentWidth > 0 else { return 0 }
         return min(titles.count - 1, max(0, Int(point.x / segmentWidth)))
+    }
+
+    /// The (row, segment) under `point` for hover highlighting; nil when outside the strip.
+    private func hoverKey(at point: NSPoint) -> HoverKey? {
+        guard bounds.contains(point) else { return nil }
+        if isStackedRows {
+            guard rowHeight > 0 else { return nil }
+            let r = min(rows.count - 1, max(0, Int(point.y / rowHeight)))
+            let segs = rows.indices.contains(r) ? rows[r] : []
+            let segW = segs.isEmpty ? bounds.width : bounds.width / CGFloat(segs.count)
+            let s = segW > 0 ? min(max(segs.count - 1, 0), max(0, Int(point.x / segW))) : 0
+            return HoverKey(row: r, seg: s)
+        }
+        guard !titles.isEmpty else { return nil }
+        return HoverKey(row: 0, seg: index(at: point))
     }
 
     // MARK: - Draw
@@ -62,7 +81,8 @@ final class TabBarView: NSView {
         for (index, title) in titles.enumerated() {
             let rect = NSRect(x: CGFloat(index) * segmentWidth, y: 0, width: segmentWidth, height: bounds.height)
             drawSegment(title, icon: icons.indices.contains(index) ? icons[index] : nil,
-                        in: rect, active: index == selectedIndex)
+                        in: rect, active: index == selectedIndex,
+                        hovered: hover == HoverKey(row: 0, seg: index))
         }
     }
 
@@ -74,15 +94,23 @@ final class TabBarView: NSView {
             for (s, title) in segs.enumerated() {
                 let rect = NSRect(x: CGFloat(s) * segW, y: rowY, width: segW, height: rowHeight)
                 let icon = rowIcons.indices.contains(r) && rowIcons[r].indices.contains(s) ? rowIcons[r][s] : nil
-                drawSegment(title, icon: icon, in: rect, active: r == selectedRow && s == activeSeg)
+                drawSegment(title, icon: icon, in: rect, active: r == selectedRow && s == activeSeg,
+                            hovered: hover == HoverKey(row: r, seg: s))
             }
         }
     }
 
-    private func drawSegment(_ title: String, icon: NSImage?, in rect: NSRect, active: Bool) {
+    private func drawSegment(_ title: String, icon: NSImage?, in rect: NSRect, active: Bool, hovered: Bool = false) {
         let cfg = Config.shared
         let fontSize = CGFloat(cfg.tabFontSize)
         let accent = Config.color(from: cfg.tabActiveColor)
+
+        // Hover cue on non-active tabs: an accent wash so the tab reads as "clickable". The active
+        // tab still wins via its crisp accent underline + semibold label, so this can be bolder.
+        if hovered && !active {
+            accent.withAlphaComponent(0.20).setFill()
+            rect.fill()
+        }
 
         if active {
             // Modern tab indicator: a subtle tinted panel + a crisp accent underline, instead of a
@@ -130,6 +158,23 @@ final class TabBarView: NSView {
     }
 
     // MARK: - Mouse
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for ta in trackingAreas { removeTrackingArea(ta) }
+        addTrackingArea(NSTrackingArea(rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways], owner: self))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        hover = hoverKey(at: convert(event.locationInWindow, from: nil))
+    }
+    override func mouseExited(with event: NSEvent) { hover = nil }
 
     /// Scroll over the strip to cycle tabs (horizontal) or stack rows (vertical), wrapping.
     override func scrollWheel(with event: NSEvent) {
@@ -187,6 +232,7 @@ final class TabBarView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let source = dragSourceIndex else { return }
+        hover = nil   // suppress the hover cue while dragging a tab
         if !didDrag {
             onDragStateChange?(true)
             TabDragGhost.shared.show(dragLabel(source), at: NSEvent.mouseLocation)
