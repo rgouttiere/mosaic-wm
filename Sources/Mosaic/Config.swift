@@ -18,6 +18,8 @@ final class Config {
     var workspaceMonitors: [Int: Int] = [:]  // optional override: workspace number → monitor index (1-based, left→right)
     var focusPulseWidth: CGFloat = 5   // px added to the focus border at the peak of the switch pulse (0 = off)
     var focusPulseDuration: Double = 0.38   // seconds the focus pulse takes to fade out
+    var focusGlowRadius: Double = 6    // px of soft accent halo around the focused window (0 = off, just the crisp border)
+    var focusGlowFade: Bool = true     // fade the focus border in on focus change (respects the system Reduce Motion setting)
     var exposeDim: Double = 0.7   // exposé backdrop opacity (0 = transparent, 1 = opaque black)
     var exposeSwitch = ""   // hold-combo to drive the exposé (e.g. "cmd tab"); empty = disabled
     var exposeAllScreens = false   // mirror the exposé/cmd-tab on every screen at once
@@ -176,6 +178,8 @@ final class Config {
         var workspaceMonitors: [String: Int]?
         var focusPulseWidth: Double?
         var focusPulseDuration: Double?
+        var focusGlowRadius: Double?
+        var focusGlowFade: Bool?
         var exposeDim: Double?
         var exposeSwitch: String?
         var exposeAllScreens: Bool?
@@ -219,7 +223,7 @@ final class Config {
         /// Explicit keys (a custom `init(from:)` suppresses synthesis). `decodeIssues` is not a
         /// config key — it's populated by the initializer, never decoded.
         private enum CodingKeys: String, CodingKey {
-            case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration
+            case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
             case onWorkspaceChange, borderEnabled, accentColor, borderColor, borderWidth, borderCornerRadius
@@ -248,6 +252,8 @@ final class Config {
             workspaceMonitors = v(.workspaceMonitors)
             focusPulseWidth = v(.focusPulseWidth)
             focusPulseDuration = v(.focusPulseDuration)
+            focusGlowRadius = v(.focusGlowRadius)
+            focusGlowFade = v(.focusGlowFade)
             exposeDim = v(.exposeDim)
             exposeSwitch = v(.exposeSwitch)
             exposeAllScreens = v(.exposeAllScreens)
@@ -347,6 +353,8 @@ final class Config {
         workspaceMonitors = [:]
         focusPulseWidth = 5
         focusPulseDuration = 0.38
+        focusGlowRadius = 6
+        focusGlowFade = true
         exposeDim = 0.7
         exposeSwitch = ""
         exposeAllScreens = false
@@ -398,6 +406,7 @@ final class Config {
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
             "gap", "outerGap", "externalBarTop", "notchBarOffset", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
+            "focusGlowRadius", "focusGlowFade",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
@@ -430,6 +439,8 @@ final class Config {
         if let e = file.notchBarOffset { notchBarOffset = CGFloat(e) }
         if let p = file.focusPulseWidth { focusPulseWidth = CGFloat(p) }
         if let d = file.focusPulseDuration { focusPulseDuration = d }
+        if let g = file.focusGlowRadius { focusGlowRadius = g }
+        if let b = file.focusGlowFade { focusGlowFade = b }
         if let d = file.exposeDim { exposeDim = d }
         if let s = file.exposeSwitch { exposeSwitch = s }
         if let b = file.exposeAllScreens { exposeAllScreens = b }
