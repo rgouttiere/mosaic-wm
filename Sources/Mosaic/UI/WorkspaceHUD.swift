@@ -15,6 +15,7 @@ struct WorkspaceHUDItem {
 final class WorkspaceHUD {
     private let window: NSWindow
     private let strip = WorkspaceStripView()
+    private let effect = NSVisualEffectView()   // frosted backdrop, matching the tab bars
     private var hideWork: DispatchWorkItem?
 
     init() {
@@ -22,12 +23,18 @@ final class WorkspaceHUD {
                           styleMask: .borderless, backing: .buffered, defer: false)
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = false
+        window.hasShadow = true
         window.level = .floating
         window.ignoresMouseEvents = true
         // NOT canJoinAllSpaces: show only on the desktop it's ordered onto, never flash elsewhere.
         window.collectionBehavior = [.ignoresCycle, .stationary]
-        window.contentView = strip
+        effect.material = .hudWindow
+        effect.blendingMode = .behindWindow
+        effect.state = .active
+        effect.wantsLayer = true
+        strip.autoresizingMask = [.width, .height]
+        effect.addSubview(strip)
+        window.contentView = effect
     }
 
     func show(_ items: [WorkspaceHUDItem], on screen: NSScreen, position: String) {
@@ -35,6 +42,10 @@ final class WorkspaceHUD {
         strip.items = items
         let s = strip.intrinsicContentSize
         window.setContentSize(s)
+        effect.frame = NSRect(origin: .zero, size: s)
+        effect.layer?.cornerRadius = CGFloat(Config.shared.tabCornerRadius)   // match the theme's square corners
+        effect.layer?.masksToBounds = true
+        strip.frame = effect.bounds
         strip.needsDisplay = true
 
         let f = screen.visibleFrame
@@ -81,8 +92,9 @@ private final class WorkspaceStripView: NSView {
     override var isFlipped: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(0.62).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16).fill()
+        // Subtle tint over the frosted backdrop (provided by the HUD's NSVisualEffectView).
+        NSColor.black.withAlphaComponent(0.28).setFill()
+        bounds.fill()
 
         var x = pad
         for item in items {

@@ -74,13 +74,23 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         backgroundColor = .clear
         hasShadow = true
 
-        let container = NSView(frame: NSRect(origin: .zero, size: rect.size))
+        let container = NSVisualEffectView(frame: NSRect(origin: .zero, size: rect.size))
+        container.material = .hudWindow          // same frosted material as the tab bars
+        container.blendingMode = .behindWindow
+        container.state = .active
         container.wantsLayer = true
-        container.layer?.backgroundColor = Sw.bg.cgColor
-        container.layer?.cornerRadius = 14
+        container.layer?.cornerRadius = CGFloat(Config.shared.tabCornerRadius)   // match the theme's square corners
+        container.layer?.masksToBounds = true
         container.layer?.borderWidth = 1
         container.layer?.borderColor = Sw.accent.withAlphaComponent(0.35).cgColor
         contentView = container
+
+        // Subtle dark tint over the frost so the large text stays crisp and it reads themed.
+        let tint = NSView(frame: container.bounds)
+        tint.autoresizingMask = [.width, .height]
+        tint.wantsLayer = true
+        tint.layer?.backgroundColor = Sw.bg.withAlphaComponent(0.4).cgColor
+        container.addSubview(tint)
 
         field.frame = NSRect(x: 18, y: h - 56, width: w - 36, height: 40)
         field.font = .systemFont(ofSize: 22)
