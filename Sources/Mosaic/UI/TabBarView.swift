@@ -50,10 +50,10 @@ final class TabBarView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let cfg = Config.shared
-        layer?.cornerRadius = CGFloat(cfg.tabCornerRadius)
-        layer?.masksToBounds = true
-        layer?.backgroundColor = Config.color(from: cfg.tabBarColor)
-            .withAlphaComponent(CGFloat(cfg.tabBarOpacity)).cgColor
+        // The frosted backdrop is the window's NSVisualEffectView; we only lay a hint of the theme
+        // colour over it so the strip reads as "ours" rather than a neutral system grey.
+        Config.color(from: cfg.tabBarColor).withAlphaComponent(0.22).setFill()
+        bounds.fill()
         if isStackedRows { drawStacked() } else { drawHorizontal() }
     }
 
@@ -81,41 +81,48 @@ final class TabBarView: NSView {
 
     private func drawSegment(_ title: String, icon: NSImage?, in rect: NSRect, active: Bool) {
         let cfg = Config.shared
-        let radius = CGFloat(cfg.tabCornerRadius)
         let fontSize = CGFloat(cfg.tabFontSize)
+        let accent = Config.color(from: cfg.tabActiveColor)
 
         if active {
-            Config.color(from: cfg.tabActiveColor).setFill()
-            let pad = CGFloat(cfg.tabActivePadding)
-            let pill = rect.insetBy(dx: pad, dy: pad + 1)
-            let r = min(radius, pill.height / 2)
-            NSBezierPath(roundedRect: pill, xRadius: r, yRadius: r).fill()
+            // Modern tab indicator: a subtle tinted panel + a crisp accent underline, instead of a
+            // full-accent pill — reads cleaner and keeps the label legible.
+            accent.withAlphaComponent(0.15).setFill()
+            rect.fill()
+            accent.setFill()
+            let uh: CGFloat = 2
+            NSRect(x: rect.minX, y: rect.maxY - uh, width: rect.width, height: uh).fill()
+        }
+
+        // Quiet hairline separator on the right edge (skip the rightmost) for gentle structure.
+        if rect.maxX < bounds.width - 1 {
+            NSColor.white.withAlphaComponent(0.06).setFill()
+            NSRect(x: rect.maxX - 1, y: rect.minY + 4, width: 1, height: rect.height - 8).fill()
         }
 
         var textLeft = rect.minX + 10
         if let icon {
-            let s = min(rect.height - 6, 16)
+            let s = min(rect.height - 8, 15)
+            NSGraphicsContext.current?.imageInterpolation = .high
             icon.draw(in: NSRect(x: rect.minX + 8, y: rect.midY - s / 2, width: s, height: s))
             textLeft = rect.minX + 8 + s + 6
         }
+
         let style = NSMutableParagraphStyle()
         style.alignment = (isStackedRows || icon != nil) ? .left : .center
         style.lineBreakMode = .byTruncatingTail
-        var attrs: [NSAttributedString.Key: Any] = [
+        // A light shadow on every label keeps it legible over the (busy) frosted backdrop.
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+        shadow.shadowBlurRadius = 1.5
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: active ? .semibold : .regular),
             .foregroundColor: active ? Config.color(from: cfg.tabActiveTextColor)
                                      : Config.color(from: cfg.tabTextColor),
             .paragraphStyle: style,
+            .shadow: shadow,
         ]
-        if active {
-            // Ombre portée subtile pour détacher le libellé du fond d'accent
-            // sans l'alourdir (un stroke rend le texte fin illisible).
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
-            shadow.shadowBlurRadius = 2
-            shadow.shadowOffset = NSSize(width: 0, height: -1)
-            attrs[.shadow] = shadow
-        }
         let textHeight = fontSize + 4
         let textRect = NSRect(x: textLeft, y: rect.midY - textHeight / 2,
                               width: max(0, rect.maxX - textLeft - 8), height: textHeight)
