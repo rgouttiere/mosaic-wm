@@ -250,7 +250,10 @@ extension WindowManager {
     /// ~0.5s (or needing a manual focus nudge). The debounced reconcile still runs after as
     /// a backstop for anything not resolved here.
     func reconcile() {
-        guard !suspended, !isReconciling, let root, let screen = activeScreen else { return }
+        // NOT `let root`: an empty active workspace (root == nil) must still reconcile so a window
+        // opened on a fresh/emptied workspace gets adopted — insert() seeds a nil root. activeScreen
+        // already implies the active workspace exists.
+        guard !suspended, !isReconciling, let screen = activeScreen else { return }
         isReconciling = true
         let __perf = DispatchTime.now(); defer { Perf.record("reconcile", since: __perf) }
         defer { isReconciling = false }
@@ -261,7 +264,7 @@ extension WindowManager {
         var aliveConfirmedIDs = Set<CGWindowID>()     // ids we POSITIVELY resolved as alive — for switch-detection only
         var deadLeaves: [Container] = []
         var staleLeaves: [Container] = []   // has a window, but AX couldn't resolve its id now
-        root.forEachLeaf { leaf in
+        root?.forEachLeaf { leaf in
             guard let w = leaf.window else { deadLeaves.append(leaf); return }   // no window at all
             if let id = w.resolvedID() {
                 // A full-screened window (e.g. a video) is temporarily on its own Space.
@@ -276,7 +279,10 @@ extension WindowManager {
             // so they won't be re-inserted elsewhere.)
             if w.app.isHidden {
                 w.missCount = 0
-                if let cached = w.lastKnownID { aliveTreeIDs.insert(cached); aliveConfirmedIDs.insert(cached) }
+                // Keep its slot (aliveTreeIDs) but NOT in aliveConfirmedIDs: a hidden window is off
+                // the on-screen list, so counting it there would make the switch-detection at line
+                // ~301 (confirmed-alive ∩ onScreen == ∅) misfire when a whole workspace is hidden.
+                if let cached = w.lastKnownID { aliveTreeIDs.insert(cached) }
                 return
             }
             // AX couldn't resolve the window. It might be a transient glitch, a real close,
@@ -339,6 +345,7 @@ extension WindowManager {
         // of detaching the leaf and inserting the newcomer elsewhere. No ghost tile, no jump
         // — IINA's launcher→video swap keeps the video right where the launcher tiled, and
         // the leaf keeps focus if it had it.
+        var adopted = false
         for leaf in staleLeaves {
             guard let deadPid = leaf.window?.pid,
                   let idx = additions.firstIndex(where: { $0.pid == deadPid }) else { continue }
@@ -346,6 +353,7 @@ extension WindowManager {
             _ = replacement.resolvedID()   // cache the id so the next pass sees it as alive
             if let old = leaf.window { observer.unwatch([old]) }   // the vanished window's AX regs
             leaf.window = replacement      // render() below repaints its tab/stack label
+            adopted = true
         }
 
         // Verdict for the leaves still unresolved after adoption: a couple of misses in a row
@@ -367,7 +375,9 @@ extension WindowManager {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
         }
 
-        guard !deadLeaves.isEmpty || !additions.isEmpty else { return }
+        // `adopted`: a same-app replacement swapped a leaf's window in place — no add/remove, but the
+        // newcomer still needs render() to place it into the slot and repaint its tab label.
+        guard !deadLeaves.isEmpty || !additions.isEmpty || adopted else { return }
 
         observer.unwatch(deadLeaves.compactMap { $0.window })   // release regs for really-gone windows
         for leaf in deadLeaves { detach(leaf) }
