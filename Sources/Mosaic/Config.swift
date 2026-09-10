@@ -415,6 +415,7 @@ final class Config {
         if let d = file.exposeDim { exposeDim = d }
         if let s = file.exposeSwitch { exposeSwitch = s }
         if let b = file.exposeAllScreens { exposeAllScreens = b }
+        if let b = file.exposeThumbnails { exposeThumbnails = b }
         if let b = file.focusSync { focusSync = b }
         if let b = file.robustCrossAppTabs { robustCrossAppTabs = b }
         if let b = file.tabScrollCycle { tabScrollCycle = b }
