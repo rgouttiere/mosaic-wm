@@ -205,6 +205,49 @@ final class Container {
     /// The rect this node was last laid out in (Cocoa coords) — used to place resize handles.
     var lastFrame: NSRect = .zero
 
+    /// Split `total` among `ratios`, but never give a child less than `mins[i]` along the axis.
+    /// A child whose ratio-share falls under its min is PINNED to its min; the leftover is re-split
+    /// among the rest by ratio (iterating, since pinning one can starve another). If the mins can't
+    /// all fit (sum > total) every child still gets its min and the container simply overflows —
+    /// there is no smaller size the windows accept. With all-zero mins this is a plain ratio split.
+    static func solveSplit(total: CGFloat, ratios: [CGFloat], mins: [CGFloat]) -> [CGFloat] {
+        let n = ratios.count
+        guard n > 0 else { return [] }
+        var out = [CGFloat](repeating: 0, count: n)
+        var pinned = [Bool](repeating: false, count: n)
+        while true {
+            let pinnedSum = zip(pinned, mins).reduce(CGFloat(0)) { $1.0 ? $0 + $1.1 : $0 }
+            let free = max(0, total - pinnedSum)
+            let ratioSum = zip(pinned, ratios).reduce(CGFloat(0)) { $1.0 ? $0 : $0 + $1.1 }
+            let open = pinned.filter { !$0 }.count
+            var changed = false
+            for i in 0..<n where !pinned[i] {
+                let share = ratioSum > 0 ? free * ratios[i] / ratioSum : free / CGFloat(max(1, open))
+                if share < mins[i] { pinned[i] = true; changed = true } else { out[i] = share }
+            }
+            if !changed {
+                for i in 0..<n where pinned[i] { out[i] = mins[i] }
+                return out
+            }
+        }
+    }
+
+    /// Size this node needs along the given axis (horizontal = width), from learned window floors.
+    /// Splits along the axis sum their children; across it, take the max; tabs (overlapping) max.
+    func minAxisSize(horizontal: Bool) -> CGFloat {
+        if isLeaf { let m = window?.learnedMin ?? .zero; return horizontal ? m.width : m.height }
+        switch layout {
+        case .splitH:
+            return horizontal ? children.reduce(0) { $0 + $1.minAxisSize(horizontal: true) }
+                              : (children.map { $0.minAxisSize(horizontal: false) }.max() ?? 0)
+        case .splitV:
+            return horizontal ? (children.map { $0.minAxisSize(horizontal: true) }.max() ?? 0)
+                              : children.reduce(0) { $0 + $1.minAxisSize(horizontal: false) }
+        case .tabbed:
+            return children.map { $0.minAxisSize(horizontal: horizontal) }.max() ?? 0
+        }
+    }
+
     func arrange(in rect: NSRect) {
         lastFrame = rect
         guard !isLeaf else {
@@ -222,21 +265,23 @@ final class Container {
         switch layout {
         case .splitH:
             tabBar?.orderOut(nil)
+            let widths = Container.solveSplit(total: rect.width, ratios: ratios,
+                                              mins: children.map { $0.minAxisSize(horizontal: true) })
             var x = rect.minX
             for (i, child) in children.enumerated() {
-                let w = rect.width * ratios[i]
-                child.arrange(in: NSRect(x: x, y: rect.minY, width: w, height: rect.height))
-                x += w
+                child.arrange(in: NSRect(x: x, y: rect.minY, width: widths[i], height: rect.height))
+                x += widths[i]
             }
 
         case .splitV:
             tabBar?.orderOut(nil)
             // Cocoa origin bottom-left: first child takes the top slice.
+            let heights = Container.solveSplit(total: rect.height, ratios: ratios,
+                                               mins: children.map { $0.minAxisSize(horizontal: false) })
             var y = rect.maxY
             for (i, child) in children.enumerated() {
-                let h = rect.height * ratios[i]
-                child.arrange(in: NSRect(x: rect.minX, y: y - h, width: rect.width, height: h))
-                y -= h
+                child.arrange(in: NSRect(x: rect.minX, y: y - heights[i], width: rect.width, height: heights[i]))
+                y -= heights[i]
             }
 
         case .tabbed:
@@ -269,18 +314,20 @@ final class Container {
         let r = ratios.count == children.count ? ratios : Container.equalRatios(children.count)
         switch layout {
         case .splitH:
+            let widths = Container.solveSplit(total: rect.width, ratios: r,
+                                              mins: children.map { $0.minAxisSize(horizontal: true) })
             var x = rect.minX
             for (i, child) in children.enumerated() {
-                let w = rect.width * r[i]
-                child.collectPreview(in: NSRect(x: x, y: rect.minY, width: w, height: rect.height), into: &out)
-                x += w
+                child.collectPreview(in: NSRect(x: x, y: rect.minY, width: widths[i], height: rect.height), into: &out)
+                x += widths[i]
             }
         case .splitV:
+            let heights = Container.solveSplit(total: rect.height, ratios: r,
+                                               mins: children.map { $0.minAxisSize(horizontal: false) })
             var y = rect.maxY
             for (i, child) in children.enumerated() {
-                let h = rect.height * r[i]
-                child.collectPreview(in: NSRect(x: rect.minX, y: y - h, width: rect.width, height: h), into: &out)
-                y -= h
+                child.collectPreview(in: NSRect(x: rect.minX, y: y - heights[i], width: rect.width, height: heights[i]), into: &out)
+                y -= heights[i]
             }
         case .tabbed:
             if children.count == 1 { children[0].collectPreview(in: rect, into: &out); return }

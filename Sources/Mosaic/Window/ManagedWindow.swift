@@ -38,6 +38,12 @@ final class ManagedWindow {
 
     var frame: CGRect? { AX.frame(element) }
 
+    /// Learned size floor (points): if a tiling write got clamped UP — the app refuses to shrink
+    /// past its own minimum (e.g. an Electron `minWidth`/`minHeight`) — we remember the size it
+    /// snapped to, so the split solver reserves that much next pass instead of letting the window
+    /// overflow its tile forever (the "Deezer moves strangely in a narrow column" case).
+    var learnedMin: CGSize = .zero
+
     /// Last frame (AX coords) we asked this window to take. Lets `setCocoaFrame` skip a
     /// redundant AX write — the expensive op, since each write forces the app to re-layout
     /// its content — when the target is unchanged. Mosaic is the layout authority and does
@@ -56,7 +62,15 @@ final class ManagedWindow {
         // stay uncached so the next render re-issues it — otherwise the <1px skip above would
         // pin the window to a frame it never actually took, with no self-heal until a manual
         // re-tile. Otherwise the cache is only reset by `invalidateFrameCache` below.
-        if AX.setFrame(element, axRect) { lastSetFrame = axRect }
+        if AX.setFrame(element, axRect) {
+            lastSetFrame = axRect
+            // Detect a min-size clamp: if the window came out wider/taller than we asked, that size
+            // is a floor it won't go under — record it so the split solver reserves the room.
+            if let actual = AX.frame(element)?.size {
+                if actual.width  > axRect.size.width  + 2 { learnedMin.width  = max(learnedMin.width,  actual.width) }
+                if actual.height > axRect.size.height + 2 { learnedMin.height = max(learnedMin.height, actual.height) }
+            }
+        }
     }
 
     /// Forget the last frame we wrote so the next `setCocoaFrame` re-issues the AX write even when

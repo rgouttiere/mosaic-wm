@@ -217,6 +217,19 @@ enum SelfTest {
             h.check(root.firstVisibleLeaf() === leafX, "firstVisibleLeaf: split → first child")
         }
 
+        // solveSplit — min-size-aware split widths (MIN-SIZE-TILING)
+        do {
+            let a = Container.solveSplit(total: 1000, ratios: [0.5, 0.5], mins: [0, 0])
+            h.eq(a[0], 500, "solveSplit: no min → plain ratio split"); h.eq(a[1], 500, "solveSplit: … second")
+            let b = Container.solveSplit(total: 1000, ratios: [0.5, 0.5], mins: [700, 0])
+            h.eq(b[0], 700, "solveSplit: child pinned to its floor"); h.eq(b[1], 300, "solveSplit: sibling absorbs the deficit")
+            let c = Container.solveSplit(total: 3440, ratios: [0.25, 0.25, 0.25, 0.25], mins: [990, 0, 0, 0])
+            h.eq(c[0], 990, "solveSplit: floor 990 held in a 4-column split")
+            h.check(abs(c[1] - (3440 - 990) / 3) < 0.01, "solveSplit: the other 3 columns split the rest")
+            let d = Container.solveSplit(total: 1000, ratios: [0.5, 0.5], mins: [700, 700])
+            h.eq(d[0], 700, "solveSplit: over-constrained → each still gets its min (overflow)"); h.eq(d[1], 700, "solveSplit: … second")
+        }
+
         // ratios stay consistent with child count
         do {
             let (p, _) = tabbedParent(4)
