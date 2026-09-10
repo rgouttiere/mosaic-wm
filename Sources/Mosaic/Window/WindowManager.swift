@@ -109,6 +109,7 @@ final class WindowManager {
     /// set is unchanged and nothing closed, a reconcile can't have anything to do — used
     /// to skip the costly captureWindows() on pure focus/app switches.
     private var lastReconcileOnScreen: Set<CGWindowID> = []
+    private var lastReconcileSpaceID: UInt64?   // active space the on-screen snapshot above was taken on
     /// Recently-focused workspace numbers, most-recent first. Powers the switcher's recency
     /// ordering and the ⌘⌥B back-and-forth toggle.
     private var workspaceRecency: [Int] = []
@@ -928,8 +929,14 @@ final class WindowManager {
         // since the last full reconcile → nothing could have been added or removed. Skip the
         // expensive enumeration (captureWindows) — this keeps a pure focus / app switch cheap
         // instead of paying ~30ms of AX every time.
-        if deadLeaves.isEmpty, staleLeaves.isEmpty, onScreen == lastReconcileOnScreen { return }
+        // Also gate on the active space: `onScreen` is GLOBAL (all monitors), so switching to a
+        // monitor whose on-screen set is unchanged would otherwise fast-path out and never call
+        // captureWindows for the new active screen — leaving a window that opened on a NON-active
+        // monitor unadopted when you move there (captureWindows only ever sees the active screen).
+        if deadLeaves.isEmpty, staleLeaves.isEmpty,
+           onScreen == lastReconcileOnScreen, activeSpaceID == lastReconcileSpaceID { return }
         lastReconcileOnScreen = onScreen
+        lastReconcileSpaceID = activeSpaceID
 
         let windows = captureWindows(on: screen, onScreen: onScreen)   // reuse this pass's enumeration
 
