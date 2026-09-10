@@ -17,6 +17,9 @@ extension WindowManager {
             activeSpaceID = target
             warpMouseToWorkspace(target, on: screen)
             updateFocusIndicator()
+            // The focused workspace still changed (keyboard moved to this monitor), so emit state —
+            // else the menu bar / sketchybar / status.json and workspaceRecency stay on the old one.
+            showWorkspaceIndicator(for: screen)
             return
         }
 
