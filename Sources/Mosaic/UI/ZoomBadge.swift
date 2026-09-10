@@ -6,25 +6,36 @@ import AppKit
 final class ZoomBadge {
     private let window: NSWindow
     private let view = ZoomBadgeView()
+    private let effect = NSVisualEffectView()   // frosted pill, matching the other overlays
 
     init() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 110, height: 32),
                           styleMask: .borderless, backing: .buffered, defer: false)
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = false
+        window.hasShadow = true
         window.level = .floating
         window.ignoresMouseEvents = true   // never intercept clicks
         // moveToActiveSpace so it lands on the desktop actually being looked at (two workspaces can
         // share a display), like the focus border and tab bars — never stranded on the old Space.
         window.collectionBehavior = [.ignoresCycle, .moveToActiveSpace]
-        window.contentView = view
+        effect.material = .hudWindow
+        effect.blendingMode = .behindWindow
+        effect.state = .active
+        effect.wantsLayer = true
+        view.autoresizingMask = [.width, .height]
+        effect.addSubview(view)
+        window.contentView = effect
     }
 
     /// Show the badge in the top-right corner of `screen`. Idempotent — cheap to call each render.
     func show(on screen: NSScreen) {
         let s = view.intrinsicContentSize
         window.setContentSize(s)
+        effect.frame = NSRect(origin: .zero, size: s)
+        effect.layer?.cornerRadius = s.height / 2   // pill
+        effect.layer?.masksToBounds = true
+        view.frame = effect.bounds
         view.needsDisplay = true   // pick up config accent-colour changes
         let f = screen.visibleFrame
         let m: CGFloat = 12
@@ -49,9 +60,9 @@ private final class ZoomBadgeView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let accent = Config.shared.borderNSColor
-        // Dark pill so the accent text reads over any window content underneath.
-        NSColor.black.withAlphaComponent(0.68).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
+        // Subtle tint over the frosted pill (the blur is the window's NSVisualEffectView).
+        NSColor.black.withAlphaComponent(0.28).setFill()
+        bounds.fill()
         // Accent hairline border.
         accent.setStroke()
         let p = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.75, dy: 0.75),
