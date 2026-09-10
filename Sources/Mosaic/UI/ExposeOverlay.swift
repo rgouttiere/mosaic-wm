@@ -122,7 +122,7 @@ final class ExposeOverlay {
         Task { [weak self] in
             let imgs = await Thumbnails.captureAll(ids)
             guard !imgs.isEmpty else { return }
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 guard let self else { return }
                 for (id, cg) in imgs {
                     self.thumbs.images[id] = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
