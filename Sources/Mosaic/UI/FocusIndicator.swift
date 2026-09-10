@@ -19,7 +19,10 @@ final class FocusIndicator {
         // Grow the overlay by the halo radius on every side so the glow has room to bloom
         // OUTSIDE the window edge instead of clipping at its bounds.
         let g = CGFloat(max(0, Config.shared.focusGlowRadius))
-        let outer = cocoaFrame.insetBy(dx: -g, dy: -g)
+        // Pad MORE than the blur radius: a Gaussian shadow of radius g spreads past g points, so a
+        // g-wide margin would clip its soft tail into a hard seam. Give it half again as much room.
+        let pad = (g * 1.5).rounded(.up)
+        let outer = cocoaFrame.insetBy(dx: -pad, dy: -pad)
 
         // Fade the border in when focus JUMPS to a different window (not on a mere resize of the
         // same one) — an in-place cross-fade, never a travelling rectangle. Honour Reduce Motion.
@@ -32,7 +35,7 @@ final class FocusIndicator {
 
         window.setFrame(outer, display: true)
         window.contentView?.frame = NSRect(origin: .zero, size: outer.size)
-        if let v = window.contentView as? BorderView { v.glowInset = g; v.preselect = preselect }
+        if let v = window.contentView as? BorderView { v.glowInset = pad; v.glowBlur = g; v.preselect = preselect }
         window.contentView?.needsDisplay = true   // pick up config color/width changes
         // orderFrontRegardless (like the tab bars) so a .stationary window actually
         // migrates to the current Space — orderFront leaves it stuck on its old Space,
@@ -93,6 +96,8 @@ private final class BorderView: NSView {
     var preselect: Bool?
     /// Padding between the view bounds and the true window edge — room for the halo to bloom.
     var glowInset: CGFloat = 0 { didSet { needsDisplay = true } }
+    /// The halo's actual shadow blur radius (kept < glowInset so its soft tail fades within bounds).
+    var glowBlur: CGFloat = 0
     /// 0 = none, 1 = full one-shot glow (see FocusIndicator.pulse()).
     var pulse: CGFloat = 0 { didSet { needsDisplay = true } }
 
@@ -123,7 +128,7 @@ private final class BorderView: NSView {
             NSGraphicsContext.saveGraphicsState()
             let sh = NSShadow()
             sh.shadowColor = accent.withAlphaComponent(0.85)
-            sh.shadowBlurRadius = glowInset
+            sh.shadowBlurRadius = glowBlur
             sh.shadowOffset = .zero
             sh.set()
             accent.setStroke()
