@@ -18,6 +18,7 @@ final class WorkspaceHUD {
     private let strip = WorkspaceStripView()
     private let effect = NSVisualEffectView()   // frosted backdrop, matching the tab bars
     private var hideWork: DispatchWorkItem?
+    private var hideGen = 0   // bumped each show(); a stale fade's completion checks it before hiding
 
     init() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 60),
@@ -66,11 +67,18 @@ final class WorkspaceHUD {
         window.orderFront(nil)
 
         hideWork?.cancel()
+        hideGen += 1
+        let gen = hideGen
         let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.25
-                self?.window.animator().alphaValue = 0
-            } completionHandler: { self?.window.orderOut(nil) }
+                self.window.animator().alphaValue = 0
+            } completionHandler: { [weak self] in
+                // A newer show() (rapid switch) bumped hideGen and re-displayed us — don't hide it.
+                guard let self, self.hideGen == gen else { return }
+                self.window.orderOut(nil)
+            }
         }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: work)
