@@ -82,8 +82,8 @@ private final class WorkspaceStripView: NSView {
     var items: [WorkspaceHUDItem] = []
 
     private let cellW: CGFloat = 46, barH: CGFloat = 60, pad: CGFloat = 9, gap: CGFloat = 5
-    private let accent = NSColor(srgbRed: 0xa6/255, green: 0xe3/255, blue: 0xa1/255, alpha: 1)
-    private let inkOnAccent = NSColor(srgbRed: 0x14/255, green: 0x18/255, blue: 0x14/255, alpha: 1)
+    private var accent: NSColor { Palette.accent }
+    private var inkOnAccent: NSColor { Palette.ink }
 
     override var intrinsicContentSize: NSSize {
         let n = CGFloat(items.count)

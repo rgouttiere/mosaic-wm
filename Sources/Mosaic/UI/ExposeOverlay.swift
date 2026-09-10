@@ -176,11 +176,11 @@ private final class ExposeView: NSView {
     var selected = 0
     var thumbs: ThumbnailStore?   // live previews, shared with the overlay; nil until captured
 
-    private let text    = NSColor(srgbRed: 0xf9/255, green: 0xf8/255, blue: 0xf5/255, alpha: 1)
-    private let subtext = NSColor(srgbRed: 0xa8/255, green: 0x99/255, blue: 0x84/255, alpha: 1)
-    private let accent  = NSColor(srgbRed: 0xa6/255, green: 0xe3/255, blue: 0xa1/255, alpha: 1)
-    private let surface = NSColor(srgbRed: 0x2a/255, green: 0x2a/255, blue: 0x2a/255, alpha: 1)
-    private let winFill = NSColor(srgbRed: 0x45/255, green: 0x47/255, blue: 0x5a/255, alpha: 1)
+    private var text: NSColor    { Palette.text }
+    private var subtext: NSColor { Palette.subtext }
+    private var accent: NSColor  { Palette.accent }
+    private var surface: NSColor { Palette.surface }
+    private var winFill: NSColor { Palette.schematic }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.withAlphaComponent(CGFloat(Config.shared.exposeDim)).setFill(); bounds.fill()

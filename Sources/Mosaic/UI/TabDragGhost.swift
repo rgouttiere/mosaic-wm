@@ -21,7 +21,7 @@ final class TabDragGhost {
 
         let content = NSView(frame: window.frame)
         content.wantsLayer = true
-        content.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.95).cgColor
+        content.layer?.backgroundColor = Palette.accent.withAlphaComponent(0.95).cgColor
         content.layer?.cornerRadius = 8
         label.font = .systemFont(ofSize: 12, weight: .semibold)
         label.textColor = .white

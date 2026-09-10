@@ -94,7 +94,7 @@ private final class HintsView: NSView {
     var targets: [(hint: String, target: HintTarget)] = []
     var typed = ""
 
-    private let accent = NSColor(srgbRed: 0xa6/255, green: 0xe3/255, blue: 0xa1/255, alpha: 1)
+    private var accent: NSColor { Palette.accent }
 
     override func draw(_ dirtyRect: NSRect) {
         let font = NSFont.monospacedSystemFont(ofSize: 15, weight: .bold)

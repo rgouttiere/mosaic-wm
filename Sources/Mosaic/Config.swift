@@ -53,6 +53,10 @@ final class Config {
 
     // Window styling.
     var borderEnabled: Bool = true
+    /// The single accent used across the whole UI. "accent"/"system" = the macOS system accent;
+    /// or a hex like "#a6e3a1". Every field set to "accent" (border, tabs, drop) resolves through
+    /// this, and the overlays read `Palette.accent`, so one value re-themes everything.
+    var accentColor: String = "accent"
     var borderColor: String = "accent"   // "accent" or hex like "#FF9500"
     var borderWidth: Double = 1
     var borderCornerRadius: Double = 18
@@ -74,11 +78,22 @@ final class Config {
     var dropHighlightColor: String = "accent"
 
     var borderNSColor: NSColor { Config.color(from: borderColor) }
+    /// The resolved accent (system or configured hex) — never recurses through the "accent" keyword.
+    var accentNSColor: NSColor {
+        let s = accentColor.lowercased()
+        if s == "accent" || s == "system" { return .controlAccentColor }
+        return Config.hexColor(accentColor) ?? .controlAccentColor
+    }
 
     static func color(from string: String) -> NSColor {
-        if string.lowercased() == "accent" { return .controlAccentColor }
+        if string.lowercased() == "accent" { return Config.shared.accentNSColor }
+        return hexColor(string) ?? .controlAccentColor
+    }
+
+    /// Parse "#RRGGBB" (or "RRGGBB"); nil if malformed.
+    static func hexColor(_ string: String) -> NSColor? {
         let hex = string.hasPrefix("#") ? String(string.dropFirst()) : string
-        guard hex.count == 6, let v = Int(hex, radix: 16) else { return .controlAccentColor }
+        guard hex.count == 6, let v = Int(hex, radix: 16) else { return nil }
         return NSColor(red: CGFloat((v >> 16) & 0xFF) / 255,
                        green: CGFloat((v >> 8) & 0xFF) / 255,
                        blue: CGFloat(v & 0xFF) / 255, alpha: 1)
@@ -180,6 +195,7 @@ final class Config {
         var hudPosition: String?
         var onWorkspaceChange: String?
         var borderEnabled: Bool?
+        var accentColor: String?
         var borderColor: String?
         var borderWidth: Double?
         var borderCornerRadius: Double?
@@ -206,7 +222,7 @@ final class Config {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
-            case onWorkspaceChange, borderEnabled, borderColor, borderWidth, borderCornerRadius
+            case onWorkspaceChange, borderEnabled, accentColor, borderColor, borderWidth, borderCornerRadius
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
             case dropHighlightEnabled, dropHighlightColor, keybindings
@@ -251,6 +267,7 @@ final class Config {
             hudPosition = v(.hudPosition)
             onWorkspaceChange = v(.onWorkspaceChange)
             borderEnabled = v(.borderEnabled)
+            accentColor = v(.accentColor)
             borderColor = v(.borderColor)
             borderWidth = v(.borderWidth)
             borderCornerRadius = v(.borderCornerRadius)
@@ -349,6 +366,7 @@ final class Config {
         hudPosition = "top-right"
         onWorkspaceChange = ""
         borderEnabled = true
+        accentColor = "accent"
         borderColor = "accent"
         borderWidth = 1
         borderCornerRadius = 18
@@ -383,7 +401,7 @@ final class Config {
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
-            "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
+            "accentColor", "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
             "tabActivePadding", "dropHighlightEnabled", "dropHighlightColor", "keybindings",
@@ -441,6 +459,7 @@ final class Config {
         if let p = file.hudPosition { hudPosition = p }
         if let o = file.onWorkspaceChange { onWorkspaceChange = o }
         if let b = file.borderEnabled { borderEnabled = b }
+        if let c = file.accentColor { accentColor = c }
         if let c = file.borderColor { borderColor = c }
         if let w = file.borderWidth { borderWidth = w }
         if let r = file.borderCornerRadius { borderCornerRadius = r }
@@ -521,6 +540,7 @@ final class Config {
             "showWorkspaceHUD": showWorkspaceHUD,
             "hudPosition": hudPosition,
             "borderEnabled": borderEnabled,
+            "accentColor": accentColor,
             "borderColor": borderColor,
             "borderWidth": borderWidth,
             "borderCornerRadius": borderCornerRadius,

@@ -19,10 +19,10 @@ struct SwitcherMode { let name: String; let sections: [SwitcherSection] }
 
 private enum Sw {
     static let bg      = NSColor(srgbRed: 0x1e/255, green: 0x1e/255, blue: 0x1e/255, alpha: 0.98)
-    static let text    = NSColor(srgbRed: 0xf9/255, green: 0xf8/255, blue: 0xf5/255, alpha: 1)
-    static let subtext = NSColor(srgbRed: 0xa8/255, green: 0x99/255, blue: 0x84/255, alpha: 1)
-    static let accent  = NSColor(srgbRed: 0xa6/255, green: 0xe3/255, blue: 0xa1/255, alpha: 1)
-    static let sel     = NSColor(srgbRed: 0x2e/255, green: 0x7d/255, blue: 0x32/255, alpha: 0.55)
+    static var text: NSColor    { Palette.text }
+    static var subtext: NSColor { Palette.subtext }
+    static var accent: NSColor  { Palette.accent }
+    static var sel: NSColor     { Palette.accent.withAlphaComponent(0.30) }   // selected-row wash, tied to the accent
     static let badgeBg = NSColor(srgbRed: 0x31/255, green: 0x32/255, blue: 0x44/255, alpha: 1)
 }
 
