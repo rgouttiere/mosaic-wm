@@ -365,6 +365,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         var tapBindings: [ComboTap.Binding] = []
         for (action, combo) in Config.shared.keybindings {
+            // An empty (or blank) combo means "disable this binding" — a deliberate override, not a
+            // mistake, so skip it silently instead of logging an "invalid combo" error.
+            if combo.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             guard let run = actions[action] else {
                 NSLog("Mosaic: unknown action '\(action)' in keybindings"); continue
             }
