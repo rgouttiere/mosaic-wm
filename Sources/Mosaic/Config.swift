@@ -508,9 +508,11 @@ final class Config {
             loadIssues.append("rule “\(rule.app)”: workspace \(rule.workspace!) out of range (1 to 9)")
         }
 
-        // Duplicate keybindings: two actions on the same combo → only one wins (undefined).
+        // Duplicate keybindings: two actions on the same combo → only one wins (undefined). Blank
+        // combos are disabled bindings, not shortcuts, so several "" are fine — skip them.
         var comboOwner: [String: String] = [:]
         for (action, combo) in keybindings {
+            if combo.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             let norm = combo.lowercased().split { " +-".contains($0) }.sorted().joined(separator: "+")
             if let other = comboOwner[norm] {
                 loadIssues.append("duplicate shortcut “\(combo)”: “\(action)” and “\(other)”")
