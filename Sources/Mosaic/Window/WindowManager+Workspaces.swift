@@ -100,9 +100,9 @@ extension WindowManager {
                 if tile.isLeaf {
                     guard let w = tile.window else { return }
                     if w.isFullscreen {
-                        tiles.append(ExposeTile(frame: wsScreen, tabs: [ExposeTab(label: "⛶ \(w.title)", icon: w.app.icon, selected: true)]))
+                        tiles.append(ExposeTile(frame: wsScreen, tabs: [ExposeTab(label: "⛶ \(w.title)", icon: w.app.icon, selected: true, windowID: w.resolvedID())]))
                     } else if let f = frames[ObjectIdentifier(tile)] {
-                        tiles.append(ExposeTile(frame: f, tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true)]))
+                        tiles.append(ExposeTile(frame: f, tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true, windowID: w.resolvedID())]))
                     }
                 } else {
                     // Tabbed container → one tile with a tab per child (rep = child's first window).
@@ -111,7 +111,7 @@ extension WindowManager {
                           let f = frames[ObjectIdentifier(tile)] else { return }
                     let tabs = tile.children.enumerated().map { i, c -> ExposeTab in
                         let w = c.firstLeaf().window
-                        return ExposeTab(label: w?.title ?? "—", icon: w?.app.icon, selected: i == sel)
+                        return ExposeTab(label: w?.title ?? "—", icon: w?.app.icon, selected: i == sel, windowID: w?.resolvedID())
                     }
                     tiles.append(ExposeTile(frame: f, tabs: tabs))
                 }

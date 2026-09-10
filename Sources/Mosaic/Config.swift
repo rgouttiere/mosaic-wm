@@ -21,6 +21,7 @@ final class Config {
     var exposeDim: Double = 0.7   // exposé backdrop opacity (0 = transparent, 1 = opaque black)
     var exposeSwitch = ""   // hold-combo to drive the exposé (e.g. "cmd tab"); empty = disabled
     var exposeAllScreens = false   // mirror the exposé/cmd-tab on every screen at once
+    var exposeThumbnails = true    // show live window previews in the exposé (needs Screen Recording); off = schematic tiles
     // Feature toggles (all on by default).
     var focusSync = true        // adopt keyboard/cmd-tab focus changes into the tabs
     var robustCrossAppTabs = false   // opt-in: after a workspace switch, re-assert the selected tab of
@@ -163,6 +164,7 @@ final class Config {
         var exposeDim: Double?
         var exposeSwitch: String?
         var exposeAllScreens: Bool?
+        var exposeThumbnails: Bool?
         var focusSync: Bool?
         var robustCrossAppTabs: Bool?
         var tabScrollCycle: Bool?
@@ -202,7 +204,7 @@ final class Config {
         /// config key — it's populated by the initializer, never decoded.
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration
-            case exposeDim, exposeSwitch, exposeAllScreens, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
+            case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
             case onWorkspaceChange, borderEnabled, borderColor, borderWidth, borderCornerRadius
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
@@ -233,6 +235,7 @@ final class Config {
             exposeDim = v(.exposeDim)
             exposeSwitch = v(.exposeSwitch)
             exposeAllScreens = v(.exposeAllScreens)
+            exposeThumbnails = v(.exposeThumbnails)
             focusSync = v(.focusSync)
             robustCrossAppTabs = v(.robustCrossAppTabs)
             tabScrollCycle = v(.tabScrollCycle)
@@ -330,6 +333,7 @@ final class Config {
         exposeDim = 0.7
         exposeSwitch = ""
         exposeAllScreens = false
+        exposeThumbnails = true
         focusSync = true
         robustCrossAppTabs = false
         tabScrollCycle = true
@@ -376,7 +380,7 @@ final class Config {
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
             "gap", "outerGap", "externalBarTop", "notchBarOffset", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
-            "exposeDim", "exposeSwitch", "exposeAllScreens", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
+            "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
             "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",

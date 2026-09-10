@@ -1,9 +1,14 @@
 import AppKit
 
-/// One tab within a tile (a plain window = a tile with one tab).
-struct ExposeTab { let label: String; let icon: NSImage?; let selected: Bool }
+/// One tab within a tile (a plain window = a tile with one tab). `windowID` drives the live preview.
+struct ExposeTab { let label: String; let icon: NSImage?; let selected: Bool; let windowID: CGWindowID? }
 /// A tile in a workspace: its frame (in the workspace's screen coords) + its tab(s).
-struct ExposeTile { let frame: CGRect; let tabs: [ExposeTab] }
+struct ExposeTile {
+    let frame: CGRect
+    let tabs: [ExposeTab]
+    /// Window whose thumbnail backs the tile: the selected tab's (or the first).
+    var displayedWindowID: CGWindowID? { (tabs.first(where: { $0.selected }) ?? tabs.first)?.windowID }
+}
 
 /// One workspace to draw in the exposé grid.
 struct ExposeWorkspace {
@@ -41,6 +46,7 @@ final class ExposeOverlay {
     private let columns: [[Int]]   // grid: one column per screen (indices into workspaces)
     private var col = 0, row = 0
     private let commitOnRelease: Bool
+    private let thumbs = ThumbnailStore()   // live previews, filled in as async captures land
 
     private var selected: Int { columns[col][row] }
 
@@ -65,6 +71,7 @@ final class ExposeOverlay {
             v.workspaces = ws
             v.columns = columns
             v.selected = selected
+            v.thumbs = thumbs
             panel.contentView = v
             panels.append(panel)
             views.append(v)
@@ -76,6 +83,8 @@ final class ExposeOverlay {
             if scr === screen { panels[i].makeKeyAndOrderFront(nil) } else { panels[i].orderFrontRegardless() }
         }
         if !panels.contains(where: { $0.isKeyWindow }) { panels.first?.makeKeyAndOrderFront(nil) }
+
+        loadThumbnails(ws)
 
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             guard let self else { return e }
@@ -101,6 +110,26 @@ final class ExposeOverlay {
         }
         groups.sort { $0.screen.minX < $1.screen.minX }
         return groups.map { $0.items }
+    }
+
+    /// Fire off live captures of every displayed window and redraw tiles as each lands. No-op when
+    /// the feature is off or the OS is too old; a denied Screen Recording grant just yields no images
+    /// (tiles stay schematic). Captures run off-main; the store + redraw are touched on main only.
+    private func loadThumbnails(_ ws: [ExposeWorkspace]) {
+        guard Config.shared.exposeThumbnails, #available(macOS 14.0, *) else { return }
+        let ids = ws.flatMap { $0.tiles.compactMap { $0.displayedWindowID } }
+        guard !ids.isEmpty else { return }
+        Task { [weak self] in
+            let imgs = await Thumbnails.captureAll(ids)
+            guard !imgs.isEmpty else { return }
+            await MainActor.run {
+                guard let self else { return }
+                for (id, cg) in imgs {
+                    self.thumbs.images[id] = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+                }
+                for v in self.views { v.needsDisplay = true }
+            }
+        }
     }
 
     private func moveCol(_ d: Int) {
@@ -145,6 +174,7 @@ private final class ExposeView: NSView {
     var workspaces: [ExposeWorkspace] = []
     var columns: [[Int]] = []
     var selected = 0
+    var thumbs: ThumbnailStore?   // live previews, shared with the overlay; nil until captured
 
     private let text    = NSColor(srgbRed: 0xf9/255, green: 0xf8/255, blue: 0xf5/255, alpha: 1)
     private let subtext = NSColor(srgbRed: 0xa8/255, green: 0x99/255, blue: 0x84/255, alpha: 1)
@@ -197,20 +227,44 @@ private final class ExposeView: NSView {
                             width: tile.frame.width / ws.screen.width * box.width,
                             height: tile.frame.height / ws.screen.height * box.height).insetBy(dx: 1.5, dy: 1.5)
             guard wr.width > 4, wr.height > 4 else { continue }
-            winFill.setFill()
-            NSBezierPath(roundedRect: wr, xRadius: 3, yRadius: 3).fill()
+            let clip = NSBezierPath(roundedRect: wr, xRadius: 3, yRadius: 3)
+            if let id = tile.displayedWindowID, let img = thumbs?.images[id] {
+                NSGraphicsContext.saveGraphicsState()
+                clip.addClip()
+                drawAspectFill(img, in: wr)
+                NSGraphicsContext.restoreGraphicsState()
+            } else {
+                winFill.setFill()
+                clip.fill()
+            }
+            // Hairline so adjacent tiles read apart, over image or fill alike.
+            NSColor.black.withAlphaComponent(0.35).setStroke()
+            let edge = NSBezierPath(roundedRect: wr, xRadius: 3, yRadius: 3); edge.lineWidth = 1; edge.stroke()
+
+            let hasImage = tile.displayedWindowID.flatMap { thumbs?.images[$0] } != nil
 
             if tile.tabs.count > 1 {
-                // Mini tab strip along the top: one segment per tab, the active one in accent.
+                // Mini tab strip along the top. The active tab reads without a full accent block:
+                // a faint tint, its icon at full opacity (the others dimmed), and a crisp accent
+                // underline — matching the real tab bars.
                 let stripH = min(18, max(11, wr.height * 0.32))
                 let segW = wr.width / CGFloat(tile.tabs.count)
+                NSColor.black.withAlphaComponent(0.32).setFill()
+                NSRect(x: wr.minX, y: wr.maxY - stripH, width: wr.width, height: stripH).fill()
                 for (i, tab) in tile.tabs.enumerated() {
                     let seg = NSRect(x: wr.minX + CGFloat(i) * segW, y: wr.maxY - stripH, width: segW, height: stripH)
-                    (tab.selected ? accent.withAlphaComponent(0.35) : NSColor.black.withAlphaComponent(0.28)).setFill()
-                    seg.fill()
+                    if tab.selected {
+                        accent.withAlphaComponent(0.16).setFill()
+                        seg.fill()
+                    }
                     if let icon = tab.icon, segW > 13 {
                         let s = min(CGFloat(14), stripH - 3)
-                        icon.draw(in: NSRect(x: seg.midX - s / 2, y: seg.midY - s / 2, width: s, height: s))
+                        icon.draw(in: NSRect(x: seg.midX - s / 2, y: seg.midY - s / 2, width: s, height: s),
+                                  from: .zero, operation: .sourceOver, fraction: tab.selected ? 1 : 0.5)
+                    }
+                    if tab.selected {   // accent underline along the strip's inner edge
+                        accent.setFill()
+                        NSRect(x: seg.minX, y: seg.minY, width: seg.width, height: 2).fill()
                     }
                     if i > 0 {
                         NSColor.black.withAlphaComponent(0.45).setFill()
@@ -218,7 +272,18 @@ private final class ExposeView: NSView {
                     }
                 }
             } else if wr.width > 44, wr.height > 22, let tab = tile.tabs.first {
-                // Single window: icon + title top-left.
+                // Single window: icon + title top-left. Over a bright thumbnail the light text needs
+                // a scrim to stay legible; over the flat schematic fill it already reads.
+                if hasImage {
+                    let scrimH = min(26, wr.height * 0.4)
+                    let scrim = NSRect(x: wr.minX, y: wr.maxY - scrimH, width: wr.width, height: scrimH)
+                    NSGraphicsContext.saveGraphicsState()
+                    NSBezierPath(roundedRect: wr, xRadius: 3, yRadius: 3).addClip()
+                    if let g = NSGradient(colors: [NSColor.black.withAlphaComponent(0.6), .clear]) {
+                        g.draw(in: scrim, angle: -90)
+                    }
+                    NSGraphicsContext.restoreGraphicsState()
+                }
                 var tx = wr.minX + 5
                 if let icon = tab.icon { icon.draw(in: NSRect(x: wr.minX + 5, y: wr.maxY - 21, width: 16, height: 16)); tx += 20 }
                 (tab.label as NSString).draw(
@@ -234,5 +299,15 @@ private final class ExposeView: NSView {
             p.lineWidth = 2.5
             p.stroke()
         }
+    }
+
+    /// Draw `img` filling `rect` while preserving aspect (overflow cropped by the caller's clip).
+    private func drawAspectFill(_ img: NSImage, in rect: NSRect) {
+        let iw = img.size.width, ih = img.size.height
+        guard iw > 0, ih > 0 else { return }
+        let scale = max(rect.width / iw, rect.height / ih)
+        let dw = iw * scale, dh = ih * scale
+        let dst = NSRect(x: rect.midX - dw / 2, y: rect.midY - dh / 2, width: dw, height: dh)
+        img.draw(in: dst, from: .zero, operation: .sourceOver, fraction: 1)
     }
 }
