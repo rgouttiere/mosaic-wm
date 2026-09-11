@@ -1,5 +1,8 @@
 import AppKit
 
+/// Where a tab drag landed within a target tile: center tabs into it, an edge splits beside/under it.
+enum DropZone { case center, top, bottom, left, right }
+
 extension WindowManager {
     // MARK: - Editing operations
 
@@ -273,27 +276,50 @@ extension WindowManager {
               targetLeaf !== dragged, !contains(dragged, targetLeaf),
               let sourceState = stateContaining(dragged) else { return }
 
+        // Where in the target tile did we land? Center = tab into it; an edge = split beside/under.
+        let zone = (targetLeaf.window?.frame).map { dropZone(at: point, in: Geometry.flip($0)) } ?? .center
+
         // Detach from the source tree and collapse what it leaves behind.
         if let parent = dragged.parent, let i = parent.index(of: dragged) {
             parent.removeChild(at: i)   // adjusts `selected` for the lower-index shift too
             collapse(parent, in: sourceState)
         }
 
-        // Insert into the target tree.
-        if let group = nearestTabbed(from: targetLeaf) {
-            group.children.append(dragged)
-            dragged.parent = group
-            group.addRatio(at: group.children.count - 1)
-            group.selected = group.children.count - 1
-        } else if let tp = targetLeaf.parent, let ti = tp.index(of: targetLeaf) {
-            let group = Container(layout: .tabbed, children: [targetLeaf, dragged])
-            group.selected = 1
-            tp.children[ti] = group
-            group.parent = tp
+        if zone == .center {
+            // Insert into the target tree as a tab.
+            if let group = nearestTabbed(from: targetLeaf) {
+                group.children.append(dragged)
+                dragged.parent = group
+                group.addRatio(at: group.children.count - 1)
+                group.selected = group.children.count - 1
+            } else if let tp = targetLeaf.parent, let ti = tp.index(of: targetLeaf) {
+                let group = Container(layout: .tabbed, children: [targetLeaf, dragged])
+                group.selected = 1
+                tp.children[ti] = group
+                group.parent = tp
+            } else {
+                let group = Container(layout: .tabbed, children: [targetLeaf, dragged])
+                group.selected = 1
+                targetState.root = group
+            }
         } else {
-            let group = Container(layout: .tabbed, children: [targetLeaf, dragged])
-            group.selected = 1
-            targetState.root = group
+            // Split beside/under the WHOLE tab group the target belongs to (like preselect).
+            var unit = targetLeaf
+            while let p = unit.parent, p.layout == .tabbed { unit = p }
+            // Capture the slot BEFORE building the split — Container(children:) reparents `unit`,
+            // so reading unit.parent afterwards would return the split itself (→ a cycle → crash).
+            let oldParent = unit.parent
+            let oldIndex = oldParent?.index(of: unit)
+            let vertical = (zone == .top || zone == .bottom)
+            let draggedFirst = (zone == .top || zone == .left)
+            let split = Container(layout: vertical ? .splitV : .splitH,
+                                  children: draggedFirst ? [dragged, unit] : [unit, dragged])
+            if let p = oldParent, let i = oldIndex {
+                p.children[i] = split
+                split.parent = p
+            } else {
+                targetState.root = split
+            }
         }
 
         // No CGS move needed across workspaces: there is a single macOS Space, so `arrange`
@@ -315,7 +341,8 @@ extension WindowManager {
         saveNow()
     }
 
-    /// Highlight the window/group under the cursor during a tab drag.
+    /// Highlight the region the drop will land in — the full tile (center = tab) or the half it
+    /// will occupy (an edge = split there).
     func updateDropHighlight(at point: NSPoint) {
         guard Config.shared.dropHighlightEnabled,
               let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }),
@@ -326,7 +353,34 @@ extension WindowManager {
             dropHighlight.hide()
             return
         }
-        dropHighlight.show(around: Geometry.flip(frame))
+        let f = Geometry.flip(frame)
+        dropHighlight.show(around: zoneRect(dropZone(at: point, in: f), in: f))
+    }
+
+    /// Which region of a target tile the cursor is over (Cocoa coords). The outer ~28% band on each
+    /// side is an edge zone (→ split); the middle is center (→ tab).
+    func dropZone(at point: NSPoint, in f: NSRect) -> DropZone {
+        guard f.width > 0, f.height > 0 else { return .center }
+        let dx = (point.x - f.minX) / f.width
+        let dy = (point.y - f.minY) / f.height
+        let edge: CGFloat = 0.28
+        if dx > edge, dx < 1 - edge, dy > edge, dy < 1 - edge { return .center }
+        let m = min(dx, 1 - dx, dy, 1 - dy)   // nearest border wins
+        if m == 1 - dy { return .top }
+        if m == dy { return .bottom }
+        if m == dx { return .left }
+        return .right
+    }
+
+    /// The slice of `f` the dragged window will occupy — the whole tile for center, else a half.
+    func zoneRect(_ zone: DropZone, in f: NSRect) -> NSRect {
+        switch zone {
+        case .center: return f
+        case .top:    return NSRect(x: f.minX, y: f.midY, width: f.width, height: f.height / 2)
+        case .bottom: return NSRect(x: f.minX, y: f.minY, width: f.width, height: f.height / 2)
+        case .left:   return NSRect(x: f.minX, y: f.minY, width: f.width / 2, height: f.height)
+        case .right:  return NSRect(x: f.midX, y: f.minY, width: f.width / 2, height: f.height)
+        }
     }
 
     func stateContaining(_ node: Container) -> SpaceState? {
