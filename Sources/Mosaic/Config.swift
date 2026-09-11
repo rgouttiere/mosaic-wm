@@ -55,6 +55,7 @@ final class Config {
 
     // Window styling.
     var borderEnabled: Bool = true
+    var borderInactive: Bool = false   // also draw a dim accent border on non-focused tiled windows
     /// The single accent used across the whole UI. "accent"/"system" = the macOS system accent;
     /// or a hex like "#a6e3a1". Every field set to "accent" (border, tabs, drop) resolves through
     /// this, and the overlays read `Palette.accent`, so one value re-themes everything.
@@ -200,6 +201,7 @@ final class Config {
         var hudPosition: String?
         var onWorkspaceChange: String?
         var borderEnabled: Bool?
+        var borderInactive: Bool?
         var accentColor: String?
         var letterboxStyle: String?
         var borderColor: String?
@@ -228,7 +230,7 @@ final class Config {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
-            case onWorkspaceChange, borderEnabled, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius
+            case onWorkspaceChange, borderEnabled, borderInactive, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
             case dropHighlightEnabled, dropHighlightColor, keybindings
@@ -275,6 +277,7 @@ final class Config {
             hudPosition = v(.hudPosition)
             onWorkspaceChange = v(.onWorkspaceChange)
             borderEnabled = v(.borderEnabled)
+            borderInactive = v(.borderInactive)
             accentColor = v(.accentColor)
             letterboxStyle = v(.letterboxStyle)
             borderColor = v(.borderColor)
@@ -377,6 +380,7 @@ final class Config {
         hudPosition = "top-right"
         onWorkspaceChange = ""
         borderEnabled = true
+        borderInactive = false
         accentColor = "accent"
         letterboxStyle = "black"
         borderColor = "accent"
@@ -413,7 +417,7 @@ final class Config {
             "focusGlowRadius", "focusGlowFade",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
-            "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
+            "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive",
             "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
@@ -474,6 +478,7 @@ final class Config {
         if let p = file.hudPosition { hudPosition = p }
         if let o = file.onWorkspaceChange { onWorkspaceChange = o }
         if let b = file.borderEnabled { borderEnabled = b }
+        if let b = file.borderInactive { borderInactive = b }
         if let c = file.accentColor { accentColor = c }
         if let s = file.letterboxStyle { letterboxStyle = s }
         if let c = file.borderColor { borderColor = c }

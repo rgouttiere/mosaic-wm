@@ -87,6 +87,7 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | Key | Default | What it does |
 |---|---|---|
 | `borderEnabled` | `true` | Draw a border around the focused window. |
+| `borderInactive` | `false` | Also draw a dim accent border on the other tiled windows, so the whole layout reads as outlined. |
 | `borderColor` | `"accent"` | Border color (`"accent"` or hex). |
 | `borderWidth` | `1` | Border thickness. |
 | `borderCornerRadius` | `18` | Border corner radius. |

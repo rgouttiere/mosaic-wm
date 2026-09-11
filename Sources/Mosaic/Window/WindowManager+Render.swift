@@ -111,17 +111,53 @@ extension WindowManager {
         // floats over it. The tree keeps its frames for when we un-zoom.
         let area = layoutRect(screen)
         if active?.isZoomed == true, let w = focused?.window {
-            w.setCocoaFrame(area)
             if activate { w.activateApp() }
             if !w.isFullscreen { AX.raise(w.element) }   // raising a fullscreen tile would yank its Space
             if let id = AX.windowID(w.element) { w.setAlpha(1, id: id) }   // zoomed = full opacity
             root.forEachTabbed { $0.hideStrip() }   // only THIS desktop's strips, not other screens'
             hideAllHandles()
+            windowBorders.hideAll()  // siblings hidden — no inactive borders to draw
+
+            // Fill the screen; a window that aspect-fits (IINA) shrinks and is centred with the
+            // sides letterboxed. AX setFrame is synchronous, so the constrained size reads back in
+            // the SAME render — no wait, no reposition delay. Skip re-writing a zoom that's already
+            // filled or already centred, so a settled zoom re-writes nothing (no per-render flicker).
+            let cur = w.frame.map { Geometry.flip($0) } ?? area
+            let fills = cur.width >= area.width - 8 && cur.height >= area.height - 8
+            let centeredAlready = !fills && abs(cur.midX - area.midX) < 3 && abs(cur.midY - area.midY) < 3
+            var frameForBorder = area
+            var box: NSRect?   // the centred window rect to letterbox around; nil = fills, no bars
+            if fills {
+                w.setCocoaFrame(area)                       // keep it full (cached)
+            } else if centeredAlready {
+                frameForBorder = cur; box = cur             // already centred → just maintain
+            } else {
+                w.setCocoaFrame(area)                       // blow up; read the constrained result now
+                let win = w.frame.map { Geometry.flip($0) } ?? area
+                if win.width < area.width - 8 || win.height < area.height - 8 {
+                    let centered = NSRect(x: area.midX - win.width / 2, y: area.midY - win.height / 2,
+                                          width: win.width, height: win.height)
+                    w.setCocoaFrame(centered)
+                    frameForBorder = centered; box = centered
+                }
+            }
+            if let box {
+                letterbox.begin()
+                let t: CGFloat = 8
+                func bar(_ r: NSRect) { letterbox.fill(r.intersection(area)) }
+                if box.minY > area.minY + t { bar(NSRect(x: area.minX, y: area.minY, width: area.width, height: box.minY - area.minY)) }
+                if box.maxY < area.maxY - t { bar(NSRect(x: area.minX, y: box.maxY, width: area.width, height: area.maxY - box.maxY)) }
+                if box.minX > area.minX + t { bar(NSRect(x: area.minX, y: box.minY, width: box.minX - area.minX, height: box.height)) }
+                if box.maxX < area.maxX - t { bar(NSRect(x: box.maxX, y: box.minY, width: area.maxX - box.maxX, height: box.height)) }
+                letterbox.end()
+            } else {
+                letterbox.hideAll()
+            }
+
             // Keep the focus contour framing the zoomed window, and a persistent ZOOM badge, so it
             // stays obvious you're in monocle (siblings hidden) and haven't just lost your layout.
-            if Config.shared.borderEnabled { focusIndicator.show(around: area) } else { focusIndicator.hide() }
+            if Config.shared.borderEnabled { focusIndicator.show(around: frameForBorder) } else { focusIndicator.hide() }
             zoomBadge.show(on: screen)
-            letterbox.hideAll()   // monocle fills the screen — no gap to letterbox
             scheduleSave()
             return
         }
@@ -149,6 +185,7 @@ extension WindowManager {
         updateFocusIndicator(onScreen: onScreen)
         layoutResizeHandles()
         applyOpacity()
+        updateWindowBorders()   // dim accent frame on non-focused tiles (opt-in)
         updateLetterboxFill()   // black-fill letterbox gaps so parked slivers can't peek through
 
         // While the scratchpad is up, keep the tiles' overlays hidden so nothing floats
@@ -213,6 +250,23 @@ extension WindowManager {
             }
         }
         letterbox.end()
+    }
+
+    /// Draw a dim accent border on every shown, non-focused tiled window (opt-in `borderInactive`),
+    /// so the whole tiling reads as one outlined layout — the focused window keeps its brighter
+    /// FocusIndicator + halo on top.
+    func updateWindowBorders() {
+        guard Config.shared.borderInactive, !scratchpadVisible else { windowBorders.hideAll(); return }
+        windowBorders.begin()
+        let focusedW = focused?.window
+        for (did, wsNum) in shownOnDisplay {
+            guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
+            root.forEachVisibleLeaf { leaf in
+                guard let w = leaf.window, !w.isFullscreen, w !== focusedW, let wf = w.frame else { return }
+                windowBorders.border(around: Geometry.flip(wf))
+            }
+        }
+        windowBorders.end()
     }
 
     /// Dim unfocused windows per config (focused → activeOpacity, others → inactiveOpacity).

@@ -65,6 +65,7 @@ final class WindowManager {
     let focusIndicator = FocusIndicator()
     let zoomBadge = ZoomBadge()
     let letterbox = LetterboxFill()
+    let windowBorders = WindowBorders()
     let dropHighlight = DropHighlight()
     var spaceTimer: Timer?
     var mouseMonitor: Any?
