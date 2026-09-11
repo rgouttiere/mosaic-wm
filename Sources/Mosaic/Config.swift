@@ -46,6 +46,7 @@ final class Config {
     var floatingApps: Set<String> = Config.defaultFloatingApps
     var rules: [AppRule] = []
     var showWorkspaceHUD: Bool = true
+    var notchHud: Bool = false   // dynamic-island HUD under the notch on workspace switch (replaces the top-right HUD)
     /// center | top | bottom | top-left | top-right | bottom-left | bottom-right
     var hudPosition: String = "top-right"
     /// Shell command run on every workspace change (exec-and-forget), with the env var
@@ -198,6 +199,7 @@ final class Config {
         var floatingApps: [String]?
         var rules: [AppRule]?
         var showWorkspaceHUD: Bool?
+        var notchHud: Bool?
         var hudPosition: String?
         var onWorkspaceChange: String?
         var borderEnabled: Bool?
@@ -229,7 +231,7 @@ final class Config {
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
-            case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
+            case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, notchHud, hudPosition
             case onWorkspaceChange, borderEnabled, borderInactive, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
@@ -274,6 +276,7 @@ final class Config {
             floatingApps = v(.floatingApps)
             rules = v(.rules)
             showWorkspaceHUD = v(.showWorkspaceHUD)
+            notchHud = v(.notchHud)
             hudPosition = v(.hudPosition)
             onWorkspaceChange = v(.onWorkspaceChange)
             borderEnabled = v(.borderEnabled)
@@ -377,6 +380,7 @@ final class Config {
         floatingApps = Config.defaultFloatingApps
         rules = []
         showWorkspaceHUD = true
+        notchHud = false
         hudPosition = "top-right"
         onWorkspaceChange = ""
         borderEnabled = true
@@ -417,7 +421,7 @@ final class Config {
             "focusGlowRadius", "focusGlowFade",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
-            "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive",
+            "floatingApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive",
             "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
@@ -475,6 +479,7 @@ final class Config {
         if let f = file.floatingApps { floatingApps = Set(f.map { $0.lowercased() }) }
         if let r = file.rules { rules = r }
         if let h = file.showWorkspaceHUD { showWorkspaceHUD = h }
+        if let b = file.notchHud { notchHud = b }
         if let p = file.hudPosition { hudPosition = p }
         if let o = file.onWorkspaceChange { onWorkspaceChange = o }
         if let b = file.borderEnabled { borderEnabled = b }

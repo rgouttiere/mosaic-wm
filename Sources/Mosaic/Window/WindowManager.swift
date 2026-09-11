@@ -122,6 +122,7 @@ final class WindowManager {
     /// re-renders the source screen correctly (mouse crossing screens won't switch it).
     var tabDragging = false
     let workspaceHUD = WorkspaceHUD()
+    let notchHUD = NotchHUD()
     /// Notifies the menu bar of the current workspace number (nil = unknown/unmanaged).
     var onWorkspaceChanged: ((Int?) -> Void)?
     /// Supplies the Mosaic actions for the switcher's "Actions" mode (set by AppDelegate).

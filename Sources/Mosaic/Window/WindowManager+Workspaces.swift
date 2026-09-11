@@ -415,7 +415,15 @@ extension WindowManager {
         emitWorkspaceState(number)   // menu-bar icon + status file + shell hook (sketchybar…)
         // HUD: the row of THIS monitor's workspaces, so the switch also shows which of the
         // others hold windows (a dot) — the at-a-glance answer to "where did my window go?".
-        guard let current = number, Config.shared.showWorkspaceHUD else { return }
+        guard let current = number else { return }
+        // Notch dynamic-island HUD replaces the top-right strip when enabled.
+        if Config.shared.notchHud {
+            let name = (Config.shared.workspaceNames[current] ?? "")
+                .replacingOccurrences(of: "^\\s*\\d+\\s*[-·:]?\\s*", with: "", options: .regularExpression)
+            notchHUD.show(workspace: current, name: name, icons: workspaceAppIcons(current), on: screen)
+            return
+        }
+        guard Config.shared.showWorkspaceHUD else { return }
         let did = displayID(of: screen)
         let items: [WorkspaceHUDItem] = (1...9)
             .filter { assignedDisplay(forWorkspace: $0) == did }
