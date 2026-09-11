@@ -59,6 +59,7 @@ final class Config {
     /// or a hex like "#a6e3a1". Every field set to "accent" (border, tabs, drop) resolves through
     /// this, and the overlays read `Palette.accent`, so one value re-themes everything.
     var accentColor: String = "accent"
+    var letterboxStyle: String = "black"   // fill for letterboxed-tile gaps: "black" (plain) or "matrix" (static rune rain)
     var borderColor: String = "accent"   // "accent" or hex like "#FF9500"
     var borderWidth: Double = 1
     var borderCornerRadius: Double = 18
@@ -200,6 +201,7 @@ final class Config {
         var onWorkspaceChange: String?
         var borderEnabled: Bool?
         var accentColor: String?
+        var letterboxStyle: String?
         var borderColor: String?
         var borderWidth: Double?
         var borderCornerRadius: Double?
@@ -226,7 +228,7 @@ final class Config {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
-            case onWorkspaceChange, borderEnabled, accentColor, borderColor, borderWidth, borderCornerRadius
+            case onWorkspaceChange, borderEnabled, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
             case dropHighlightEnabled, dropHighlightColor, keybindings
@@ -274,6 +276,7 @@ final class Config {
             onWorkspaceChange = v(.onWorkspaceChange)
             borderEnabled = v(.borderEnabled)
             accentColor = v(.accentColor)
+            letterboxStyle = v(.letterboxStyle)
             borderColor = v(.borderColor)
             borderWidth = v(.borderWidth)
             borderCornerRadius = v(.borderCornerRadius)
@@ -375,6 +378,7 @@ final class Config {
         onWorkspaceChange = ""
         borderEnabled = true
         accentColor = "accent"
+        letterboxStyle = "black"
         borderColor = "accent"
         borderWidth = 1
         borderCornerRadius = 18
@@ -410,7 +414,7 @@ final class Config {
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
-            "accentColor", "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
+            "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
             "tabActivePadding", "dropHighlightEnabled", "dropHighlightColor", "keybindings",
@@ -471,6 +475,7 @@ final class Config {
         if let o = file.onWorkspaceChange { onWorkspaceChange = o }
         if let b = file.borderEnabled { borderEnabled = b }
         if let c = file.accentColor { accentColor = c }
+        if let s = file.letterboxStyle { letterboxStyle = s }
         if let c = file.borderColor { borderColor = c }
         if let w = file.borderWidth { borderWidth = w }
         if let r = file.borderCornerRadius { borderCornerRadius = r }
