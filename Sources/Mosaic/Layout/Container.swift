@@ -393,6 +393,8 @@ final class Container {
     func arrangeStackEntry(in rect: NSRect, visible: Bool) {
         if isLeaf {
             tabBar?.orderOut(nil)
+            lastFrame = rect   // record the content tile (below the strip) — else the letterbox fills
+                               // the stale full-tile gap and paints over the stack strip
             if window?.isFullscreen != true { window?.setCocoaFrame(rect.insetBy(dx: gap / 2, dy: gap / 2)) }
             return
         }
