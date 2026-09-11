@@ -63,8 +63,17 @@ final class WorkspaceHUD {
         default:             origin = NSPoint(x: f.midX - s.width / 2, y: f.midY - s.height / 2)
         }
         window.setFrameOrigin(origin)
-        window.alphaValue = 1
+        // Fade in when it first appears (not on a rapid re-show while already up). In place, honours
+        // Reduce Motion.
+        let fadeIn = !window.isVisible && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        window.alphaValue = fadeIn ? 0 : 1
         window.orderFront(nil)
+        if fadeIn {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                window.animator().alphaValue = 1
+            }
+        }
 
         hideWork?.cancel()
         hideGen += 1
