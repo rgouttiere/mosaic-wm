@@ -127,7 +127,7 @@ final class ExposeOverlay {
                 for (id, cg) in imgs {
                     self.thumbs.images[id] = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
                 }
-                for v in self.views { v.needsDisplay = true }
+                for v in self.views { v.fadeInThumbnails() }   // in-place fade as the previews land
             }
         }
     }
@@ -175,6 +175,22 @@ private final class ExposeView: NSView {
     var columns: [[Int]] = []
     var selected = 0
     var thumbs: ThumbnailStore?   // live previews, shared with the overlay; nil until captured
+    private var thumbAlpha: CGFloat = 1   // ramps 0→1 as previews land, for an in-place fade-in
+    private var fadeTimer: Timer?
+
+    /// Fade the freshly-captured previews in over ~0.15s (in place, honours Reduce Motion).
+    func fadeInThumbnails() {
+        fadeTimer?.invalidate()
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { thumbAlpha = 1; needsDisplay = true; return }
+        thumbAlpha = 0
+        fadeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] t in
+            guard let self else { t.invalidate(); return }
+            self.thumbAlpha = min(1, self.thumbAlpha + 1.0 / 9)
+            self.needsDisplay = true
+            if self.thumbAlpha >= 1 { t.invalidate() }
+        }
+    }
+    deinit { fadeTimer?.invalidate() }
 
     private var text: NSColor    { Palette.text }
     private var subtext: NSColor { Palette.subtext }
@@ -308,6 +324,6 @@ private final class ExposeView: NSView {
         let scale = max(rect.width / iw, rect.height / ih)
         let dw = iw * scale, dh = ih * scale
         let dst = NSRect(x: rect.midX - dw / 2, y: rect.midY - dh / 2, width: dw, height: dh)
-        img.draw(in: dst, from: .zero, operation: .sourceOver, fraction: 1)
+        img.draw(in: dst, from: .zero, operation: .sourceOver, fraction: thumbAlpha)
     }
 }
