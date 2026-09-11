@@ -16,7 +16,7 @@ enum Direction {
 /// A workspace is keyed by a synthetic id = `UInt64(workspaceNumber)`, so the numbered
 /// workspaces (⌘⌥1-9) map directly to `spaces[UInt64(n)]` with no assignment indirection.
 final class WindowManager {
-    enum Mode: CaseIterable { case columns, grouped, tabbed }
+    enum Mode: CaseIterable { case columns, grouped, tabbed, masterStack }
 
     /// The layout state for one workspace, including which monitor it is currently placed on.
     /// `displayID` is where the workspace is shown right now (it can move between monitors on
@@ -57,6 +57,7 @@ final class WindowManager {
         switch Config.shared.defaultMode.lowercased() {
         case "grouped": return .grouped
         case "tabbed": return .tabbed
+        case "master-stack", "masterstack", "master": return .masterStack
         default: return .columns
         }
     }

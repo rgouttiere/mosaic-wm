@@ -185,6 +185,13 @@ extension WindowManager {
         case .tabbed:
             return windows.count == 1 ? Container(window: windows[0])
                                       : Container(layout: .tabbed, children: windows.map(Container.init))
+        case .masterStack:
+            // First window = master (left); the rest = one tabbed stack (right). No slivers.
+            guard windows.count > 1 else { return Container(window: windows[0]) }
+            let master = Container(window: windows[0])
+            let rest = windows.dropFirst().map(Container.init)
+            let stack = rest.count == 1 ? rest[0] : Container(layout: .tabbed, children: Array(rest))
+            return Container(layout: .splitH, children: [master, stack])
         }
     }
 
@@ -458,9 +465,20 @@ extension WindowManager {
         case "tab":
             if let f = focused { groupNewLeaf(leaf, with: f) } else { insertAfterFocused(leaf) }
         default:
-            insertAfterFocused(leaf)
+            if mode == .masterStack { insertMasterStack(leaf) } else { insertAfterFocused(leaf) }
         }
         focused = leaf
+    }
+
+    /// Master-stack insert: a new window joins the tabbed stack on the right; if only the master
+    /// exists yet, the newcomer becomes the stack beside it.
+    func insertMasterStack(_ leaf: Container) {
+        guard let r = root else { self.root = leaf; return }
+        if !r.isLeaf, r.layout == .splitH, r.children.count >= 2 {
+            groupNewLeaf(leaf, with: r.children[r.children.count - 1].firstLeaf())   // tab into the stack
+        } else {
+            insertAsColumn(leaf)   // only the master so far → new window becomes the stack beside it
+        }
     }
 
     /// i3 preselect commands: arm (or, if re-pressed on the same window+direction, cancel)

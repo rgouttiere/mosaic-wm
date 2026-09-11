@@ -505,9 +505,9 @@ final class Config {
         if let k = file.keybindings { keybindings.merge(k) { _, new in new } }
 
         // 4) Semantic checks (values parsed fine but are out of range / unknown).
-        let validModes: Set<String> = ["columns", "grouped", "tabbed"]
+        let validModes: Set<String> = ["columns", "grouped", "tabbed", "master-stack", "masterstack", "master"]
         if !validModes.contains(defaultMode.lowercased()) {
-            loadIssues.append("unknown defaultMode “\(defaultMode)” (expected: columns, grouped, tabbed)")
+            loadIssues.append("unknown defaultMode “\(defaultMode)” (expected: columns, grouped, tabbed, master-stack)")
         }
         let validPos: Set<String> = ["center", "top", "bottom", "top-left", "top-right",
                                      "bottom-left", "bottom-right", "topleft", "topright",

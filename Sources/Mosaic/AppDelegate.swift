@@ -101,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Clickable actions: title + the actual configured combo.
         let clickable: [(action: String, title: String, selector: Selector)] = [
             ("tile", "Tile current desktop", #selector(tileCurrentSpace)),
-            ("cycle-mode", "Cycle layout: Columns → Grouped → Tabbed", #selector(cycleMode)),
+            ("cycle-mode", "Cycle layout: Columns → Grouped → Tabbed → Master-Stack", #selector(cycleMode)),
             ("manage-all", "Manage all desktops (toggle)", #selector(toggleManageAll)),
         ]
         for entry in clickable {

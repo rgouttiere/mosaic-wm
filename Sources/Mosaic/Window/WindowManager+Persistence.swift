@@ -227,10 +227,17 @@ extension WindowManager {
     }
 
     func modeName(_ m: Mode) -> String {
-        switch m { case .columns: return "columns"; case .grouped: return "grouped"; case .tabbed: return "tabbed" }
+        switch m {
+        case .columns: return "columns"; case .grouped: return "grouped"
+        case .tabbed: return "tabbed"; case .masterStack: return "master-stack"
+        }
     }
     func mode(named s: String) -> Mode {
-        switch s.lowercased() { case "grouped": return .grouped; case "tabbed": return .tabbed; default: return .columns }
+        switch s.lowercased() {
+        case "grouped": return .grouped; case "tabbed": return .tabbed
+        case "master-stack", "masterstack", "master": return .masterStack
+        default: return .columns
+        }
     }
     func layoutName(_ l: Container.Layout) -> String {
         switch l { case .splitH: return "splitH"; case .splitV: return "splitV"; case .tabbed: return "tabbed" }
