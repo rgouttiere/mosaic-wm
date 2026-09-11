@@ -139,6 +139,7 @@ final class WindowManager {
     /// Windows we've already applied an on-open `fullscreen` rule to, so we set the state
     /// once and then leave the user free to toggle it. Pruned to living windows each pass.
     var fullscreenApplied = Set<CGWindowID>()
+    var decorationsSuppressed = false   // a screenshot tool is up → overlays hidden until it leaves
     var lastEmittedWorkspace: Int? = -1   // sentinel: forces the first emit through
 
     // MARK: - Emulated workspaces (v2 — replaces the CGS Space layer)
@@ -423,6 +424,20 @@ final class WindowManager {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.handleDisplayChange() }
+
+        // A screenshot tool's overlay is a floating window → it won't trigger a reconcile render, so
+        // hide our decorations the instant it activates, and restore them (no focus steal) when a
+        // normal app comes back.
+        ws.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            if self.screenshotToolFrontmost() {
+                self.decorationsSuppressed = true
+                self.letterbox.hideAll(); self.windowBorders.hideAll(); self.focusIndicator.hide(); self.zoomBadge.hide()
+            } else if self.decorationsSuppressed {
+                self.decorationsSuppressed = false
+                self.render(activate: false)
+            }
+        }
     }
 
     /// Dock/undock (home ↔ office) fires a burst of screen-parameter changes while macOS

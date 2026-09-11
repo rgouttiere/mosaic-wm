@@ -103,9 +103,30 @@ extension WindowManager {
     /// user-initiated actions: activating an app brings its Space forward, so doing
     /// it during an automatic render (e.g. after a desktop switch) would yank macOS
     /// back to the layout's desktop. Even then we only activate an on-screen window.
+    /// Screenshot/annotation tools throw up a full-screen selection overlay at the same window
+    /// level as our decorations, so ours (opaque letterbox bars, borders, focus contour) end up on
+    /// top and swallow their UI. Detect them by frontmost app and stand down while they're up.
+    static let screenshotTools: Set<String> = [
+        "shottr", "cc.ffitch.shottr", "cleanshot", "cleanshot x", "pl.maketheweb.cleanshotx",
+        "monosnap", "com.monosnap.monosnap", "skitch", "com.evernote.skitch", "snagit", "xnip",
+    ]
+    func screenshotToolFrontmost() -> Bool {
+        guard let f = NSWorkspace.shared.frontmostApplication else { return false }
+        if let n = f.localizedName?.lowercased(), Self.screenshotTools.contains(n) { return true }
+        if let b = f.bundleIdentifier?.lowercased(), Self.screenshotTools.contains(b) { return true }
+        return false
+    }
+
     func render(activate: Bool = true) {
         guard let root, let screen = activeScreen else { return }
         let __perf = DispatchTime.now(); defer { Perf.record("render", since: __perf) }
+
+        // A screenshot tool is grabbing the screen → hide every overlay so it isn't buried under
+        // (or captured with) our decorations. They come back on the next render when it dismisses.
+        if screenshotToolFrontmost() {
+            letterbox.hideAll(); windowBorders.hideAll(); focusIndicator.hide(); zoomBadge.hide()
+            return
+        }
 
         // Monocle: the focused tile fills the screen; every overlay is hidden so nothing
         // floats over it. The tree keeps its frames for when we un-zoom.
@@ -289,6 +310,9 @@ extension WindowManager {
     /// `onScreen` lets a caller (render) that already enumerated this pass avoid a second
     /// identical CGWindowList enumeration; defaults to a fresh one for standalone callers.
     func updateFocusIndicator(onScreen: Set<CGWindowID>? = nil) {
+        // The focus contour re-shows from many paths (focus sync, mouse, reconcile); stand all of
+        // them down while a screenshot tool is up, else the border creeps back over its overlay.
+        if screenshotToolFrontmost() { focusIndicator.hide(); return }
         if scratchpadVisible { focusIndicator.hide(); return }   // never over the scratchpad
         let ps: Bool? = (preselect?.leaf === focused) ? preselect?.vertical : nil
         // Show if the border is enabled OR a preselect is armed (so the cue is visible
