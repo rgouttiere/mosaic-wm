@@ -57,13 +57,13 @@ final class ZoomBadge {
 private final class ZoomBadgeView: NSView {
     private let label = "⛶ ZOOM"
     private var attrs: [NSAttributedString.Key: Any] {
-        [.font: NSFont.systemFont(ofSize: 15, weight: .bold), .foregroundColor: Config.shared.borderNSColor]
+        [.font: NSFont.systemFont(ofSize: 8, weight: .bold), .foregroundColor: Config.shared.borderNSColor]
     }
 
     override var isFlipped: Bool { false }
     override var intrinsicContentSize: NSSize {
         let ts = (label as NSString).size(withAttributes: attrs)
-        return NSSize(width: ts.width + 26, height: 30)
+        return NSSize(width: ts.width + 13, height: 15)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -74,12 +74,12 @@ private final class ZoomBadgeView: NSView {
         // Neon: accent border + label with an accent glow.
         NSGraphicsContext.saveGraphicsState()
         let neon = NSShadow()
-        neon.shadowColor = accent.withAlphaComponent(0.9); neon.shadowBlurRadius = 6; neon.shadowOffset = .zero
+        neon.shadowColor = accent.withAlphaComponent(0.9); neon.shadowBlurRadius = 3; neon.shadowOffset = .zero
         neon.set()
         accent.setStroke()
-        let p = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.75, dy: 0.75),
+        let p = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5),
                              xRadius: bounds.height / 2, yRadius: bounds.height / 2)
-        p.lineWidth = 1.5
+        p.lineWidth = 1
         p.stroke(); p.stroke()
         let str = label as NSString
         let ts = str.size(withAttributes: attrs)
