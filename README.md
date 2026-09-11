@@ -14,7 +14,7 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 - **Numbered workspaces** (1–9, assignable, unique across screens) — optionally **named** (i3-style); **per-app scratchpad**, **zoom/monocle**.
 - **Quick-switcher / command palette** (`⌘⌥P`) — fuzzy-jump to any workspace or window (grouped, recency-ordered, with window counts + app icons), or flip with `←/→` to a **command palette** running any Mosaic action. `⌘⏎` moves the focused window to a workspace; `⌘⌥B` bounces to the previous workspace (i3 back-and-forth).
 - **Window hints** (`⌘⌥J`) — Vimium-style: a letter appears on every visible window; type it to focus (works across screens). Keyboard-only, no arrows.
-- **Schematic exposé** (`⌘⌥O`) — a Mission-Control-style overview drawn from the layout tree (no screenshots): every workspace of every screen at once, one column per screen, tiles laid out to scale with tab strips and app icons; fullscreen apps show by name. Navigate with arrows (2D) or `⇥`, `⏎` to jump. Optionally **rebind it onto `⌘Tab`** (`exposeSwitch`): hold the modifier to browse, `⇥` to cycle, release to commit — a schematic alt-tab. It opens highlighting the workspace you're on, and with `exposeAllScreens` it appears on every screen at once. Remappable and off by default.
+- **Exposé** (`⌘⌥O`) — a Mission-Control-style overview of every workspace of every screen at once, one column per screen, tiles laid to scale with tab strips and app icons. Tiles show **live window previews** (captured on open via ScreenCaptureKit, parked workspaces included; needs the Screen Recording permission, or set `exposeThumbnails: false` for schematic tiles); the active tab of a tabbed group reads by a faint accent tint + underline. Navigate with arrows (2D) or `⇥`, `⏎` to jump. Optionally **rebind it onto `⌘Tab`** (`exposeSwitch`): hold the modifier to browse, `⇥` to cycle, release to commit — a visual alt-tab. It opens highlighting the workspace you're on, and with `exposeAllScreens` it appears on every screen at once. Remappable and off by default.
 - **External-bar aware** — reserve a top strip for a bar like [sketchybar](https://github.com/FelixKratz/SketchyBar) (`externalBarTop`, notch-aware per screen) and publish workspace names + per-monitor placement for it to render.
 - **Real macOS Spaces integration** (Mission Control & native gestures keep working).
 - **Survives dock/undock & reboot** — layouts persist keyed by a stable per-monitor fingerprint.
@@ -125,8 +125,9 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `focusSync` | `true` | Adopt keyboard/⌘Tab focus changes back into the tabs, so the tab bar tracks whatever you focus. |
 | `tabScrollCycle` | `true` | Scroll over a tab bar to cycle through its tabs. |
 | `switcherFadeIn` | `true` | Fade the quick-switcher popup in. |
-| `exposeSwitch` | `""` | Hold-combo that drives the exposé as a schematic alt-tab, e.g. `"cmd tab"`. `""` keeps the native ⌘Tab. |
+| `exposeSwitch` | `""` | Hold-combo that drives the exposé as a visual alt-tab, e.g. `"cmd tab"`. `""` keeps the native ⌘Tab. |
 | `exposeAllScreens` | `false` | Mirror the exposé / ⌘Tab switcher on **every** screen at once (same selection on all). |
+| `exposeThumbnails` | `true` | Live window previews in the exposé (ScreenCaptureKit; needs Screen Recording). `false` = schematic tiles, no capture, no permission prompt. |
 | `onWorkspaceChange` | `""` | Shell command run on every workspace change (env `MOSAIC_WORKSPACE` = focused number). Point it at a sketchybar trigger; see [CHEATSHEET.md](CHEATSHEET.md#status-bar-sketchybar). `""` = off. |
 | `floatingApps` | *(screenshot tools)* | App names or bundle ids (lowercased) that never tile — they always float. |
 | `keybindings` | *(see below)* | Map an action to a shortcut, e.g. `"tile": "cmd alt t"`. Only the entries you list override the defaults. |
