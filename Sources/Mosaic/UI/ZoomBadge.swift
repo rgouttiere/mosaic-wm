@@ -40,7 +40,15 @@ final class ZoomBadge {
         let f = screen.visibleFrame
         let m: CGFloat = 12
         window.setFrameOrigin(NSPoint(x: f.maxX - s.width - m, y: f.maxY - s.height - m))
+        let fadeIn = !window.isVisible && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        window.alphaValue = fadeIn ? 0 : 1
         window.orderFrontRegardless()
+        if fadeIn {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                window.animator().alphaValue = 1
+            }
+        }
     }
 
     func hide() { window.orderOut(nil) }
@@ -63,15 +71,19 @@ private final class ZoomBadgeView: NSView {
         // Subtle tint over the frosted pill (the blur is the window's NSVisualEffectView).
         NSColor.black.withAlphaComponent(0.28).setFill()
         bounds.fill()
-        // Accent hairline border.
+        // Neon: accent border + label with an accent glow.
+        NSGraphicsContext.saveGraphicsState()
+        let neon = NSShadow()
+        neon.shadowColor = accent.withAlphaComponent(0.9); neon.shadowBlurRadius = 6; neon.shadowOffset = .zero
+        neon.set()
         accent.setStroke()
         let p = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.75, dy: 0.75),
                              xRadius: bounds.height / 2, yRadius: bounds.height / 2)
         p.lineWidth = 1.5
-        p.stroke()
-        // Centered label.
+        p.stroke(); p.stroke()
         let str = label as NSString
         let ts = str.size(withAttributes: attrs)
         str.draw(at: NSPoint(x: bounds.midX - ts.width / 2, y: bounds.midY - ts.height / 2), withAttributes: attrs)
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
