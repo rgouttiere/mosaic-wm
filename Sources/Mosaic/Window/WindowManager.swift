@@ -66,6 +66,9 @@ final class WindowManager {
     let focusIndicator = FocusIndicator()
     let zoomBadge = ZoomBadge()
     let letterbox = LetterboxFill()
+    /// While PiP mirrors a window, its on-screen tile is covered by the letterbox fill so the same
+    /// video isn't visible twice. Only covers when this leaf is actually the front, shown tab.
+    weak var pipSourceLeaf: Container?
     let windowBorders = WindowBorders()
     let dropHighlight = DropHighlight()
     var spaceTimer: Timer?

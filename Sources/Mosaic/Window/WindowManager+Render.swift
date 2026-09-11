@@ -259,6 +259,12 @@ extension WindowManager {
         for (did, wsNum) in shownOnDisplay {
             guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
             root.forEachVisibleLeaf { leaf in
+                // The PiP source's whole tile is covered (it's shown here but mirrored in the PiP).
+                if leaf === pipSourceLeaf {
+                    let tile = leaf.lastFrame
+                    if tile.width > 0, tile.height > 0 { letterbox.fill(tile) }
+                    return
+                }
                 guard let w = leaf.window, !w.isFullscreen, let wf = w.frame else { return }
                 let tile = leaf.lastFrame
                 guard tile.width > 0, tile.height > 0 else { return }

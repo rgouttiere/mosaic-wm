@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         let nav: [(action: String, title: String, selector: Selector)] = [
             ("expose", "Overview (Exposé)", #selector(showExpose)),
+            ("pip", "Picture-in-picture (focused window)", #selector(togglePiP)),
             ("switcher", "Quick-switcher / palette", #selector(showSwitcher)),
             ("hints", "Window hints", #selector(showHints)),
             ("workspace-back", "Back to previous workspace", #selector(workspaceBack)),
@@ -238,6 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showSwitcher() { windowManager.showSwitcher() }
     @objc private func showHints() { windowManager.showHints() }
     @objc private func showExpose() { windowManager.showExpose() }
+    @objc private func togglePiP() { windowManager.togglePiP() }
     @objc private func workspaceBack() { windowManager.workspaceBack() }
     @objc private func workspaceNext() { windowManager.cycleWorkspace(next: true) }
     @objc private func workspacePrev() { windowManager.cycleWorkspace(next: false) }
@@ -337,6 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "switcher": { wm.showSwitcher() },
             "hints": { wm.showHints() },
             "expose": { wm.showExpose() },
+            "pip": { wm.togglePiP() },
             "unassign": { wm.unassignCurrent() },
             "workspace-back": { wm.workspaceBack() },
             "workspace-next": { wm.cycleWorkspace(next: true) },

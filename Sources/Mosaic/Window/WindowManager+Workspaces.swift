@@ -301,6 +301,43 @@ extension WindowManager {
         AX.raise(w.element)
     }
 
+    /// Toggle a floating, live picture-in-picture of the focused window. The window keeps playing
+    /// wherever it is (even parked on another workspace); "return" from the PiP brings it back here.
+    func togglePiP() {
+        guard #available(macOS 13.0, *) else { NSLog("Mosaic: PiP needs macOS 13+"); return }
+        if PiP.shared.isActive { PiP.shared.stop(); return }   // toggle off — onStop clears the cover
+        guard let leaf = focused, let w = leaf.window, let id = w.resolvedID() else {
+            NSLog("Mosaic: PiP — no focused window"); return
+        }
+        let ws = Int(activeSpaceID ?? 1)   // workspace to return to, captured now
+        PiP.shared.onStop = { [weak self] in            // remove the source's letterbox cover
+            self?.pipSourceLeaf = nil
+            self?.updateLetterboxFill()
+        }
+        PiP.shared.toggle(windowID: id, pid: w.app.processIdentifier) { [weak self, weak leaf] in
+            guard let self, let leaf else { return }
+            self.revealForPiP(leaf, inWorkspace: ws)
+        }
+        pipSourceLeaf = leaf            // cover its on-screen tile so the video isn't shown twice
+        updateLetterboxFill()
+    }
+
+    /// Return from the PiP onto the source window: switch to its workspace, re-select it along its
+    /// tab path (so a tabbed window surfaces, not just its app), re-render, then activate it.
+    func revealForPiP(_ leaf: Container, inWorkspace n: Int) {
+        if let screen = screenUnderMouse(), currentWorkspace(for: screen) != UInt64(n) {
+            switchToWorkspace(n)
+        }
+        focused = leaf
+        selectTabsOnPath(to: leaf)
+        render()
+        guard let w = leaf.window else { return }
+        guard !w.isFullscreen else { w.activateApp(); return }
+        AX.makeMain(w.element)
+        w.activateApp()
+        AX.raise(w.element)
+    }
+
     /// Send the focused window to workspace `n`: detach it from the current tree and graft it
     /// into `n`'s. If `n` is shown on a monitor it's re-arranged there; otherwise it stays
     /// parked and the window slides off-screen with it.
