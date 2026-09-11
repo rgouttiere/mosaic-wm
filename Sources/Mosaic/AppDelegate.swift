@@ -242,13 +242,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func workspaceNext() { windowManager.cycleWorkspace(next: true) }
     @objc private func workspacePrev() { windowManager.cycleWorkspace(next: false) }
 
-    /// Start/stop the native 3-finger swipe → workspace nav from config.trackpadGestures.
-    /// Idempotent: safe on launch and on every reload. Swipe left = next (macOS convention).
+    /// Start/stop the native 3-finger swipes from config.trackpadGestures. Idempotent: safe on
+    /// launch and on every reload. Context-aware — the same swipe navigates the exposé when it's
+    /// open, else drives workspaces / opens the exposé. Swipe left = next (macOS convention).
     private func updateTrackpadGestures() {
         let g = TrackpadGestures.shared
         guard Config.shared.trackpadGestures else { g.stop(); return }
-        g.onSwipeLeft = { [weak self] in self?.windowManager.cycleWorkspace(next: true) }
-        g.onSwipeRight = { [weak self] in self?.windowManager.cycleWorkspace(next: false) }
+        g.onSwipeLeft = { [weak self] in
+            if ExposeOverlay.isOpen { ExposeOverlay.navLeft() }
+            else { self?.windowManager.cycleWorkspace(next: true) }
+        }
+        g.onSwipeRight = { [weak self] in
+            if ExposeOverlay.isOpen { ExposeOverlay.navRight() }
+            else { self?.windowManager.cycleWorkspace(next: false) }
+        }
+        g.onSwipeUp = { [weak self] in
+            if ExposeOverlay.isOpen { ExposeOverlay.navUp() }
+            else { self?.windowManager.showExpose() }
+        }
+        g.onSwipeDown = {
+            if ExposeOverlay.isOpen { ExposeOverlay.commit() }   // validate selection + close; closed: nothing
+        }
+        // 2-finger swipe → grid nav (columns + rows), but only while the exposé is open.
+        g.isExposeNavActive = { ExposeOverlay.isOpen }
+        g.onExposeNav = { col, row in
+            if col < 0 { ExposeOverlay.navLeft() }
+            else if col > 0 { ExposeOverlay.navRight() }
+            else if row < 0 { ExposeOverlay.navUp() }
+            else if row > 0 { ExposeOverlay.navDown() }
+        }
         g.start()
     }
     @objc private func clearLayout() { windowManager.clear() }

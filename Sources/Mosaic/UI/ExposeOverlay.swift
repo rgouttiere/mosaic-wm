@@ -40,6 +40,11 @@ final class ExposeOverlay {
         shared = ExposeOverlay(ws, screen: screen, allScreens: allScreens, commitOnRelease: commitOnRelease)
     }
     static func advance(_ d: Int) { shared?.move(d) }
+    // Directional navigation (trackpad swipes) — same grid moves as the h/j/k/l keys.
+    static func navLeft()  { shared?.moveCol(-1) }
+    static func navRight() { shared?.moveCol(1) }
+    static func navUp()    { shared?.moveRow(-1) }
+    static func navDown()  { shared?.moveRow(1) }
     static func commit() { shared?.commitSelection() }
     /// Commit only if opened in hold-to-commit mode (⌘Tab); no-op otherwise.
     static func commitIfRelease() { if let s = shared, s.commitOnRelease { s.commitSelection() } }
