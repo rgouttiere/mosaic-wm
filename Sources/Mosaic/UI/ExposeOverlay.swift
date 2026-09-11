@@ -1,7 +1,12 @@
 import AppKit
 
-/// One tab within a tile (a plain window = a tile with one tab). `windowID` drives the live preview.
-struct ExposeTab { let label: String; let icon: NSImage?; let selected: Bool; let windowID: CGWindowID? }
+/// One tab within a tile (a plain window = a tile with one tab). `windowID` drives the live preview;
+/// `focus` jumps to that window (switch to its workspace + focus it) when its hint key is typed.
+struct ExposeTab {
+    let label: String; let icon: NSImage?; let selected: Bool
+    let windowID: CGWindowID?
+    var focus: (() -> Void)? = nil
+}
 /// A tile in a workspace: its frame (in the workspace's screen coords) + its tab(s).
 struct ExposeTile {
     let frame: CGRect
@@ -16,6 +21,7 @@ struct ExposeWorkspace {
     let screen: CGRect      // the workspace's display frame (Cocoa) — for aspect + window mapping
     let tiles: [ExposeTile]
     let current: Bool
+    var shown: Bool = false   // currently on a monitor (not parked) → its windows get jump-hints
     let jump: () -> Void
 }
 
@@ -86,20 +92,78 @@ final class ExposeOverlay {
 
         loadThumbnails(ws)
 
+        buildHints()
+        for v in views { v.hintByWindowID = hintByWindowID }
+
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             guard let self else { return e }
             switch e.keyCode {
-            case 123: self.moveCol(-1); return nil          // ←
-            case 124: self.moveCol(1);  return nil          // →
-            case 126: self.moveRow(-1); return nil          // ↑
-            case 125: self.moveRow(1);  return nil          // ↓
+            case 123, 4:  self.moveCol(-1); return nil       // ← / h
+            case 124, 37: self.moveCol(1);  return nil       // → / l
+            case 126, 40: self.moveRow(-1); return nil       // ↑ / k
+            case 125, 38: self.moveRow(1);  return nil       // ↓ / j
             case 48: self.move(e.modifierFlags.contains(.shift) ? -1 : 1); return nil   // ⇥
-            case 36, 76: self.commitSelection(); return nil // ⏎
-            case 53: self.dismiss(); return nil             // esc
-            default: return e
+            case 36, 76: self.commitSelection(); return nil  // ⏎
+            case 53:                                         // esc: clear a partial hint first, else close
+                if self.typedHint.isEmpty { self.dismiss() } else { self.typedHint = ""; self.refreshHints() }
+                return nil
+            case 51:                                         // ⌫: back one hint char
+                if !self.typedHint.isEmpty { self.typedHint.removeLast(); self.refreshHints() }
+                return nil
+            default:
+                // A hint letter (h/j/k/l are captured above as navigation) → type it.
+                if let ch = e.charactersIgnoringModifiers?.lowercased().first,
+                   ExposeOverlay.hintAlphabet.contains(ch) {
+                    self.typeHint(String(ch)); return nil
+                }
+                return e
             }
         }
     }
+
+    // MARK: - Window hints (vimium-style jump to any window across workspaces)
+
+    static let hintAlphabet = Array("asdfgqwertyuiopzxcvbnm")   // no h/j/k/l — those navigate
+    private var hintActions: [String: () -> Void] = [:]
+    private var hintByWindowID: [CGWindowID: String] = [:]
+    private var typedHint = ""
+
+    /// Label every displayed window with a hint key and wire it to focus that window.
+    private func buildHints() {
+        var targets: [(id: CGWindowID, focus: () -> Void)] = []
+        for w in workspaces where w.shown {   // hint only on-screen windows, not parked workspaces
+            for tile in w.tiles {
+                guard let tab = tile.tabs.first(where: { $0.selected }) ?? tile.tabs.first,
+                      let id = tab.windowID, let focus = tab.focus else { continue }
+                targets.append((id, focus))
+            }
+        }
+        let a = ExposeOverlay.hintAlphabet
+        let labels: [String]
+        if targets.count <= a.count {
+            labels = targets.indices.map { String(a[$0]) }
+        } else {
+            var out: [String] = []
+            outer: for x in a { for y in a { out.append("\(x)\(y)"); if out.count == targets.count { break outer } } }
+            labels = out
+        }
+        for (i, t) in targets.enumerated() {
+            hintActions[labels[i]] = t.focus
+            hintByWindowID[t.id] = labels[i]
+        }
+    }
+
+    private func typeHint(_ ch: String) {
+        typedHint += ch
+        let matches = hintActions.keys.filter { $0.hasPrefix(typedHint) }
+        if matches.isEmpty { typedHint = ""; refreshHints(); return }
+        if matches.count == 1, matches.first == typedHint, let action = hintActions[typedHint] {
+            dismiss(); action(); return
+        }
+        refreshHints()
+    }
+
+    private func refreshHints() { for v in views { v.typedHint = typedHint; v.needsDisplay = true } }
 
     /// One column per physical screen, ordered left→right; workspaces in array order within.
     private static func buildColumns(_ ws: [ExposeWorkspace]) -> [[Int]] {
@@ -175,6 +239,8 @@ private final class ExposeView: NSView {
     var columns: [[Int]] = []
     var selected = 0
     var thumbs: ThumbnailStore?   // live previews, shared with the overlay; nil until captured
+    var hintByWindowID: [CGWindowID: String] = [:]   // window → its jump-hint key
+    var typedHint = ""            // hint prefix typed so far (dims matched keys, filters the rest)
     private var thumbAlpha: CGFloat = 1   // ramps 0→1 as previews land, for an in-place fade-in
     private var fadeTimer: Timer?
 
@@ -307,6 +373,11 @@ private final class ExposeView: NSView {
                     withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .medium),
                                      .foregroundColor: text, .paragraphStyle: labelStyle])
             }
+
+            // Jump hint: type its key to focus this window directly (dims the part you've typed).
+            if let id = tile.displayedWindowID, let hint = hintByWindowID[id], hint.hasPrefix(typedHint) {
+                drawHint(hint, in: wr)
+            }
         }
 
         if selected {
@@ -315,6 +386,30 @@ private final class ExposeView: NSView {
             p.lineWidth = 2.5
             p.stroke()
         }
+    }
+
+    /// A vimium-style jump-hint chip centered on a tile: dark frosted chip + accent border/text,
+    /// the already-typed prefix dimmed (matches the window-hints overlay).
+    private func drawHint(_ hint: String, in wr: NSRect) {
+        let font = NSFont.monospacedSystemFont(ofSize: min(15, max(9, wr.height * 0.28)), weight: .bold)
+        let up = hint.uppercased()
+        let dim: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: accent.withAlphaComponent(0.4)]
+        let hot: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: accent]
+        let ts = (up as NSString).size(withAttributes: hot)
+        let padX: CGFloat = 6
+        let chip = NSRect(x: wr.midX - (ts.width + padX * 2) / 2, y: wr.midY - (ts.height + 6) / 2,
+                          width: ts.width + padX * 2, height: ts.height + 6)
+        NSColor.black.withAlphaComponent(0.82).setFill()
+        NSBezierPath(roundedRect: chip, xRadius: 3, yRadius: 3).fill()
+        accent.setStroke()
+        let b = NSBezierPath(roundedRect: chip.insetBy(dx: 0.75, dy: 0.75), xRadius: 3, yRadius: 3)
+        b.lineWidth = 1; b.stroke()
+        let n = min(typedHint.count, up.count)
+        let pfx = String(up.prefix(n)) as NSString
+        let rest = String(up.dropFirst(n)) as NSString
+        let tx = chip.minX + padX, ty = chip.minY + 3
+        pfx.draw(at: CGPoint(x: tx, y: ty), withAttributes: dim)
+        rest.draw(at: CGPoint(x: tx + pfx.size(withAttributes: dim).width, y: ty), withAttributes: hot)
     }
 
     /// Draw `img` filling `rect` while preserving aspect (overflow cropped by the caller's clip).

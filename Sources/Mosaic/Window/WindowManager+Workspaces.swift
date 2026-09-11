@@ -84,10 +84,22 @@ extension WindowManager {
 
     /// Schematic workspace overview (exposé): a grid of workspaces, each drawn with its
     /// windows as scaled rectangles. Pick one to jump.
+    /// From the exposé (a typed jump-hint): switch to workspace `n` and focus window `w`, selecting
+    /// its tab if it's in a group. render() raises it and activates its app.
+    func focusManagedWindow(_ w: ManagedWindow, onWorkspace n: Int) {
+        switchToWorkspace(n)
+        var target: Container?
+        spaces[UInt64(n)]?.root?.forEachLeaf { if $0.window === w { target = $0 } }
+        guard let t = target else { return }
+        focused = t
+        render()
+    }
+
     func showExpose(commitOnCmdRelease: Bool = false) {
         guard let screen = screenUnderMouse() else { return }
         let current = currentWorkspace(for: screen).flatMap { workspaceNumber(for: $0) }
         let ordered = spaces.keys.compactMap { workspaceNumber(for: $0) }.sorted()
+        let shownWs = Set(shownOnDisplay.values.map { Int($0) })   // workspaces on a monitor right now
         var wss: [ExposeWorkspace] = []
         for n in ordered {
             let sid = UInt64(n)
@@ -103,9 +115,9 @@ extension WindowManager {
                 if tile.isLeaf {
                     guard let w = tile.window else { return }
                     if w.isFullscreen {
-                        tiles.append(ExposeTile(frame: wsScreen, tabs: [ExposeTab(label: "⛶ \(w.title)", icon: w.app.icon, selected: true, windowID: w.resolvedID())]))
+                        tiles.append(ExposeTile(frame: wsScreen, tabs: [ExposeTab(label: "⛶ \(w.title)", icon: w.app.icon, selected: true, windowID: w.resolvedID(), focus: { [weak self] in self?.focusManagedWindow(w, onWorkspace: n) })]))
                     } else if let f = frames[ObjectIdentifier(tile)] {
-                        tiles.append(ExposeTile(frame: f, tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true, windowID: w.resolvedID())]))
+                        tiles.append(ExposeTile(frame: f, tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true, windowID: w.resolvedID(), focus: { [weak self] in self?.focusManagedWindow(w, onWorkspace: n) })]))
                     }
                 } else {
                     // Tabbed container → one tile with a tab per child (rep = child's first window).
@@ -114,14 +126,15 @@ extension WindowManager {
                           let f = frames[ObjectIdentifier(tile)] else { return }
                     let tabs = tile.children.enumerated().map { i, c -> ExposeTab in
                         let w = c.firstLeaf().window
-                        return ExposeTab(label: w?.title ?? "—", icon: w?.app.icon, selected: i == sel, windowID: w?.resolvedID())
+                        return ExposeTab(label: w?.title ?? "—", icon: w?.app.icon, selected: i == sel, windowID: w?.resolvedID(),
+                                         focus: w.map { win in { [weak self] in self?.focusManagedWindow(win, onWorkspace: n) } })
                     }
                     tiles.append(ExposeTile(frame: f, tabs: tabs))
                 }
             }
             wss.append(ExposeWorkspace(
                 title: Config.shared.workspaceNames[n] ?? "Workspace \(n)",
-                screen: wsScreen, tiles: tiles, current: n == current,
+                screen: wsScreen, tiles: tiles, current: n == current, shown: shownWs.contains(n),
                 jump: { [weak self] in self?.switchToWorkspace(n) }))
         }
         ExposeOverlay.show(wss, on: screen, allScreens: Config.shared.exposeAllScreens,
