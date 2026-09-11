@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager.startObserving()
         presentConfigIssues()   // surface any problems from the startup config load
         startWatchingConfig()   // hot-reload config.json on save (no manual reload-config)
+        updateTrackpadGestures()   // opt-in native 3-finger swipe → workspace nav
 
         // CLI channel: `mosaic <action>` posts this; run the matching action on the main thread.
         DistributedNotificationCenter.default().addObserver(
@@ -240,6 +241,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func workspaceBack() { windowManager.workspaceBack() }
     @objc private func workspaceNext() { windowManager.cycleWorkspace(next: true) }
     @objc private func workspacePrev() { windowManager.cycleWorkspace(next: false) }
+
+    /// Start/stop the native 3-finger swipe → workspace nav from config.trackpadGestures.
+    /// Idempotent: safe on launch and on every reload. Swipe left = next (macOS convention).
+    private func updateTrackpadGestures() {
+        let g = TrackpadGestures.shared
+        guard Config.shared.trackpadGestures else { g.stop(); return }
+        g.onSwipeLeft = { [weak self] in self?.windowManager.cycleWorkspace(next: true) }
+        g.onSwipeRight = { [weak self] in self?.windowManager.cycleWorkspace(next: false) }
+        g.start()
+    }
     @objc private func clearLayout() { windowManager.clear() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.shared.configURL) }
     @objc private func dumpLayout() { windowManager.dumpLayout() }
@@ -435,6 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotkeys()   // unregisters old, applies new bindings
         applyExposeSwitch() // re-arm the ⌘Tab tap with the (possibly changed) combo
         rebuildMenu()       // refresh combos shown in the menu
+        updateTrackpadGestures()   // (re)arm or disarm the trackpad swipe on config change
         presentConfigIssues()   // warn if the edited config has problems
         NSLog("Mosaic: config reloaded")
     }
