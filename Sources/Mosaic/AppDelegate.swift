@@ -401,22 +401,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         var tapBindings: [ComboTap.Binding] = []
         for (action, combo) in Config.shared.keybindings {
-            // An empty (or blank) combo means "disable this binding" — a deliberate override, not a
-            // mistake, so skip it silently instead of logging an "invalid combo" error.
-            if combo.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+            // A binding value may hold several combos, comma-separated ("ctrl alt k, ctrl alt up"),
+            // so one action can fire from more than one shortcut. An empty/blank value = disabled.
+            let combos = combo.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            if combos.isEmpty { continue }
             guard let run = actions[action] else {
                 NSLog("Mosaic: unknown action '\(action)' in keybindings"); continue
             }
-            guard let parsed = KeyCombo.parse(combo) else {
-                NSLog("Mosaic: invalid key combo '\(combo)' for '\(action)'"); continue
-            }
-            if tapRoutedActions.contains(action) {
-                // Route through the CGEventTap so it fires BEFORE macOS' reserved shortcut (and is
-                // swallowed from apps). Carbon RegisterEventHotKey would lose the race to the system.
-                tapBindings.append(.init(keyCode: Int64(parsed.keyCode),
-                                         mods: Self.cgFlags(fromCarbon: parsed.modifiers), action: run))
-            } else {
-                hk.register(keyCode: parsed.keyCode, modifiers: parsed.modifiers, action: run)
+            for one in combos {
+                guard let parsed = KeyCombo.parse(one) else {
+                    NSLog("Mosaic: invalid key combo '\(one)' for '\(action)'"); continue
+                }
+                if tapRoutedActions.contains(action) {
+                    // Route through the CGEventTap so it fires BEFORE macOS' reserved shortcut (and is
+                    // swallowed from apps). Carbon RegisterEventHotKey would lose the race to the system.
+                    tapBindings.append(.init(keyCode: Int64(parsed.keyCode),
+                                             mods: Self.cgFlags(fromCarbon: parsed.modifiers), action: run))
+                } else {
+                    hk.register(keyCode: parsed.keyCode, modifiers: parsed.modifiers, action: run)
+                }
             }
         }
         comboTap.setBindings(tapBindings)   // empty list tears the tap down

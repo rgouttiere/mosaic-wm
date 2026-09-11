@@ -531,13 +531,15 @@ final class Config {
         // Duplicate keybindings: two actions on the same combo → only one wins (undefined). Blank
         // combos are disabled bindings, not shortcuts, so several "" are fine — skip them.
         var comboOwner: [String: String] = [:]
-        for (action, combo) in keybindings {
-            if combo.trimmingCharacters(in: .whitespaces).isEmpty { continue }
-            let norm = combo.lowercased().split { " +-".contains($0) }.sorted().joined(separator: "+")
-            if let other = comboOwner[norm] {
-                loadIssues.append("duplicate shortcut “\(combo)”: “\(action)” and “\(other)”")
-            } else {
-                comboOwner[norm] = action
+        for (action, value) in keybindings {
+            // A value may list several combos (comma-separated) — check each on its own.
+            for combo in value.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !combo.isEmpty {
+                let norm = combo.lowercased().split { " +-".contains($0) }.sorted().joined(separator: "+")
+                if let other = comboOwner[norm], other != action {
+                    loadIssues.append("duplicate shortcut “\(combo)”: “\(action)” and “\(other)”")
+                } else {
+                    comboOwner[norm] = action
+                }
             }
         }
 
