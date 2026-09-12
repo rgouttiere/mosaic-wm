@@ -1,74 +1,75 @@
 import AppKit
 
-/// A frosted accent highlight shown over the window/group half where a dragged tab will land, so
-/// the drop target (and, for an edge drop, which side) reads at a glance. The window is sized to the
-/// exact landing slice by `updateDropHighlight` (full tile = tab, a half = split).
+/// A frosted accent highlight over the window/group slice where a dragged tab will land. The window
+/// covers the whole target tile; an inner indicator SLIDES/resizes to the landing slice (full tile =
+/// tab, a half = split), so moving between edge zones glides instead of snapping. Border/tint are
+/// layer-based so they stay crisp during the frame animation.
 final class DropHighlight {
-    private let window: FillWindow
-
-    init() {
-        window = FillWindow()
-    }
-
-    func show(around cocoaFrame: NSRect) {
-        window.setFrame(cocoaFrame, display: true)
-        window.layout(to: cocoaFrame.size)
-        window.orderFront(nil)
-    }
-
-    func hide() {
-        window.orderOut(nil)
-    }
-}
-
-private final class FillWindow: NSWindow {
-    /// Frosted backdrop — blurs the target area so it reads as "about to be replaced".
+    private let window: NSWindow
+    private let indicator = NSView()   // the highlighted zone; animates within the window
     private let effect = NSVisualEffectView()
-    /// Accent tint + crisp border, drawn on top of the blur.
-    private let overlay = FillView()
+    private let tint = NSView()
+    private var currentTile: NSRect = .zero
 
     init() {
-        super.init(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = false
-        ignoresMouseEvents = true
-        level = .floating   // above windows, below the drag ghost (.popUpMenu)
-        // NOT canJoinAllSpaces: it must stay on the desktop it's shown on (never leak
-        // onto full-screen Spaces), and macOS hides it the instant the Space changes.
-        collectionBehavior = [.ignoresCycle, .stationary]
+        window = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.ignoresMouseEvents = true
+        window.level = .floating   // above windows, below the drag ghost (.popUpMenu)
+        window.collectionBehavior = [.ignoresCycle, .stationary]
+
         effect.material = .hudWindow
         effect.blendingMode = .behindWindow
         effect.state = .active
         effect.wantsLayer = true
+        tint.wantsLayer = true
+        indicator.wantsLayer = true
+        indicator.addSubview(effect)
+        indicator.addSubview(tint)
+
         let container = NSView()
-        container.addSubview(effect)
-        container.addSubview(overlay)
-        contentView = container
+        container.addSubview(indicator)
+        window.contentView = container
     }
 
-    /// Inset the frosted panel + tint/border to match, with the theme corner radius.
-    func layout(to size: NSSize) {
-        let full = NSRect(origin: .zero, size: size)
-        contentView?.frame = full
-        effect.frame = full.insetBy(dx: 2, dy: 2)
-        effect.layer?.cornerRadius = CGFloat(Config.shared.borderCornerRadius)
-        effect.layer?.masksToBounds = true
-        overlay.frame = full
-        overlay.needsDisplay = true
-    }
-}
+    /// `tile` = the full target tile (Cocoa); `zoneRect` = the slice that will be occupied (Cocoa).
+    /// Snap the window to the tile; slide the inner indicator to the zone within it.
+    func show(tile: NSRect, zoneRect: NSRect) {
+        let appearing = !window.isVisible
+        let tileChanged = tile != currentTile
+        currentTile = tile
+        window.setFrame(tile, display: false)
+        window.contentView?.frame = NSRect(origin: .zero, size: tile.size)
 
-private final class FillView: NSView {
-    override func draw(_ dirtyRect: NSRect) {
-        let color = Config.color(from: Config.shared.dropHighlightColor)
         let radius = CGFloat(Config.shared.borderCornerRadius)
-        let rect = bounds.insetBy(dx: 2, dy: 2)
-        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-        color.withAlphaComponent(0.22).setFill()   // accent wash over the frosted blur
-        path.fill()
-        color.withAlphaComponent(0.95).setStroke()
-        path.lineWidth = 2.5
-        path.stroke()
+        let color = Config.color(from: Config.shared.dropHighlightColor)
+        effect.layer?.cornerRadius = radius
+        effect.layer?.masksToBounds = true
+        tint.layer?.backgroundColor = color.withAlphaComponent(0.22).cgColor
+        tint.layer?.cornerRadius = radius
+        indicator.layer?.cornerRadius = radius
+        indicator.layer?.borderWidth = 2.5
+        indicator.layer?.borderColor = color.withAlphaComponent(0.95).cgColor
+        indicator.layer?.masksToBounds = true
+
+        let local = NSRect(x: zoneRect.minX - tile.minX, y: zoneRect.minY - tile.minY,
+                           width: zoneRect.width, height: zoneRect.height)
+        let inner = NSRect(origin: .zero, size: local.size)
+        window.orderFront(nil)
+        if appearing || tileChanged || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            indicator.frame = local; effect.frame = inner; tint.frame = inner
+        } else {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.12
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                indicator.animator().frame = local
+                effect.animator().frame = inner
+                tint.animator().frame = inner
+            }
+        }
     }
+
+    func hide() { window.orderOut(nil); currentTile = .zero }
 }

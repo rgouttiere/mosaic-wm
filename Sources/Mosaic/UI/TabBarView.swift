@@ -15,9 +15,13 @@ final class TabBarView: NSView {
     // The active-tab underline is its own layer-backed subview so it slides via Core Animation
     // (GPU, vsync) instead of a per-frame full redraw of the frosted bar. Stacked keeps per-row.
     private let underlineView = TabUnderlineView()
+    private let hoverView = TabHoverView()   // sliding hover wash (horizontal mode)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        hoverView.wantsLayer = true
+        hoverView.isHidden = true
+        addSubview(hoverView)               // behind the underline, over the segments (translucent)
         underlineView.wantsLayer = true
         addSubview(underlineView)
     }
@@ -46,7 +50,7 @@ final class TabBarView: NSView {
 
     /// Which segment the pointer is over, for hover highlighting. Horizontal mode = row 0.
     private struct HoverKey: Equatable { let row: Int; let seg: Int }
-    private var hover: HoverKey? { didSet { if oldValue != hover { needsDisplay = true } } }
+    private var hover: HoverKey? { didSet { if oldValue != hover { needsDisplay = true; positionHover(animated: oldValue != nil) } } }
 
     private var isStackedRows: Bool { vertical && !rows.isEmpty }
     private var segmentWidth: CGFloat {
@@ -106,6 +110,25 @@ final class TabBarView: NSView {
     override func layout() {
         super.layout()
         positionUnderline(animated: false)   // snap on resize / initial place; selection changes animate
+        positionHover(animated: false)
+    }
+
+    /// Slide (or snap/hide) the hover wash to the hovered segment (horizontal mode only). Hidden on
+    /// the active tab (it has its own gradient) and when nothing is hovered.
+    private func positionHover(animated: Bool) {
+        guard !isStackedRows, let h = hover, h.row == 0, h.seg != selectedIndex,
+              titles.indices.contains(h.seg), segmentWidth > 4 else { hoverView.isHidden = true; return }
+        let frame = NSRect(x: CGFloat(h.seg) * segmentWidth, y: 0, width: segmentWidth, height: bounds.height)
+        if hoverView.isHidden { hoverView.frame = frame; hoverView.isHidden = false; return }   // appearing → snap
+        if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.11
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                hoverView.animator().frame = frame
+            }
+        } else {
+            hoverView.frame = frame
+        }
     }
 
     /// Slide (or snap) the horizontal underline subview to the active segment. Core Animation makes
@@ -157,9 +180,9 @@ final class TabBarView: NSView {
         let fontSize = CGFloat(cfg.tabFontSize)
         let accent = Config.color(from: cfg.tabActiveColor)
 
-        // Hover cue on non-active tabs: an accent wash so the tab reads as "clickable". The active
-        // tab still wins via its crisp accent underline + semibold label, so this can be bolder.
-        if hovered && !active {
+        // Hover cue on non-active tabs. Stacked rows draw it here; horizontal tabs use the sliding
+        // hoverView so the wash glides between segments.
+        if hovered && !active && isStackedRows {
             accent.withAlphaComponent(0.20).setFill()
             rect.fill()
         }
@@ -323,6 +346,16 @@ final class TabBarView: NSView {
         dragSourceIndex = nil
         didDrag = false
         if wasDragging { onDragStateChange?(false) }
+    }
+}
+
+/// The sliding hover wash: a translucent accent fill that glides between tabs. Translucent so the
+/// label under it stays readable.
+private final class TabHoverView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        Config.color(from: Config.shared.tabActiveColor).withAlphaComponent(0.20).setFill()
+        bounds.fill()
     }
 }
 

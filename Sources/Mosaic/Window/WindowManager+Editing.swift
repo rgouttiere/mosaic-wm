@@ -361,7 +361,7 @@ extension WindowManager {
             return
         }
         let f = Geometry.flip(frame)
-        dropHighlight.show(around: zoneRect(dropZone(at: point, in: f), in: f))
+        dropHighlight.show(tile: f, zoneRect: zoneRect(dropZone(at: point, in: f), in: f))
     }
 
     /// Which region of a target tile the cursor is over (Cocoa coords). The outer ~28% band on each
