@@ -6,6 +6,7 @@ import QuartzCore
 /// (config `focusGlowRadius`) makes the focused window read as "lit up" above its neighbours.
 final class FocusIndicator {
     private let window: BorderWindow
+    private let ghost = BorderWindow()   // lingers the OLD halo at its old spot and dissolves it
     private var lastCocoaFrame: NSRect = .zero
 
     init() {
@@ -31,6 +32,25 @@ final class FocusIndicator {
             || abs(cocoaFrame.minY - lastCocoaFrame.minY) > 8
         let animate = Config.shared.focusGlowFade && jumped
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+
+        // True cross-fade (never a travelling rectangle): before the halo moves, park a ghost copy
+        // at the OLD position with the OLD appearance and dissolve it there, while the real halo
+        // fades in at the new one. Only on a real jump from an already-visible halo.
+        if animate, window.isVisible, let old = window.contentView as? BorderView {
+            ghost.setFrame(window.frame, display: false)
+            if let gv = ghost.contentView as? BorderView {
+                gv.glowInset = old.glowInset; gv.glowBlur = old.glowBlur; gv.preselect = nil
+            }
+            ghost.contentView?.frame = NSRect(origin: .zero, size: window.frame.size)
+            ghost.contentView?.needsDisplay = true
+            ghost.alphaValue = 1
+            ghost.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.26
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                ghost.animator().alphaValue = 0
+            }, completionHandler: { [weak self] in self?.ghost.orderOut(nil) })
+        }
         lastCocoaFrame = cocoaFrame
 
         window.setFrame(outer, display: true)
@@ -44,7 +64,7 @@ final class FocusIndicator {
             window.alphaValue = 0
             window.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.12
+                ctx.duration = 0.24
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 window.animator().alphaValue = 1
             }
