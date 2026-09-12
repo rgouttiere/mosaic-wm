@@ -65,6 +65,7 @@ final class WindowManager {
     lazy var observer = WindowObserver { [weak self] in self?.tick() }
     let focusIndicator = FocusIndicator()
     let zoomBadge = ZoomBadge()
+    let resizeRatioHUD = ResizeRatioHUD()
     let letterbox = LetterboxFill()
     /// While PiP mirrors a window, its on-screen tile is covered by the letterbox fill so the same
     /// video isn't visible twice. Only covers when this leaf is actually the front, shown tab.

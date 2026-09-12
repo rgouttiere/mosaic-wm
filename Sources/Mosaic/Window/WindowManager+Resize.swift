@@ -112,6 +112,13 @@ extension WindowManager {
             c.ratios[i + 1] = pair - c.ratios[i]
             draw()
         }
+
+        // Live ratio readout centered on the divider, fading out shortly after the last change.
+        let pctI = Int((c.ratios[i] / pair * 100).rounded())
+        let cum = c.ratios[0...i].reduce(0, +)
+        let divider = horizontal ? NSPoint(x: f.minX + cum * f.width, y: f.midY)
+                                 : NSPoint(x: f.midX, y: f.maxY - cum * f.height)
+        resizeRatioHUD.show("\(pctI) / \(100 - pctI)", at: divider)
     }
 
     /// Largest actual size (along `horizontal`) among the visible windows in a subtree.
@@ -137,7 +144,9 @@ extension WindowManager {
         guard let root, let screen = activeScreen else { return }
         root.arrange(in: layoutRect(screen))
         layoutResizeHandles()
-        updateFocusIndicator()
+        updateWindowBorders()   // borders are permanent → follow the moving edges live
+        updateLetterboxFill()   // keep gaps covered as the tiles resize
+        updateFocusIndicator()  // halo on top
     }
 
     func hideAllHandles() {

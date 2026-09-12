@@ -135,12 +135,19 @@ extension WindowManager {
         render()
     }
 
-    /// Reset the focused container's split ratios to equal.
+    /// Reset the split ratios to equal. Walks up to the nearest SPLIT ancestor, so it works even
+    /// when focus is inside a tab group (whose own parent has no meaningful ratios).
     func equalizeFocused() {
         checkSpaceChange()
-        guard let parent = focused?.parent else { return }
-        parent.ratios = Container.equalRatios(parent.children.count)
-        render()
+        var node = focused
+        while let n = node {
+            if let p = n.parent, p.layout == .splitH || p.layout == .splitV, p.children.count > 1 {
+                p.ratios = Container.equalRatios(p.children.count)
+                render()
+                return
+            }
+            node = n.parent
+        }
     }
 
     /// Rotate the focused container's children (windows shift one position).
