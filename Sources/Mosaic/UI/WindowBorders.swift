@@ -41,9 +41,9 @@ final class WindowBorders {
 
 private final class InactiveBorderView: NSView {
     override func draw(_ dirtyRect: NSRect) {
-        let width = max(1, CGFloat(Config.shared.borderWidth) + 1)   // a touch thicker than the focus line
+        let width = max(1, CGFloat(Config.shared.borderWidth))   // a hair thinner than the focus line
         let radius = CGFloat(Config.shared.borderCornerRadius)
-        Config.shared.borderNSColor.withAlphaComponent(0.32).setStroke()   // quiet, so the focused one still leads
+        Config.shared.borderNSColor.withAlphaComponent(0.42).setStroke()   // quiet, so the focused one still leads
         let p = NSBezierPath(roundedRect: bounds.insetBy(dx: width / 2, dy: width / 2), xRadius: radius, yRadius: radius)
         p.lineWidth = width
         p.stroke()
