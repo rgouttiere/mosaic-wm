@@ -47,7 +47,7 @@ private final class InactiveBorderView: NSView {
         let width = max(1, CGFloat(Config.shared.borderWidth))   // a hair thinner than the focus line
         let radius = CGFloat(Config.shared.borderCornerRadius)
         let op = Config.shared.inactiveBorderOpacity
-        Config.shared.borderNSColor.withAlphaComponent(dimmed ? op * 0.62 : op).setStroke()   // dimmer off the focused monitor
+        Config.shared.borderNSColor.withAlphaComponent(dimmed ? op * Config.shared.inactiveMonitorDim : op).setStroke()
         let p = NSBezierPath(roundedRect: bounds.insetBy(dx: width / 2, dy: width / 2), xRadius: radius, yRadius: radius)
         p.lineWidth = width
         p.stroke()

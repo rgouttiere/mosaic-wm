@@ -324,7 +324,7 @@ extension WindowManager {
         for bar in TabBarWindow.registry.allObjects where bar.isVisible {
             let center = NSPoint(x: bar.frame.midX, y: bar.frame.midY)
             let did = NSScreen.screens.first { $0.frame.contains(center) }.map { displayID(of: $0) }
-            bar.alphaValue = (activeDid != nil && did != nil && did != activeDid) ? 0.7 : 1
+            bar.alphaValue = (activeDid != nil && did != nil && did != activeDid) ? Config.shared.inactiveMonitorDim : 1
         }
     }
 

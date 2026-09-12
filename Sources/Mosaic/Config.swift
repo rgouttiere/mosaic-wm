@@ -61,6 +61,7 @@ final class Config {
     var borderInactive: Bool = false   // also draw a dim accent border on non-focused tiled windows
     var dimInactiveMonitors: Bool = false   // fade tile borders + tab strips on the monitor(s) without keyboard focus
     var inactiveBorderOpacity: Double = 0.42   // opacity of the permanent border on non-focused windows (dimmed further off the focused monitor)
+    var inactiveMonitorDim: Double = 0.6   // dimInactiveMonitors: fraction of brightness the non-focused monitors keep (1 = none)
     /// The single accent used across the whole UI. "accent"/"system" = the macOS system accent;
     /// or a hex like "#a6e3a1". Every field set to "accent" (border, tabs, drop) resolves through
     /// this, and the overlays read `Palette.accent`, so one value re-themes everything.
@@ -216,6 +217,7 @@ final class Config {
         var borderColor: String?
         var borderWidth: Double?
         var inactiveBorderOpacity: Double?
+        var inactiveMonitorDim: Double?
         var borderCornerRadius: Double?
         var activeOpacity: Double?
         var inactiveOpacity: Double?
@@ -240,7 +242,7 @@ final class Config {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, workspaceWrap, trackpadGestures, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, notchHud, hudPosition
-            case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius, inactiveBorderOpacity
+            case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius, inactiveBorderOpacity, inactiveMonitorDim
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
             case dropHighlightEnabled, dropHighlightColor, keybindings
@@ -297,6 +299,7 @@ final class Config {
             borderColor = v(.borderColor)
             borderWidth = v(.borderWidth)
             inactiveBorderOpacity = v(.inactiveBorderOpacity)
+            inactiveMonitorDim = v(.inactiveMonitorDim)
             borderCornerRadius = v(.borderCornerRadius)
             activeOpacity = v(.activeOpacity)
             inactiveOpacity = v(.inactiveOpacity)
@@ -405,6 +408,7 @@ final class Config {
         borderColor = "accent"
         borderWidth = 1
         inactiveBorderOpacity = 0.42
+        inactiveMonitorDim = 0.6
         borderCornerRadius = 18
         activeOpacity = 1.0
         inactiveOpacity = 0.5
@@ -438,7 +442,7 @@ final class Config {
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
-            "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "inactiveBorderOpacity", "activeOpacity",
+            "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "inactiveBorderOpacity", "inactiveMonitorDim", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
             "tabActivePadding", "dropHighlightEnabled", "dropHighlightColor", "keybindings",
@@ -508,6 +512,7 @@ final class Config {
         if let c = file.borderColor { borderColor = c }
         if let w = file.borderWidth { borderWidth = w }
         if let o = file.inactiveBorderOpacity { inactiveBorderOpacity = o }
+        if let d = file.inactiveMonitorDim { inactiveMonitorDim = d }
         if let r = file.borderCornerRadius { borderCornerRadius = r }
         if let a = file.activeOpacity { activeOpacity = a }
         if let i = file.inactiveOpacity { inactiveOpacity = i }
@@ -596,6 +601,7 @@ final class Config {
             "borderColor": borderColor,
             "borderWidth": borderWidth,
             "inactiveBorderOpacity": inactiveBorderOpacity,
+            "inactiveMonitorDim": inactiveMonitorDim,
             "borderCornerRadius": borderCornerRadius,
             "activeOpacity": activeOpacity,
             "inactiveOpacity": inactiveOpacity,
