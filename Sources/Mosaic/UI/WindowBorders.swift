@@ -46,7 +46,8 @@ private final class InactiveBorderView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let width = max(1, CGFloat(Config.shared.borderWidth))   // a hair thinner than the focus line
         let radius = CGFloat(Config.shared.borderCornerRadius)
-        Config.shared.borderNSColor.withAlphaComponent(dimmed ? 0.26 : 0.42).setStroke()   // quiet; a touch dimmer off the focused monitor
+        let op = Config.shared.inactiveBorderOpacity
+        Config.shared.borderNSColor.withAlphaComponent(dimmed ? op * 0.62 : op).setStroke()   // dimmer off the focused monitor
         let p = NSBezierPath(roundedRect: bounds.insetBy(dx: width / 2, dy: width / 2), xRadius: radius, yRadius: radius)
         p.lineWidth = width
         p.stroke()

@@ -60,6 +60,7 @@ final class Config {
     var borderEnabled: Bool = true
     var borderInactive: Bool = false   // also draw a dim accent border on non-focused tiled windows
     var dimInactiveMonitors: Bool = false   // fade tile borders + tab strips on the monitor(s) without keyboard focus
+    var inactiveBorderOpacity: Double = 0.42   // opacity of the permanent border on non-focused windows (dimmed further off the focused monitor)
     /// The single accent used across the whole UI. "accent"/"system" = the macOS system accent;
     /// or a hex like "#a6e3a1". Every field set to "accent" (border, tabs, drop) resolves through
     /// this, and the overlays read `Palette.accent`, so one value re-themes everything.
@@ -214,6 +215,7 @@ final class Config {
         var letterboxStyle: String?
         var borderColor: String?
         var borderWidth: Double?
+        var inactiveBorderOpacity: Double?
         var borderCornerRadius: Double?
         var activeOpacity: Double?
         var inactiveOpacity: Double?
@@ -238,7 +240,7 @@ final class Config {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, workspaceWrap, trackpadGestures, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, notchHud, hudPosition
-            case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius
+            case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius, inactiveBorderOpacity
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
             case dropHighlightEnabled, dropHighlightColor, keybindings
@@ -294,6 +296,7 @@ final class Config {
             letterboxStyle = v(.letterboxStyle)
             borderColor = v(.borderColor)
             borderWidth = v(.borderWidth)
+            inactiveBorderOpacity = v(.inactiveBorderOpacity)
             borderCornerRadius = v(.borderCornerRadius)
             activeOpacity = v(.activeOpacity)
             inactiveOpacity = v(.inactiveOpacity)
@@ -401,6 +404,7 @@ final class Config {
         letterboxStyle = "black"
         borderColor = "accent"
         borderWidth = 1
+        inactiveBorderOpacity = 0.42
         borderCornerRadius = 18
         activeOpacity = 1.0
         inactiveOpacity = 0.5
@@ -434,7 +438,7 @@ final class Config {
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
             "floatingApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
-            "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
+            "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "inactiveBorderOpacity", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
             "tabActivePadding", "dropHighlightEnabled", "dropHighlightColor", "keybindings",
@@ -503,6 +507,7 @@ final class Config {
         if let s = file.letterboxStyle { letterboxStyle = s }
         if let c = file.borderColor { borderColor = c }
         if let w = file.borderWidth { borderWidth = w }
+        if let o = file.inactiveBorderOpacity { inactiveBorderOpacity = o }
         if let r = file.borderCornerRadius { borderCornerRadius = r }
         if let a = file.activeOpacity { activeOpacity = a }
         if let i = file.inactiveOpacity { inactiveOpacity = i }
@@ -590,6 +595,7 @@ final class Config {
             "accentColor": accentColor,
             "borderColor": borderColor,
             "borderWidth": borderWidth,
+            "inactiveBorderOpacity": inactiveBorderOpacity,
             "borderCornerRadius": borderCornerRadius,
             "activeOpacity": activeOpacity,
             "inactiveOpacity": inactiveOpacity,
