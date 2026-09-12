@@ -113,13 +113,27 @@ final class TabBarView: NSView {
         }
 
         if active {
-            // Modern tab indicator: a subtle tinted panel + a crisp accent underline, instead of a
-            // full-accent pill — reads cleaner and keeps the label legible.
-            accent.withAlphaComponent(0.15).setFill()
-            rect.fill()
+            // Subtle vertical tint gradient (deeper toward the underline) for a touch of depth —
+            // the view is flipped, so maxY is the bottom, where the accent bar sits.
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(rect: rect).setClip()
+            NSGradient(starting: accent.withAlphaComponent(0.22), ending: accent.withAlphaComponent(0.05))?
+                .draw(from: NSPoint(x: rect.midX, y: rect.maxY), to: NSPoint(x: rect.midX, y: rect.minY),
+                      options: [.drawsBeforeStartingLocation, .drawsAfterEndingLocation])
+            NSGraphicsContext.restoreGraphicsState()
+
+            // Crisp accent underline: inset with rounded ends + a soft glow, so it reads as a
+            // deliberate bar rather than an edge-to-edge line.
+            let uh: CGFloat = 2.5, inset: CGFloat = 8
+            let bar = NSRect(x: rect.minX + inset, y: rect.maxY - uh - 1.5,
+                             width: max(4, rect.width - inset * 2), height: uh)
+            NSGraphicsContext.saveGraphicsState()
+            let glow = NSShadow()
+            glow.shadowColor = accent.withAlphaComponent(0.7); glow.shadowBlurRadius = 4; glow.shadowOffset = .zero
+            glow.set()
             accent.setFill()
-            let uh: CGFloat = 2
-            NSRect(x: rect.minX, y: rect.maxY - uh, width: rect.width, height: uh).fill()
+            NSBezierPath(roundedRect: bar, xRadius: uh / 2, yRadius: uh / 2).fill()
+            NSGraphicsContext.restoreGraphicsState()
         }
 
         // Quiet hairline separator on the right edge (skip the rightmost) for gentle structure.
