@@ -16,7 +16,10 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 - **Window hints** (`⌘⌥J`) — Vimium-style: a letter appears on every visible window; type it to focus (works across screens). Keyboard-only, no arrows.
 - **Exposé** (`⌘⌥O`) — a Mission-Control-style overview of every workspace of every screen at once, one column per screen, tiles laid to scale with tab strips and app icons. Tiles show **live window previews** (captured on open via ScreenCaptureKit, parked workspaces included; needs the Screen Recording permission, or set `exposeThumbnails: false` for schematic tiles); the active tab of a tabbed group reads by a faint accent tint + underline. Navigate with arrows (2D) or `⇥`, `⏎` to jump. Optionally **rebind it onto `⌘Tab`** (`exposeSwitch`): hold the modifier to browse, `⇥` to cycle, release to commit — a visual alt-tab. It opens highlighting the workspace you're on, and with `exposeAllScreens` it appears on every screen at once. Remappable and off by default.
 - **External-bar aware** — reserve a top strip for a bar like [sketchybar](https://github.com/FelixKratz/SketchyBar) (`externalBarTop`, notch-aware per screen) and publish workspace names + per-monitor placement for it to render.
-- **Real macOS Spaces integration** (Mission Control & native gestures keep working).
+- **Emulated workspaces** (v2) — one macOS Space; a "workspace" is a logical window set that Mosaic parks off-screen / brings back, each pinned to a monitor. No CGS/Spaces private API, no drift on wake — the AX-only replacement for real Spaces.
+- **Native trackpad gestures** (opt-in `trackpadGestures`) — 3-finger swipes drive workspaces + the exposé (raw MultitouchSupport, works with SIP on).
+- **Live picture-in-picture** (`pip`) — a floating, draggable mirror of any window (even one parked on another workspace) via ScreenCaptureKit; the source keeps playing, so audio continues.
+- **Master-stack layout** — a `master-stack` tiling mode (one master + a tabbed stack), alongside `columns` / `grouped` / `tabbed`.
 - **Survives dock/undock & reboot** — layouts persist keyed by a stable per-monitor fingerprint.
 - **Live JSON config** — modes, gaps, styling, per-app rules, keybindings; **auto-reloads on save** (no restart).
 - **CLI** — every action is scriptable via `mosaic <action>` (e.g. `mosaic workspace-3`), sketchybar/automation-friendly.
@@ -76,7 +79,9 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 |---|---|---|
 | `gap` | `0` | Space between tiles. |
 | `outerGap` | `0` | Margin between the tiling area and the screen edges. |
-| `defaultMode` | `"columns"` | How new windows are auto-placed: `columns`, `grouped` (by app), or `tabbed`. |
+| `defaultMode` | `"columns"` | How new windows are auto-placed: `columns`, `grouped` (by app), `tabbed`, or `master-stack`. |
+| `workspaceWrap` | `true` | Cycling workspaces (Ctrl+←/→, 3-finger swipe) wraps around; `false` stops at the first/last. |
+| `trackpadGestures` | `false` | Native 3-finger swipes → workspaces + exposé (MultitouchSupport). Disable macOS's own 3/4-finger gestures first. |
 | `tabBarHeight` | `22` | Height of the tab/stack bar. |
 | `warpMouseOnSwitch` | `true` | Move the mouse onto a workspace when you switch to it by shortcut (keeps the mouse-follows-focus model consistent). |
 | `workspaceNames` | `{}` | i3-style labels, e.g. `{ "2": "web", "3": "code" }`. The number stays the identity/shortcut key; the name is display-only. |
@@ -88,9 +93,15 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 |---|---|---|
 | `borderEnabled` | `true` | Draw a border around the focused window. |
 | `borderInactive` | `false` | Also draw a dim accent border on the other tiled windows, so the whole layout reads as outlined. |
+| `inactiveBorderOpacity` | `0.42` | Opacity of that inactive-window border. |
+| `dimInactiveMonitors` | `false` | Fade the borders + tab strips on the monitor(s) without keyboard focus. |
+| `inactiveMonitorDim` | `0.6` | Fraction of brightness the non-focused monitors keep when `dimInactiveMonitors` is on (`1` = no dim). |
 | `borderColor` | `"accent"` | Border color (`"accent"` or hex). |
 | `borderWidth` | `1` | Border thickness. |
 | `borderCornerRadius` | `18` | Border corner radius. |
+| `focusGlowRadius` | `6` | Soft accent halo around the focused window, in px (`0` = just the crisp border). |
+| `focusGlowFade` | `true` | Cross-fade the focus halo in place when focus jumps (honours Reduce Motion). |
+| `letterboxStyle` | `"black"` | Fill for letterboxed-tile gaps: `"black"` or `"matrix"` (static rune-rain). |
 | `activeOpacity` | `1.0` | Opacity of the focused window. |
 | `inactiveOpacity` | `0.5` | Opacity of unfocused windows. `1.0` = no dimming. |
 
@@ -112,6 +123,7 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | Key | Default | What it does |
 |---|---|---|
 | `showWorkspaceHUD` | `true` | Flash the workspace name when you switch. |
+| `notchHud` | `false` | Show the switch indicator as a dynamic-island pill under the notch (instead of the corner HUD). |
 | `hudPosition` | `"top-right"` | Where the HUD appears: `center`, `top`, `bottom`, `top-left`, `top-right`, `bottom-left`, `bottom-right`. |
 | `focusPulseWidth` | `5` | Pixels the focus border briefly swells on a workspace switch. `0` = off. |
 | `focusPulseDuration` | `0.38` | Seconds the focus pulse takes to fade. |
@@ -192,7 +204,7 @@ The menu bar has a **"Debug: dump layout"** item that writes the live tree + vis
 
 ## Caveats
 
-- **Private APIs.** macOS exposes no public API to manage Spaces (desktops) or to map an AX element to a window id. Mosaic uses the same private SkyLight/CGS SPI every native-Spaces tiler relies on (`_AXUIElementGetWindow`, `CGS…` in `Spaces.swift`). These are historically stable but **can break on a major macOS release**. They're isolated in one file. (App Store distribution is therefore impossible; direct/notarized distribution is fine.)
+- **Private APIs.** v2 dropped the CGS/Spaces SPI entirely (emulated workspaces need only the Accessibility API). What remains is minimal and isolated: `_AXUIElementGetWindow` (map an AX element to a window id) and, only when `trackpadGestures` is on, the `MultitouchSupport` framework loaded at runtime via `dlopen` (raw trackpad touches — no SIP-off, no build dependency). Both are historically stable but **can break on a major macOS release**. (App Store distribution is impossible regardless; direct/notarized distribution is fine.)
 - **Not notarized** — see the Gatekeeper note above.
 - Apple's native Split View can't be extended — Mosaic recreates the experience on regions it owns.
 - A window's own title bar still shows inside a tab/stack region.
