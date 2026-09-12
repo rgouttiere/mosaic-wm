@@ -481,6 +481,7 @@ extension WindowManager {
     /// Publish the current workspace state: update the menu bar, write status.json (for
     /// `mosaic query`), and run the configured shell hook on change (for sketchybar & co).
     func emitWorkspaceState(_ focused: Int?) {
+        rememberShown()   // keep the per-monitor shown mapping fresh for wake/dock restoration
         pruneStaleAssignments()
         if let n = focused, workspaceRecency.first != n {
             workspaceRecency.removeAll { $0 == n }

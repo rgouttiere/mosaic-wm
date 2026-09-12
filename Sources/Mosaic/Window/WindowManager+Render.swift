@@ -202,6 +202,14 @@ extension WindowManager {
         root.raiseVisibleStrips()
         parkHiddenCrossAppTabs(on: screen)
 
+        // Heal the OTHER shown monitors' window POSITIONS on every render, so drift on a non-active
+        // screen (an app nudged its window, a late wake, a new window) doesn't wait for a manual
+        // visit. Position only — no raise/activate — so it never touches focus or cross-app z-order.
+        // setCocoaFrame skips unchanged frames, so a settled monitor re-writes nothing.
+        for (did, n) in shownOnDisplay where n != activeSpaceID {
+            if let ws = spaces[n], let scr = self.screen(forDisplayID: did) { ws.root?.arrange(in: layoutRect(scr)) }
+        }
+
         sweepOrphanStrips()   // hide strips not on any desktop's visible path
         layoutResizeHandles()
         applyOpacity()

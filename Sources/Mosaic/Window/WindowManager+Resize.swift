@@ -11,7 +11,11 @@ extension WindowManager {
         while handles.count < needed.count {
             let handle = ResizeHandle()
             handle.onDrag = { [weak self] h, mouse in self?.applyResize(h, mouse: mouse) }
-            handle.onUp = { [weak self] in self?.saveNow() }
+            handle.onUp = { [weak self] in
+                self?.renderLive()          // flush any pending coalesced frame to the final position
+                self?.updateLetterboxFill()  // reassert the gap fill skipped during the drag
+                self?.saveNow()
+            }
             handles.append(handle)
         }
         for (i, handle) in handles.enumerated() {
@@ -96,7 +100,7 @@ extension WindowManager {
             let lo = minI, hi = pair - minJ
             return lo <= hi ? min(hi, max(lo, value)) : pair / 2
         }
-        func draw() { live ? renderLive() : render() }
+        func draw() { live ? scheduleLiveRender() : render() }
 
         c.ratios[i] = clamp(proposed)
         c.ratios[i + 1] = pair - c.ratios[i]
@@ -145,8 +149,28 @@ extension WindowManager {
         root.arrange(in: layoutRect(screen))
         layoutResizeHandles()
         updateWindowBorders()   // borders are permanent → follow the moving edges live
-        updateLetterboxFill()   // keep gaps covered as the tiles resize
         updateFocusIndicator()  // halo on top
+        // Letterbox is skipped mid-drag (it rebuilds every monitor's gap fill each frame, for a
+        // few px of gap that barely shows) — reasserted once on mouse-up in onUp.
+    }
+
+    /// Coalesce live-resize renders to ~90fps with a guaranteed trailing render, so a burst of
+    /// drag events can't pile up more arrange+overlay work than the screen can show.
+    func scheduleLiveRender() {
+        let minInterval = 1.0 / 90.0
+        let since = Date().timeIntervalSince(lastLiveRenderTime)
+        if since >= minInterval {
+            lastLiveRenderTime = Date()
+            renderLive()
+        } else if !liveRenderPending {
+            liveRenderPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + (minInterval - since)) { [weak self] in
+                guard let self else { return }
+                self.liveRenderPending = false
+                self.lastLiveRenderTime = Date()
+                self.renderLive()
+            }
+        }
     }
 
     func hideAllHandles() {

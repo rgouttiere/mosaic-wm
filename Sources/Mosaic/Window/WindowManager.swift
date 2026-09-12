@@ -39,6 +39,11 @@ final class WindowManager {
     /// the emulated-workspace equivalent of "the current Space of each display": we own it
     /// outright instead of asking the window server. Absent = that monitor shows no workspace.
     var shownOnDisplay: [CGDirectDisplayID: UInt64] = [:]
+    // Which workspace is shown on each monitor, keyed by its stable LEFT-TO-RIGHT index (display IDs
+    // change across sleep/dock, positions don't). Snapshotted only at the full monitor count, so a
+    // degraded wake (externals not back yet) can't overwrite it; restored in ensureAllPresentMonitorsShown.
+    var shownByMonitorIndex: [Int: UInt64] = [:]
+    var maxMonitorCount = 1
     var manageAll = false
 
     /// Workspaces with unseen activity while PARKED (a parked window's title changed — a chat's
@@ -66,6 +71,8 @@ final class WindowManager {
     let focusIndicator = FocusIndicator()
     let zoomBadge = ZoomBadge()
     let resizeRatioHUD = ResizeRatioHUD()
+    var liveRenderPending = false            // coalescing state for live-resize renders
+    var lastLiveRenderTime = Date.distantPast
     let letterbox = LetterboxFill()
     /// While PiP mirrors a window, its on-screen tile is covered by the letterbox fill so the same
     /// video isn't visible twice. Only covers when this leaf is actually the front, shown tab.
@@ -466,6 +473,7 @@ final class WindowManager {
             self.ensureAllPresentMonitorsShown()   // dock: show/home ALL monitors, not just the mouse's
             self.invalidateAllFrameCaches()   // docking scattered windows out from under us → force re-placement
             self.reassertAllWorkspaces()
+            self.emitWorkspaceState(self.activeSpaceID.map(Int.init))   // re-publish status.json (sketchybar)
         }
         displayChangeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
@@ -484,12 +492,19 @@ final class WindowManager {
             self.ensureAllPresentMonitorsShown()   // guard against wake re-assigning display ids
             self.invalidateAllFrameCaches()   // macOS scattered windows while asleep → force the re-tile writes
             self.reassertAllWorkspaces()
+            self.emitWorkspaceState(self.activeSpaceID.map(Int.init))   // re-publish status.json (sketchybar)
             // A slow wake can re-hide the overlays AND nudge windows again after we refresh; drop the
-            // frame cache once more so this second pass re-issues the corrective writes too.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                guard let self else { return }
-                self.invalidateAllFrameCaches()
-                self.reassertAllWorkspaces()
+            // frame cache and re-assert again at +2s and once more at +5s, so external monitors that
+            // wake late (and any window macOS scatters after the first passes) still get corrected
+            // without a manual visit to each workspace.
+            for delay in [2.0, 5.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self else { return }
+                    self.ensureAllPresentMonitorsShown()
+                    self.invalidateAllFrameCaches()
+                    self.reassertAllWorkspaces()
+                    self.emitWorkspaceState(self.activeSpaceID.map(Int.init))
+                }
             }
         }
     }
@@ -512,12 +527,25 @@ final class WindowManager {
     /// them and `reassertAllWorkspaces` PARKS them → those screens stay blank until the user
     /// manually ⌘⌥-switches each. Assign every present monitor its shown-or-default workspace and
     /// re-home it via `workspace(_:on:)` (which sets `displayID`), so reassert can tile them all.
+    /// Snapshot which workspace is shown on each monitor, by left-to-right index. Only records at the
+    /// full monitor count so a degraded (collapsed) wake can't clobber the good mapping.
+    func rememberShown() {
+        let ids = orderedDisplays()
+        maxMonitorCount = max(maxMonitorCount, ids.count)
+        guard ids.count == maxMonitorCount else { return }
+        for (i, did) in ids.enumerated() { if let n = shownOnDisplay[did] { shownByMonitorIndex[i] = n } }
+    }
+
     func ensureAllPresentMonitorsShown() {
-        for screen in NSScreen.screens {
-            let did = displayID(of: screen)
+        for (i, did) in orderedDisplays().enumerated() {
+            guard let screen = screen(forDisplayID: did) else { continue }
             let n: Int
             if let existing = shownOnDisplay[did] {
-                n = Int(existing)                       // keep what's shown; just re-home it below
+                n = Int(existing)                       // already has a shown workspace → re-home it
+            } else if let remembered = shownByMonitorIndex[i],
+                      assignedDisplay(forWorkspace: Int(remembered)) == did {   // restore the last-shown one
+                n = Int(remembered)
+                shownOnDisplay[did] = remembered
             } else {
                 let owned = (1...9).filter { assignedDisplay(forWorkspace: $0) == did }
                 n = owned.first { spaces[UInt64($0)]?.root != nil } ?? defaultWorkspaceNumber(for: screen)
