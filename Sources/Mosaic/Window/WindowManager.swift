@@ -597,7 +597,7 @@ final class WindowManager {
         guard let leaf = target, leaf !== focused else { return }
         focused = leaf
         preselect = nil          // focus moved → disarm any pending preselect
-        updateFocusIndicator()   // move the focus border only — identical to a click, no re-tile/raise
+        updateFocusIndicator()   // borders are permanent; only the halo moves. no re-tile/raise
     }
 
     /// The visible window under `point`: in a tabbed container only the selected child

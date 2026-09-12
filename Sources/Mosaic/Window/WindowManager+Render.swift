@@ -203,11 +203,11 @@ extension WindowManager {
         parkHiddenCrossAppTabs(on: screen)
 
         sweepOrphanStrips()   // hide strips not on any desktop's visible path
-        updateFocusIndicator(onScreen: onScreen)
         layoutResizeHandles()
         applyOpacity()
-        updateWindowBorders()   // dim accent frame on non-focused tiles (opt-in)
+        updateWindowBorders()   // permanent dim accent frame on every tile (opt-in)
         updateLetterboxFill()   // black-fill letterbox gaps so parked slivers can't peek through
+        updateFocusIndicator(onScreen: onScreen)   // halo LAST → sits on top of the borders + fill
 
         // While the scratchpad is up, keep the tiles' overlays hidden so nothing floats
         // over it (a reconcile-triggered render would otherwise re-show them).
@@ -285,11 +285,12 @@ extension WindowManager {
     func updateWindowBorders() {
         guard Config.shared.borderInactive, !scratchpadVisible else { windowBorders.hideAll(); return }
         windowBorders.begin()
-        let focusedW = focused?.window
+        // Border EVERY visible window, focused included — the borders are permanent so a focus change
+        // never leaves a window bare. The focus halo is drawn afterwards, on top, so it still leads.
         for (did, wsNum) in shownOnDisplay {
             guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
             root.forEachVisibleLeaf { leaf in
-                guard let w = leaf.window, !w.isFullscreen, w !== focusedW, let wf = w.frame else { return }
+                guard let w = leaf.window, !w.isFullscreen, let wf = w.frame else { return }
                 windowBorders.border(around: Geometry.flip(wf))
             }
         }

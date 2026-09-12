@@ -170,7 +170,27 @@ extension WindowManager {
                 out += "    \(w.appName.prefix(16).padding(toLength: 16, withPad: " ", startingAt: 0)) wid=\(id.map(String.init) ?? "nil")  frame=\(f.map(rectStr) ?? "nil")  intersectsScreen=\(visible)  cgOnScreen=\(onScr)\n"
             }
             if st.root == nil { out += "    (empty)\n" }
+            if let r = st.root { out += dumpTree(r, depth: 2) }
             out += "\n"
+        }
+        // What each SHOWN, visible leaf gets decoration-wise — exactly mirrors updateFocusIndicator
+        // / updateWindowBorders selection, so a "missing border" bug is visible right here.
+        let focusedW = focused?.window
+        out += "--- focus + inactive borders (borderInactive=\(Config.shared.borderInactive)) ---\n"
+        out += "focused: \(focusedW.map { "\($0.appName) wid=\(($0.lastKnownID ?? AX.windowID($0.element)).map(String.init) ?? "nil")" } ?? "nil")\n"
+        for (did, wsNum) in shownOnDisplay.sorted(by: { $0.key < $1.key }) {
+            guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
+            root.forEachVisibleLeaf { leaf in
+                guard let w = leaf.window else { return }
+                let wid = (w.lastKnownID ?? AX.windowID(w.element)).map(String.init) ?? "nil"
+                let mark = w.isFullscreen ? "fullscreen (skip)"
+                    : (w === focusedW ? "FOCUSED → halo"
+                    : (leaf === pipSourceLeaf ? "PiP source → covered"
+                    : "inactive → border"))
+                let flipped = w.frame.map { Geometry.flip($0) }
+                let onScr = flipped.map { rect in NSScreen.screens.contains { $0.frame.intersects(rect) } } ?? false
+                out += "  mon\(did)/ws\(wsNum)  \(w.appName.prefix(14).padding(toLength: 14, withPad: " ", startingAt: 0)) wid=\(wid)  → \(mark)  border@\(flipped.map(rectStr) ?? "nil") onScreen=\(onScr)  tile=\(rectStr(leaf.lastFrame))\n"
+            }
         }
         out += "--- visible tab bars (\(TabBarWindow.registry.allObjects.filter { $0.isVisible }.count)) ---\n"
         for bar in TabBarWindow.registry.allObjects where bar.isVisible {
@@ -182,6 +202,25 @@ extension WindowManager {
 
     func rectStr(_ r: CGRect) -> String {
         "(\(Int(r.minX)),\(Int(r.minY)) \(Int(r.width))×\(Int(r.height)))"
+    }
+
+    /// Compact recursive view of a layout tree — node kind, selected index, per-leaf window.
+    private func dumpTree(_ node: Container, depth: Int) -> String {
+        let pad = String(repeating: "  ", count: depth)
+        if node.isLeaf {
+            let w = node.window
+            let wid = w.flatMap { $0.lastKnownID ?? AX.windowID($0.element) }.map(String.init) ?? "nil"
+            return "\(pad)• leaf \(w?.appName ?? "(dead)") wid=\(wid)\n"
+        }
+        let kind: String
+        switch node.layout {
+        case .splitH: kind = "splitH"
+        case .splitV: kind = "splitV"
+        case .tabbed: kind = node.stacked ? "stacked" : "tabbed"
+        }
+        var s = "\(pad)▸ \(kind) [\(node.children.count) kids, selected=\(node.selected)]\n"
+        for c in node.children { s += dumpTree(c, depth: depth + 1) }
+        return s
     }
 
     func sweepOrphanStrips() {
