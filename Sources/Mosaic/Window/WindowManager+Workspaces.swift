@@ -78,7 +78,13 @@ extension WindowManager {
         let current = currentWorkspace(for: screen).flatMap { workspaceNumber(for: $0) }
         let target: Int
         if let idx = current.flatMap({ candidates.firstIndex(of: $0) }) {
-            target = candidates[(idx + (next ? 1 : -1) + candidates.count) % candidates.count]
+            let step = idx + (next ? 1 : -1)
+            if Config.shared.workspaceWrap {
+                target = candidates[(step + candidates.count) % candidates.count]
+            } else {
+                guard step >= 0, step < candidates.count else { return }   // wall at the ends — no wrap
+                target = candidates[step]
+            }
         } else {
             target = next ? candidates[0] : candidates[candidates.count - 1]   // from a non-candidate view
         }

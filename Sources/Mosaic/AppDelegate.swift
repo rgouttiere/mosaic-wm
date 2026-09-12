@@ -252,11 +252,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard Config.shared.trackpadGestures else { g.stop(); return }
         g.onSwipeLeft = { [weak self] in
             if ExposeOverlay.isOpen { ExposeOverlay.navLeft() }
-            else { self?.windowManager.cycleWorkspace(next: true) }
+            else { self?.windowManager.cycleWorkspace(next: false) }   // swipe left → workspace on the left
         }
         g.onSwipeRight = { [weak self] in
             if ExposeOverlay.isOpen { ExposeOverlay.navRight() }
-            else { self?.windowManager.cycleWorkspace(next: false) }
+            else { self?.windowManager.cycleWorkspace(next: true) }    // swipe right → workspace on the right
         }
         g.onSwipeUp = { [weak self] in
             if ExposeOverlay.isOpen { ExposeOverlay.navUp() }
