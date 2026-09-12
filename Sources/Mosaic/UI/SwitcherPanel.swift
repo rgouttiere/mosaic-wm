@@ -321,8 +321,19 @@ private func swHighlightedTitle(_ title: String, query: String) -> NSAttributedS
 private final class SwitcherRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else { return }
-        Sw.sel.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 6, dy: 2), xRadius: 8, yRadius: 8).fill()
+        let r = bounds.insetBy(dx: 6, dy: 2)
+        // Subtle wash — quieter than before so the crisp accent bar carries the emphasis.
+        Sw.accent.withAlphaComponent(0.15).setFill()
+        NSBezierPath(roundedRect: r, xRadius: 7, yRadius: 7).fill()
+        // Crisp accent bar with a soft glow on the leading edge (same language as the tab underline).
+        let bar = NSRect(x: r.minX, y: r.minY + 4, width: 3, height: r.height - 8)
+        NSGraphicsContext.saveGraphicsState()
+        let glow = NSShadow()
+        glow.shadowColor = Sw.accent.withAlphaComponent(0.7); glow.shadowBlurRadius = 5; glow.shadowOffset = .zero
+        glow.set()
+        Sw.accent.setFill()
+        NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).fill()
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 
