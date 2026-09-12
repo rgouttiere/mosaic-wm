@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 /// One hintable window: where to draw its label (Cocoa, bottom-left) and how to focus it.
 struct HintTarget { let frameCocoa: CGRect; let focus: () -> Void }
@@ -58,6 +59,28 @@ final class HintsOverlay {
 
         NSApp.activate(ignoringOtherApps: true)
         panels.first?.makeKeyAndOrderFront(nil)
+
+        // Pop-in: quick fade + scale (0.9 → 1.0). The view's background is transparent (labels only),
+        // so a bolder scale reveals no desktop at the edges.
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            for (view, panel) in zip(views, panels) {
+                view.wantsLayer = true
+                if let layer = view.layer {
+                    let c = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+                    func scaled(_ s: CGFloat) -> CATransform3D {
+                        var t = CATransform3DTranslate(CATransform3DIdentity, c.x, c.y, 0)
+                        t = CATransform3DScale(t, s, s, 1)
+                        return CATransform3DTranslate(t, -c.x, -c.y, 0)
+                    }
+                    let a = CABasicAnimation(keyPath: "transform")
+                    a.fromValue = scaled(0.9); a.toValue = scaled(1.0); a.duration = 0.13
+                    a.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    layer.add(a, forKey: "hintsPopIn")
+                }
+                panel.alphaValue = 0
+                NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.13; panel.animator().alphaValue = 1 }
+            }
+        }
 
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handle(event)

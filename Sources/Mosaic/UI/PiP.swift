@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import CoreMedia
+import QuartzCore
 import ScreenCaptureKit
 
 /// Floating picture-in-picture of any managed window — a live SCStream of the (possibly parked)
@@ -45,7 +46,10 @@ final class PiP: NSObject, SCStreamDelegate, SCStreamOutput {
     func stop() {
         if let s = stream { s.stopCapture { _ in } }
         stream = nil
-        panel?.orderOut(nil)
+        if let p = panel {   // fade out, then drop it (panel = nil now so isActive is false immediately)
+            NSAnimationContext.runAnimationGroup({ ctx in ctx.duration = 0.14; p.animator().alphaValue = 0 },
+                                                 completionHandler: { p.orderOut(nil) })
+        }
         panel = nil
         sourceID = nil
         sourcePID = nil
@@ -83,7 +87,24 @@ final class PiP: NSObject, SCStreamDelegate, SCStreamOutput {
             p.setFrameOrigin(NSPoint(x: scr.visibleFrame.minX + m,
                                      y: scr.visibleFrame.maxY - p.frame.height - m))
         }
+        // Entrance: fade + a subtle scale-in (0.93 → 1.0) around the panel's centre. In place.
+        p.alphaValue = 0
         p.orderFrontRegardless()
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, let layer = p.contentView?.layer {
+            let c = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+            func scaled(_ s: CGFloat) -> CATransform3D {
+                var t = CATransform3DTranslate(CATransform3DIdentity, c.x, c.y, 0)
+                t = CATransform3DScale(t, s, s, 1)
+                return CATransform3DTranslate(t, -c.x, -c.y, 0)
+            }
+            let a = CABasicAnimation(keyPath: "transform")
+            a.fromValue = scaled(0.93); a.toValue = scaled(1.0); a.duration = 0.18
+            a.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            layer.add(a, forKey: "pipIn")
+            NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.18; p.animator().alphaValue = 1 }
+        } else {
+            p.alphaValue = 1
+        }
     }
 
     // MARK: - Stream
@@ -215,7 +236,7 @@ final class PiPPanel: NSPanel {
         guard let scr = screen ?? NSScreen.main else { return }
         let m: CGFloat = 16
         let origin = NSPoint(x: scr.visibleFrame.minX + m, y: scr.visibleFrame.maxY - targetH - m)   // top-left
-        setFrame(NSRect(origin: origin, size: NSSize(width: targetW, height: targetH)), display: true, animate: true)
+        setFrame(NSRect(origin: origin, size: NSSize(width: targetW, height: targetH)), display: true, animate: false)
     }
 
     /// Tell the display layer to show each frame at once — SCStream timestamps don't share the

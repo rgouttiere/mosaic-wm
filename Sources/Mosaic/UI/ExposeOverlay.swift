@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 /// One tab within a tile (a plain window = a tile with one tab). `windowID` drives the live preview;
 /// `focus` jumps to that window (switch to its workspace + focus it) when its hint key is typed.
@@ -94,6 +95,27 @@ final class ExposeOverlay {
             if scr === screen { panels[i].makeKeyAndOrderFront(nil) } else { panels[i].orderFrontRegardless() }
         }
         if !panels.contains(where: { $0.isKeyWindow }) { panels.first?.makeKeyAndOrderFront(nil) }
+
+        // Bloom the overview in: fade each panel + a subtle scale-in (0.96 → 1.0) of its grid.
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            for (v, panel) in zip(views, panels) {
+                v.wantsLayer = true
+                if let layer = v.layer {
+                    let c = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+                    func scaled(_ s: CGFloat) -> CATransform3D {
+                        var t = CATransform3DTranslate(CATransform3DIdentity, c.x, c.y, 0)
+                        t = CATransform3DScale(t, s, s, 1)
+                        return CATransform3DTranslate(t, -c.x, -c.y, 0)
+                    }
+                    let a = CABasicAnimation(keyPath: "transform")
+                    a.fromValue = scaled(0.97); a.toValue = scaled(1.0); a.duration = 0.18
+                    a.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    layer.add(a, forKey: "exposeBloom")
+                }
+                panel.alphaValue = 0
+                NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.18; panel.animator().alphaValue = 1 }
+            }
+        }
 
         loadThumbnails(ws)
 
@@ -242,7 +264,9 @@ final class ExposeOverlay {
 private final class ExposeView: NSView {
     var workspaces: [ExposeWorkspace] = []
     var columns: [[Int]] = []
-    var selected = 0
+    var selected = 0 { didSet { crossfadeRing(animated: ringConfigured) } }
+    private let ring = NSView(), ringGhost = NSView()   // cross-fading accent selection ring
+    private var ringConfigured = false
     var thumbs: ThumbnailStore?   // live previews, shared with the overlay; nil until captured
     var hintByWindowID: [CGWindowID: String] = [:]   // window → its jump-hint key
     var typedHint = ""            // hint prefix typed so far (dims matched keys, filters the rest)
@@ -291,6 +315,63 @@ private final class ExposeView: NSView {
         }
     }
 
+    /// The box rect (thumbnail area) of the tile whose workspace index is `idx`, if it's in this
+    /// view's grid — mirrors draw()'s geometry. Used to place the selection ring.
+    private func boxRect(for idx: Int) -> NSRect? {
+        let margin: CGFloat = 60, colGap: CGFloat = 34, rowGap: CGFloat = 22, headerH: CGFloat = 26
+        let cols = columns.count
+        guard cols > 0, idx < workspaces.count else { return nil }
+        let colW = (bounds.width - 2 * margin - colGap * CGFloat(cols - 1)) / CGFloat(cols)
+        let top = bounds.height - margin, colH = bounds.height - 2 * margin
+        guard colW > 0, colH > 0 else { return nil }
+        for (c, column) in columns.enumerated() {
+            guard let r = column.firstIndex(of: idx) else { continue }
+            let colX = margin + CGFloat(c) * (colW + colGap)
+            let cellH = (colH - rowGap * CGFloat(column.count - 1)) / CGFloat(column.count)
+            let cellY = top - CGFloat(r + 1) * cellH - CGFloat(r) * rowGap
+            let area = NSRect(x: colX, y: cellY, width: colW, height: cellH - headerH)
+            let sc = workspaces[idx].screen
+            let aspect = sc.height > 0 ? sc.width / sc.height : 16.0 / 10
+            var bw = area.width, bh = bw / aspect
+            if bh > area.height { bh = area.height; bw = bh * aspect }
+            return NSRect(x: area.minX, y: area.maxY - bh, width: bw, height: bh)
+        }
+        return nil
+    }
+
+    private func styleRing(_ v: NSView) {
+        v.wantsLayer = true
+        v.layer?.borderWidth = 2
+        v.layer?.borderColor = accent.cgColor
+        v.layer?.cornerRadius = 8
+        v.layer?.shadowColor = accent.cgColor
+        v.layer?.shadowRadius = 8
+        v.layer?.shadowOpacity = 0.85
+        v.layer?.shadowOffset = .zero
+        v.layer?.masksToBounds = false
+    }
+
+    /// Cross-fade the accent ring to the selected tile: the old ring dissolves where it was while a
+    /// fresh one fades in on the new tile — in place, no travelling.
+    private func crossfadeRing(animated: Bool) {
+        if !ringConfigured {
+            styleRing(ring); styleRing(ringGhost); ringGhost.isHidden = true
+            addSubview(ringGhost); addSubview(ring)
+            ringConfigured = true
+        }
+        guard let box = boxRect(for: selected) else { ring.isHidden = true; ringGhost.isHidden = true; return }
+        let target = box.insetBy(dx: 1, dy: 1)
+        if !animated || ring.isHidden || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            ring.isHidden = false; ring.frame = target; ring.alphaValue = 1; ringGhost.isHidden = true
+            return
+        }
+        ringGhost.frame = ring.frame; ringGhost.alphaValue = 1; ringGhost.isHidden = false
+        NSAnimationContext.runAnimationGroup({ ctx in ctx.duration = 0.16; ringGhost.animator().alphaValue = 0 },
+                                             completionHandler: { [weak self] in self?.ringGhost.isHidden = true })
+        ring.frame = target; ring.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.16; ring.animator().alphaValue = 1 }
+    }
+
     private func draw(_ ws: ExposeWorkspace, in cell: NSRect, selected: Bool) {
         let headerH: CGFloat = 26
         let area = NSRect(x: cell.minX, y: cell.minY, width: cell.width, height: cell.height - headerH)
@@ -305,20 +386,7 @@ private final class ExposeView: NSView {
 
         (selected ? accent.withAlphaComponent(0.14) : surface).setFill()
         NSBezierPath(roundedRect: box, xRadius: 8, yRadius: 8).fill()
-
-        // Selected workspace: a glowing accent ring so it reads as "lit up" during nav — same
-        // language as the focus halo. Drawn before the tiles so the thumbnails sit crisp on top.
-        if selected {
-            NSGraphicsContext.saveGraphicsState()
-            let glow = NSShadow()
-            glow.shadowColor = accent.withAlphaComponent(0.8); glow.shadowBlurRadius = 12; glow.shadowOffset = .zero
-            glow.set()
-            accent.setStroke()
-            let ring = NSBezierPath(roundedRect: box.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
-            ring.lineWidth = 2
-            ring.stroke(); ring.stroke()   // twice → a deeper bloom
-            NSGraphicsContext.restoreGraphicsState()
-        }
+        // The glowing accent selection ring is a cross-fading subview (see crossfadeRing).
 
         let labelStyle = NSMutableParagraphStyle(); labelStyle.lineBreakMode = .byTruncatingTail
         for tile in ws.tiles where ws.screen.width > 0 && ws.screen.height > 0 {
