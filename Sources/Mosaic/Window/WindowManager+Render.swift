@@ -213,9 +213,8 @@ extension WindowManager {
         sweepOrphanStrips()   // hide strips not on any desktop's visible path
         layoutResizeHandles()
         applyOpacity()
-        updateWindowBorders()   // permanent dim accent frame on every tile (opt-in)
+        decorateTiles()   // permanent borders + letterbox gap fill, one AX read per window
         dimInactiveMonitorTabBars()   // fade tab strips off the focused monitor (opt-in)
-        updateLetterboxFill()   // black-fill letterbox gaps so parked slivers can't peek through
         updateFocusIndicator(onScreen: onScreen)   // halo LAST → sits on top of the borders + fill
 
         // While the scratchpad is up, keep the tiles' overlays hidden so nothing floats
@@ -285,6 +284,43 @@ extension WindowManager {
                 if win.maxX < tile.maxX - t { bar(NSRect(x: win.maxX, y: win.minY, width: tile.maxX - win.maxX, height: win.height)) }
             }
         }
+        letterbox.end()
+    }
+
+    /// One pass over every shown, visible tile that drives BOTH the inactive border AND the letterbox
+    /// gap fill from a SINGLE AX frame read per window. render() and the live-resize path both need
+    /// both overlays; reading each window's frame twice (once per overlay) on the hot 90fps drag path
+    /// adds up, so this fuses them. Mirrors updateWindowBorders + updateLetterboxFill exactly.
+    func decorateTiles() {
+        if scratchpadVisible { windowBorders.hideAll(); letterbox.hideAll(); return }
+        let drawBorders = Config.shared.borderInactive
+        let activeDid = activeMonitorID()
+        if drawBorders { windowBorders.begin() }
+        letterbox.begin()
+        let t: CGFloat = 8   // ignore sub-8px mismatches — too small to be worth a bar
+        for (did, wsNum) in shownOnDisplay {
+            guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
+            let dim = activeDid != nil && did != activeDid
+            root.forEachVisibleLeaf { leaf in
+                // The PiP source's whole tile is covered (shown here but mirrored in the PiP); no border.
+                if leaf === pipSourceLeaf {
+                    let tile = leaf.lastFrame
+                    if tile.width > 0, tile.height > 0 { letterbox.fill(tile) }
+                    return
+                }
+                guard let w = leaf.window, !w.isFullscreen, let wf = w.frame else { return }
+                let win = Geometry.flip(wf)
+                if drawBorders { windowBorders.border(around: win, dim: dim) }
+                let tile = leaf.lastFrame
+                guard tile.width > 0, tile.height > 0 else { return }
+                func bar(_ r: NSRect) { letterbox.fill(r.intersection(tile)) }
+                if win.minY > tile.minY + t { bar(NSRect(x: tile.minX, y: tile.minY, width: tile.width, height: win.minY - tile.minY)) }
+                if win.maxY < tile.maxY - t { bar(NSRect(x: tile.minX, y: win.maxY, width: tile.width, height: tile.maxY - win.maxY)) }
+                if win.minX > tile.minX + t { bar(NSRect(x: tile.minX, y: win.minY, width: win.minX - tile.minX, height: win.height)) }
+                if win.maxX < tile.maxX - t { bar(NSRect(x: win.maxX, y: win.minY, width: tile.maxX - win.maxX, height: win.height)) }
+            }
+        }
+        if drawBorders { windowBorders.end() }
         letterbox.end()
     }
 

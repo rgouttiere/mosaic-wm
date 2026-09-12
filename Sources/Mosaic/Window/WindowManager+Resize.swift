@@ -12,8 +12,8 @@ extension WindowManager {
             let handle = ResizeHandle()
             handle.onDrag = { [weak self] h, mouse in self?.applyResize(h, mouse: mouse) }
             handle.onUp = { [weak self] in
-                self?.renderLive()          // flush any pending coalesced frame to the final position
-                self?.updateLetterboxFill()  // reassert the gap fill skipped during the drag
+                self?.learnResizeMins()     // now the windows have settled → learn real mins + re-clamp
+                self?.render(activate: false)  // full render: final positions + restore the parked hidden tabs
                 self?.saveNow()
             }
             handles.append(handle)
@@ -106,16 +106,12 @@ extension WindowManager {
         c.ratios[i + 1] = pair - c.ratios[i]
         draw()
 
-        let actI = visibleAxisExtent(of: c.children[i], horizontal: horizontal)
-        let actJ = visibleAxisExtent(of: c.children[i + 1], horizontal: horizontal)
-        var learned = false
-        if actI > c.ratios[i] * axis + 2, actI > (resizeMinCache[idI] ?? 0) { resizeMinCache[idI] = actI; learned = true }
-        if actJ > c.ratios[i + 1] * axis + 2, actJ > (resizeMinCache[idJ] ?? 0) { resizeMinCache[idJ] = actJ; learned = true }
-        if learned {
-            c.ratios[i] = clamp(proposed)
-            c.ratios[i + 1] = pair - c.ratios[i]
-            draw()
-        }
+        // The learned-min readback (2 AX frame reads + a possible re-clamp render) is deferred to the
+        // END of the gesture (learnResizeMins, from onUp / the keyboard settle) — running it on every
+        // mouse-move event, 120+/s, is pure overhead and reads a not-yet-resized frame anyway. During
+        // the drag the clamp just uses whatever min we already learned (or the 60pt baseline).
+        lastResizePair = (c, i, horizontal)
+        if !live { learnResizeMins() }
 
         // Live ratio readout centered on the divider, fading out shortly after the last change.
         let pctI = Int((c.ratios[i] / pair * 100).rounded())
@@ -123,6 +119,31 @@ extension WindowManager {
         let divider = horizontal ? NSPoint(x: f.minX + cum * f.width, y: f.midY)
                                  : NSPoint(x: f.midX, y: f.maxY - cum * f.height)
         resizeRatioHUD.show("\(pctI) / \(100 - pctI)", at: divider)
+    }
+
+    /// Read back the now-settled windows of the last-resized pair, learn any real minimum size an app
+    /// refused to shrink under, and re-clamp the split once so it can't overshoot. Called at the end
+    /// of a gesture (mouse-up / keyboard settle), not per event.
+    func learnResizeMins() {
+        guard let (c, i, horizontal) = lastResizePair, c.children.indices.contains(i + 1) else { return }
+        let f = c.lastFrame
+        guard f.width > 0, f.height > 0 else { return }
+        let axis = horizontal ? f.width : f.height
+        let pair = c.ratios[i] + c.ratios[i + 1]
+        let idI = ObjectIdentifier(c.children[i]), idJ = ObjectIdentifier(c.children[i + 1])
+        let actI = visibleAxisExtent(of: c.children[i], horizontal: horizontal)
+        let actJ = visibleAxisExtent(of: c.children[i + 1], horizontal: horizontal)
+        var learned = false
+        if actI > c.ratios[i] * axis + 2, actI > (resizeMinCache[idI] ?? 0) { resizeMinCache[idI] = actI; learned = true }
+        if actJ > c.ratios[i + 1] * axis + 2, actJ > (resizeMinCache[idJ] ?? 0) { resizeMinCache[idJ] = actJ; learned = true }
+        guard learned else { return }
+        let minI = min(pair / 2, max(0.05, (resizeMinCache[idI] ?? 60) / axis))
+        let minJ = min(pair / 2, max(0.05, (resizeMinCache[idJ] ?? 60) / axis))
+        let lo = minI, hi = pair - minJ
+        c.ratios[i] = lo <= hi ? min(hi, max(lo, c.ratios[i])) : pair / 2
+        c.ratios[i + 1] = pair - c.ratios[i]
+        // Caller renders (a full render() at gesture end, which also restores the hidden tabs the
+        // live path parked off-screen) — no render here.
     }
 
     /// Largest actual size (along `horizontal`) among the visible windows in a subtree.
@@ -143,15 +164,54 @@ extension WindowManager {
         return maxSize
     }
 
-    /// Re-arrange + reposition handles during a drag, without stealing focus or saving.
+    /// Re-arrange + reposition handles during a drag, without stealing focus or saving. Only the
+    /// visible path is arranged (visibleOnly); hidden tabs are parked off-screen once so they can't
+    /// flash "behind" the tiling as arrange would otherwise drag them on-screen every frame.
     func renderLive() {
         guard let root, let screen = activeScreen else { return }
-        root.arrange(in: layoutRect(screen))
+        root.arrange(in: layoutRect(screen), visibleOnly: true)
+        parkHiddenTabsLive(on: screen)
         layoutResizeHandles()
-        updateWindowBorders()   // borders are permanent → follow the moving edges live
+        // Borders + letterbox in one pass: borders follow the moving edges, and the gap fill runs
+        // live too — a growing tile outruns the async AX resize, and the uncovered slice would
+        // otherwise flash the parked window / wallpaper underneath (throttled by scheduleLiveRender).
+        decorateTiles()
         updateFocusIndicator()  // halo on top
-        // Letterbox is skipped mid-drag (it rebuilds every monitor's gap fill each frame, for a
-        // few px of gap that barely shows) — reasserted once on mouse-up in onUp.
+    }
+
+    /// During a live resize, shove EVERY hidden tab (any app) off-screen so nothing peeks out from
+    /// behind the shrinking/growing tiles. Uses each hidden leaf's last arranged rect, which the
+    /// visibleOnly arrange left untouched — so the target is stable across the drag and setCocoaFrame's
+    /// cache collapses it to a single write per window at gesture start (cross-app tabs are already
+    /// parked, so those are skipped outright). The end-of-gesture full render() restores them.
+    func parkHiddenTabsLive(on screen: NSScreen) {
+        guard let root else { return }
+        let lr = layoutRect(screen), pr = parkRect(for: screen)
+        let dx = pr.minX - lr.minX, dy = pr.minY - lr.minY
+        root.forEachTabbed { group in
+            let kids = group.children
+            guard kids.count > 1 else { return }
+            let sel = min(max(group.selected, 0), kids.count - 1)
+            for (i, child) in kids.enumerated() where i != sel {
+                child.forEachLeaf { leaf in
+                    guard let w = leaf.window, !w.isFullscreen, leaf.lastFrame.width > 0 else { return }
+                    w.setCocoaFrame(leaf.lastFrame.offsetBy(dx: dx, dy: dy))
+                }
+            }
+        }
+    }
+
+    /// After a keyboard-resize burst (held/repeated key), persist the layout once things go quiet.
+    /// The live path never saves per keypress; this coalesces to a single write when the burst ends.
+    func scheduleResizeSettle() {
+        resizeSettleWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.learnResizeMins()        // burst over, windows settled → learn real mins + re-clamp
+            self?.render(activate: false)  // full render: final positions + restore the parked hidden tabs
+            self?.saveNow()
+        }
+        resizeSettleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
     /// Coalesce live-resize renders to ~90fps with a guaranteed trailing render, so a burst of

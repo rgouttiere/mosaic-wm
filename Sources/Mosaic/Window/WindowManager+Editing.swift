@@ -110,8 +110,12 @@ extension WindowManager {
                 let grow = direction.isForward ? delta : -delta   // +grow = focused tile bigger
                 // proposed ratio for the lower index of the pair
                 let proposed = (idx == lo) ? parent.ratios[lo] + grow : parent.ratios[lo] - grow
+                // Use the LIGHT live path (arrange + overlays only), not a full render() per keypress
+                // — a held/repeated key would otherwise stack full renders (activate, raise, reconcile,
+                // cross-app park) and stutter. A debounced settle saves once the burst ends.
                 commitPairResize(parent, lo, proposedRatioForI: proposed,
-                                 horizontal: direction.isHorizontal, live: false)
+                                 horizontal: direction.isHorizontal, live: true)
+                scheduleResizeSettle()
                 return
             }
             node = parent

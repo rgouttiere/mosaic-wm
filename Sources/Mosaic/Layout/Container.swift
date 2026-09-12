@@ -244,11 +244,21 @@ final class Container {
             return horizontal ? (children.map { $0.minAxisSize(horizontal: true) }.max() ?? 0)
                               : children.reduce(0) { $0 + $1.minAxisSize(horizontal: false) }
         case .tabbed:
-            return children.map { $0.minAxisSize(horizontal: horizontal) }.max() ?? 0
+            // Only the SELECTED tab is on-screen; the others overlap it. Reserving the MAX over all
+            // tabs lets a hidden tab freeze the column — e.g. IINA, whose aspect-lock inflates its
+            // learnedMin.width to the full video width, so a background IINA tab would pin the whole
+            // splitH and make it un-resizable. Mirror visibleAxisExtent: reserve for what's shown.
+            let idx = min(max(selected, 0), children.count - 1)
+            return children.indices.contains(idx) ? children[idx].minAxisSize(horizontal: horizontal) : 0
         }
     }
 
-    func arrange(in rect: NSRect) {
+    /// `visibleOnly` (live-resize path): a tabbed group arranges ONLY its selected child, leaving
+    /// hidden tabs untouched — arranging every tab into the visible content rect (the default) drags
+    /// hidden windows on-screen each frame, and only a subsequent full render's parkHiddenCrossAppTabs
+    /// pushes them back. During a 90fps drag there's no such pass, so they'd flash "behind" the tiling.
+    /// The WM parks the hidden ones off-screen once at gesture start instead.
+    func arrange(in rect: NSRect, visibleOnly: Bool = false) {
         lastFrame = rect
         guard !isLeaf else {
             tabBar?.orderOut(nil)
@@ -269,7 +279,7 @@ final class Container {
                                               mins: children.map { $0.minAxisSize(horizontal: true) })
             var x = rect.minX
             for (i, child) in children.enumerated() {
-                child.arrange(in: NSRect(x: x, y: rect.minY, width: widths[i], height: rect.height))
+                child.arrange(in: NSRect(x: x, y: rect.minY, width: widths[i], height: rect.height), visibleOnly: visibleOnly)
                 x += widths[i]
             }
 
@@ -280,7 +290,7 @@ final class Container {
                                                mins: children.map { $0.minAxisSize(horizontal: false) })
             var y = rect.maxY
             for (i, child) in children.enumerated() {
-                child.arrange(in: NSRect(x: rect.minX, y: y - heights[i], width: rect.width, height: heights[i]))
+                child.arrange(in: NSRect(x: rect.minX, y: y - heights[i], width: rect.width, height: heights[i]), visibleOnly: visibleOnly)
                 y -= heights[i]
             }
 
@@ -288,11 +298,11 @@ final class Container {
             // A tab group with a single window shows no bar (avoids a phantom top gap).
             if children.count == 1 {
                 tabBar?.orderOut(nil)
-                children[0].arrange(in: rect)
+                children[0].arrange(in: rect, visibleOnly: visibleOnly)
                 return
             }
             selected = min(max(selected, 0), children.count - 1)
-            if stacked { arrangeStacked(in: rect) } else { arrangeTabbed(in: rect) }
+            if stacked { arrangeStacked(in: rect) } else { arrangeTabbed(in: rect, visibleOnly: visibleOnly) }
         }
     }
 
@@ -338,7 +348,7 @@ final class Container {
     }
 
     /// Horizontal tabs: one strip row; children fill the content below.
-    private func arrangeTabbed(in rect: NSRect) {
+    private func arrangeTabbed(in rect: NSRect, visibleOnly: Bool = false) {
         let bar = ensureTabBar()
         let strip = NSRect(x: rect.minX, y: rect.maxY - tabBarHeight, width: rect.width, height: tabBarHeight)
         // Clamp to 0 (as arrangeStacked already does) so a tab group in a pane shorter than the
@@ -350,7 +360,14 @@ final class Container {
         bar.tabView.icons = children.map { $0.appIcon }
         bar.tabView.selectedIndex = selected
         bar.place(at: strip)
-        for child in children { child.arrange(in: content) }
+        if visibleOnly {
+            // Live resize: only the shown tab is arranged; hidden tabs are left where they are (parked
+            // off-screen by the WM) so they can't flash on-screen behind the tiling every frame.
+            let sel = min(max(selected, 0), children.count - 1)
+            if children.indices.contains(sel) { children[sel].arrange(in: content, visibleOnly: true) }
+        } else {
+            for child in children { child.arrange(in: content) }
+        }
     }
 
     /// Stacking with INLINE nested groups: one row per entry. A tab-group entry shows its

@@ -73,6 +73,8 @@ final class WindowManager {
     let resizeRatioHUD = ResizeRatioHUD()
     var liveRenderPending = false            // coalescing state for live-resize renders
     var lastLiveRenderTime = Date.distantPast
+    var resizeSettleWork: DispatchWorkItem?  // debounced finalize (save) after a keyboard-resize burst
+    var lastResizePair: (c: Container, i: Int, horizontal: Bool)?  // for the end-of-gesture min learn
     let letterbox = LetterboxFill()
     /// While PiP mirrors a window, its on-screen tile is covered by the letterbox fill so the same
     /// video isn't visible twice. Only covers when this leaf is actually the front, shown tab.
