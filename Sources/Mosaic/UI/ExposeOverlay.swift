@@ -306,6 +306,20 @@ private final class ExposeView: NSView {
         (selected ? accent.withAlphaComponent(0.14) : surface).setFill()
         NSBezierPath(roundedRect: box, xRadius: 8, yRadius: 8).fill()
 
+        // Selected workspace: a glowing accent ring so it reads as "lit up" during nav — same
+        // language as the focus halo. Drawn before the tiles so the thumbnails sit crisp on top.
+        if selected {
+            NSGraphicsContext.saveGraphicsState()
+            let glow = NSShadow()
+            glow.shadowColor = accent.withAlphaComponent(0.8); glow.shadowBlurRadius = 12; glow.shadowOffset = .zero
+            glow.set()
+            accent.setStroke()
+            let ring = NSBezierPath(roundedRect: box.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
+            ring.lineWidth = 2
+            ring.stroke(); ring.stroke()   // twice → a deeper bloom
+            NSGraphicsContext.restoreGraphicsState()
+        }
+
         let labelStyle = NSMutableParagraphStyle(); labelStyle.lineBreakMode = .byTruncatingTail
         for tile in ws.tiles where ws.screen.width > 0 && ws.screen.height > 0 {
             let rx = (tile.frame.minX - ws.screen.minX) / ws.screen.width

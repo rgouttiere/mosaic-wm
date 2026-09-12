@@ -58,6 +58,7 @@ final class Config {
     // Window styling.
     var borderEnabled: Bool = true
     var borderInactive: Bool = false   // also draw a dim accent border on non-focused tiled windows
+    var dimInactiveMonitors: Bool = false   // fade tile borders + tab strips on the monitor(s) without keyboard focus
     /// The single accent used across the whole UI. "accent"/"system" = the macOS system accent;
     /// or a hex like "#a6e3a1". Every field set to "accent" (border, tabs, drop) resolves through
     /// this, and the overlays read `Palette.accent`, so one value re-themes everything.
@@ -206,6 +207,7 @@ final class Config {
         var onWorkspaceChange: String?
         var borderEnabled: Bool?
         var borderInactive: Bool?
+        var dimInactiveMonitors: Bool?
         var accentColor: String?
         var letterboxStyle: String?
         var borderColor: String?
@@ -234,7 +236,7 @@ final class Config {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
             case warpMouseOnSwitch, trackpadGestures, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, notchHud, hudPosition
-            case onWorkspaceChange, borderEnabled, borderInactive, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius
+            case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
             case dropHighlightEnabled, dropHighlightColor, keybindings
@@ -284,6 +286,7 @@ final class Config {
             onWorkspaceChange = v(.onWorkspaceChange)
             borderEnabled = v(.borderEnabled)
             borderInactive = v(.borderInactive)
+            dimInactiveMonitors = v(.dimInactiveMonitors)
             accentColor = v(.accentColor)
             letterboxStyle = v(.letterboxStyle)
             borderColor = v(.borderColor)
@@ -389,6 +392,7 @@ final class Config {
         onWorkspaceChange = ""
         borderEnabled = true
         borderInactive = false
+        dimInactiveMonitors = false
         accentColor = "accent"
         letterboxStyle = "black"
         borderColor = "accent"
@@ -425,7 +429,7 @@ final class Config {
             "focusGlowRadius", "focusGlowFade",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "trackpadGestures", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
-            "floatingApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive",
+            "floatingApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
             "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
@@ -489,6 +493,7 @@ final class Config {
         if let o = file.onWorkspaceChange { onWorkspaceChange = o }
         if let b = file.borderEnabled { borderEnabled = b }
         if let b = file.borderInactive { borderInactive = b }
+        if let b = file.dimInactiveMonitors { dimInactiveMonitors = b }
         if let c = file.accentColor { accentColor = c }
         if let s = file.letterboxStyle { letterboxStyle = s }
         if let c = file.borderColor { borderColor = c }

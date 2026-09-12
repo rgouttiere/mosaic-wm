@@ -206,6 +206,7 @@ extension WindowManager {
         layoutResizeHandles()
         applyOpacity()
         updateWindowBorders()   // permanent dim accent frame on every tile (opt-in)
+        dimInactiveMonitorTabBars()   // fade tab strips off the focused monitor (opt-in)
         updateLetterboxFill()   // black-fill letterbox gaps so parked slivers can't peek through
         updateFocusIndicator(onScreen: onScreen)   // halo LAST → sits on top of the borders + fill
 
@@ -285,16 +286,38 @@ extension WindowManager {
     func updateWindowBorders() {
         guard Config.shared.borderInactive, !scratchpadVisible else { windowBorders.hideAll(); return }
         windowBorders.begin()
+        // Optionally fade the borders on monitors without keyboard focus (the active one holds the
+        // focused window) so a glance says "you are here".
+        let activeDid = activeMonitorID()
         // Border EVERY visible window, focused included — the borders are permanent so a focus change
         // never leaves a window bare. The focus halo is drawn afterwards, on top, so it still leads.
         for (did, wsNum) in shownOnDisplay {
             guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
+            let dim = activeDid != nil && did != activeDid
             root.forEachVisibleLeaf { leaf in
                 guard let w = leaf.window, !w.isFullscreen, let wf = w.frame else { return }
-                windowBorders.border(around: Geometry.flip(wf))
+                windowBorders.border(around: Geometry.flip(wf), dim: dim)
             }
         }
         windowBorders.end()
+    }
+
+    /// The active monitor = the one showing the active workspace (the monitor the focus is on, which
+    /// the mouse-follows model keeps in sync via checkSpaceChange). nil when the dim feature is off.
+    func activeMonitorID() -> CGDirectDisplayID? {
+        guard Config.shared.dimInactiveMonitors else { return nil }
+        return activeSpaceID.flatMap { asid in shownOnDisplay.first { $0.value == asid }?.key }
+    }
+
+    /// Fade the tab strips on monitors without keyboard focus (opt-in `dimInactiveMonitors`), so the
+    /// focused screen reads at a glance. When off, everything is restored to full opacity.
+    func dimInactiveMonitorTabBars() {
+        let activeDid = activeMonitorID()
+        for bar in TabBarWindow.registry.allObjects where bar.isVisible {
+            let center = NSPoint(x: bar.frame.midX, y: bar.frame.midY)
+            let did = NSScreen.screens.first { $0.frame.contains(center) }.map { displayID(of: $0) }
+            bar.alphaValue = (activeDid != nil && did != nil && did != activeDid) ? 0.7 : 1
+        }
     }
 
     /// Dim unfocused windows per config (focused → activeOpacity, others → inactiveOpacity).
@@ -316,6 +339,17 @@ extension WindowManager {
     /// switches so the tab layout isn't reloaded just to refresh the border.
     /// `onScreen` lets a caller (render) that already enumerated this pass avoid a second
     /// identical CGWindowList enumeration; defaults to a fresh one for standalone callers.
+    /// Move the focus halo and, when the monitor-dim feature is on, re-evaluate which monitor is
+    /// faded — for the "light" focus-change paths (focus-sync, hint jump) that skip a full render,
+    /// so the dim follows focus immediately. Re-show the halo last so it stays on top of the borders.
+    func refreshFocusAndDim() {
+        if Config.shared.dimInactiveMonitors {
+            updateWindowBorders()
+            dimInactiveMonitorTabBars()
+        }
+        updateFocusIndicator()
+    }
+
     func updateFocusIndicator(onScreen: Set<CGWindowID>? = nil) {
         // The focus contour re-shows from many paths (focus sync, mouse, reconcile); stand all of
         // them down while a screenshot tool is up, else the border creeps back over its overlay.

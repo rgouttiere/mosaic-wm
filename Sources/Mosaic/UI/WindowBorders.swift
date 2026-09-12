@@ -11,14 +11,16 @@ final class WindowBorders {
 
     func begin() { used = 0 }
 
-    /// Draw a dim border framing `cocoaFrame` (a window's frame, Cocoa coords).
-    func border(around cocoaFrame: NSRect) {
+    /// Draw a dim border framing `cocoaFrame` (a window's frame, Cocoa coords). `dim` fades it
+    /// further, for tiles on a monitor that doesn't have keyboard focus.
+    func border(around cocoaFrame: NSRect, dim: Bool = false) {
         guard cocoaFrame.width > 2, cocoaFrame.height > 2 else { return }
         let w: NSWindow
         if used < pool.count { w = pool[used] } else { w = makeBorder(); pool.append(w) }
         used += 1
         w.setFrame(cocoaFrame, display: false)
         w.contentView?.frame = NSRect(origin: .zero, size: cocoaFrame.size)
+        (w.contentView as? InactiveBorderView)?.dimmed = dim
         w.contentView?.needsDisplay = true   // pick up size / config-colour changes
         w.orderFront(nil)
     }
@@ -40,10 +42,11 @@ final class WindowBorders {
 }
 
 private final class InactiveBorderView: NSView {
+    var dimmed = false
     override func draw(_ dirtyRect: NSRect) {
         let width = max(1, CGFloat(Config.shared.borderWidth))   // a hair thinner than the focus line
         let radius = CGFloat(Config.shared.borderCornerRadius)
-        Config.shared.borderNSColor.withAlphaComponent(0.42).setStroke()   // quiet, so the focused one still leads
+        Config.shared.borderNSColor.withAlphaComponent(dimmed ? 0.26 : 0.42).setStroke()   // quiet; a touch dimmer off the focused monitor
         let p = NSBezierPath(roundedRect: bounds.insetBy(dx: width / 2, dy: width / 2), xRadius: radius, yRadius: radius)
         p.lineWidth = width
         p.stroke()

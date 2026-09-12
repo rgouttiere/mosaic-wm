@@ -16,7 +16,10 @@ extension WindowManager {
         guard shownOnDisplay[did] != target else {   // already shown on its monitor → just retarget
             activeSpaceID = target
             warpMouseToWorkspace(target, on: screen)
-            updateFocusIndicator()
+            if Config.shared.dimInactiveMonitors {   // active monitor changed → follow the dim
+                updateWindowBorders(); dimInactiveMonitorTabBars()
+            }
+            updateFocusIndicator()   // (after the border redraw, so the halo stays on top)
             // The focused workspace still changed (keyboard moved to this monitor), so emit state —
             // else the menu bar / sketchybar / status.json and workspaceRecency stay on the old one.
             showWorkspaceIndicator(for: screen)
@@ -209,7 +212,7 @@ extension WindowManager {
         AX.makeMain(w.element); w.activateApp(); AX.raise(w.element)
         if treeContainsLeaf(leaf) {              // already on the active desktop
             focused = leaf
-            updateFocusIndicator()
+            refreshFocusAndDim()
         } else if let f = w.frame {              // another screen → follow it there
             CGWarpMouseCursorPosition(CGPoint(x: f.midX, y: f.midY))   // AX frame is CG (top-left)
             CGAssociateMouseAndMouseCursorPosition(1)
@@ -217,7 +220,7 @@ extension WindowManager {
                 guard let self else { return }
                 self.checkSpaceChange()
                 self.focused = leaf
-                self.updateFocusIndicator()
+                self.refreshFocusAndDim()
             }
         }
     }

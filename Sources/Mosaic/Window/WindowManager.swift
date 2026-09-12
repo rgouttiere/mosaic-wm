@@ -597,7 +597,7 @@ final class WindowManager {
         guard let leaf = target, leaf !== focused else { return }
         focused = leaf
         preselect = nil          // focus moved → disarm any pending preselect
-        updateFocusIndicator()   // borders are permanent; only the halo moves. no re-tile/raise
+        refreshFocusAndDim()     // move the halo (+ follow the monitor dim if on). no re-tile/raise
     }
 
     /// The visible window under `point`: in a tabbed container only the selected child
@@ -646,6 +646,11 @@ final class WindowManager {
             build()
         }
         layoutResizeHandles()   // reposition handles for the now-active workspace
+        if Config.shared.dimInactiveMonitors {   // the active monitor changed → follow the dim now
+            updateWindowBorders()
+            dimInactiveMonitorTabBars()
+            updateFocusIndicator()   // keep the halo on top of the re-drawn borders
+        }
         showWorkspaceIndicator(for: screen)
         focusIndicator.pulse()
         reassertShownTabApps()   // mouse-cross also changes the active workspace → re-assert other monitors
