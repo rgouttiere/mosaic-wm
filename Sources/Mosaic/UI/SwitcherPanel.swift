@@ -32,7 +32,9 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
     private static var shared: SwitcherPanel?
 
     private let field = NSTextField()
+    private let scroll = NSScrollView()
     private let table = NSTableView()
+    private let selBar = SwitcherSelBar()   // single sliding selection indicator (animated)
     private let footer = NSTextField(labelWithString: "")
     private let modeLabel = NSTextField(labelWithString: "")
     private let modes: [SwitcherMode]
@@ -113,7 +115,7 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         modeLabel.alignment = .center
         container.addSubview(modeLabel)
 
-        let scroll = NSScrollView(frame: NSRect(x: 8, y: 34, width: w - 16, height: h - 124))
+        scroll.frame = NSRect(x: 8, y: 34, width: w - 16, height: h - 124)
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -131,6 +133,9 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         table.addTableColumn(col)
         scroll.documentView = table
         container.addSubview(scroll)
+        // Floating selection indicator that SLIDES between rows (translucent, so text reads through).
+        selBar.wantsLayer = true
+        scroll.contentView.addSubview(selBar)
 
         footer.frame = NSRect(x: 18, y: 10, width: w - 36, height: 16)
         footer.font = .systemFont(ofSize: 11)
@@ -191,6 +196,7 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         rows = out
         table.reloadData()
         if let first = firstItem(from: 0, dir: 1) { table.selectRowIndexes([first], byExtendingSelection: false) }
+        positionSelBar(animated: false)   // list changed → snap, don't slide across a filter
     }
 
     private static func fuzzyScore(_ needle: String, _ haystack: String) -> Int? {
@@ -224,6 +230,25 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         if let next = firstItem(from: (cur < 0 ? -1 : cur) + delta, dir: delta) {
             table.selectRowIndexes([next], byExtendingSelection: false)
             table.scrollRowToVisible(next)
+            positionSelBar(animated: true)   // slide the indicator to the new row
+        }
+    }
+
+    /// Slide (or snap) the single selection indicator to the current row, in the clip view's coords
+    /// so it tracks scrolling. Translucent, so it can float over the row text.
+    private func positionSelBar(animated: Bool) {
+        let row = table.selectedRow
+        guard row >= 0, isItem(row) else { selBar.isHidden = true; return }
+        let target = table.convert(table.rect(ofRow: row), to: scroll.contentView)
+        selBar.isHidden = false
+        if animated, selBar.frame != .zero, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.14
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                selBar.animator().frame = target
+            }
+        } else {
+            selBar.frame = target
         }
     }
 
@@ -319,13 +344,18 @@ private func swHighlightedTitle(_ title: String, query: String) -> NSAttributedS
 }
 
 private final class SwitcherRowView: NSTableRowView {
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else { return }
+    // Selection is drawn by the single sliding SwitcherSelBar, not per-row.
+    override func drawSelection(in dirtyRect: NSRect) {}
+}
+
+/// The single selection indicator that slides between rows — a quiet wash + a crisp accent bar with
+/// a soft glow on the leading edge. Translucent so the row text reads through it.
+private final class SwitcherSelBar: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }   // never intercept clicks
+    override func draw(_ dirtyRect: NSRect) {
         let r = bounds.insetBy(dx: 6, dy: 2)
-        // Subtle wash — quieter than before so the crisp accent bar carries the emphasis.
         Sw.accent.withAlphaComponent(0.15).setFill()
         NSBezierPath(roundedRect: r, xRadius: 7, yRadius: 7).fill()
-        // Crisp accent bar with a soft glow on the leading edge (same language as the tab underline).
         let bar = NSRect(x: r.minX, y: r.minY + 4, width: 3, height: r.height - 8)
         NSGraphicsContext.saveGraphicsState()
         let glow = NSShadow()

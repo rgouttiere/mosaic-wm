@@ -8,9 +8,20 @@ import AppKit
 ///    their own bar, so overlays can never overlap.
 final class TabBarView: NSView {
     // Horizontal tabbed mode.
-    var titles: [String] = [] { didSet { needsDisplay = true } }
+    var titles: [String] = [] { didSet { guard oldValue != titles else { return }; needsDisplay = true; positionUnderline(animated: false) } }
     var icons: [NSImage?] = [] { didSet { needsDisplay = true } }
-    var selectedIndex = 0 { didSet { needsDisplay = true } }
+    var selectedIndex = 0 { didSet { guard oldValue != selectedIndex else { return }; needsDisplay = true; positionUnderline(animated: true) } }
+
+    // The active-tab underline is its own layer-backed subview so it slides via Core Animation
+    // (GPU, vsync) instead of a per-frame full redraw of the frosted bar. Stacked keeps per-row.
+    private let underlineView = TabUnderlineView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        underlineView.wantsLayer = true
+        addSubview(underlineView)
+    }
+    required init?(coder: NSCoder) { fatalError() }
 
     var vertical = false { didSet { needsDisplay = true } }
 
@@ -76,6 +87,47 @@ final class TabBarView: NSView {
         if isStackedRows { drawStacked() } else { drawHorizontal() }
     }
 
+    /// The active-tab accent underline (inset, rounded, soft glow) at the bottom of `rect` — used by
+    /// the STACKED per-row path. Horizontal tabs use the sliding `underlineView` instead.
+    private func drawUnderline(in rect: NSRect) {
+        let accent = Config.color(from: Config.shared.tabActiveColor)
+        let uh: CGFloat = 2.5, inset: CGFloat = 8
+        let bar = NSRect(x: rect.minX + inset, y: rect.maxY - uh - 1.5,
+                         width: max(4, rect.width - inset * 2), height: uh)
+        NSGraphicsContext.saveGraphicsState()
+        let glow = NSShadow()
+        glow.shadowColor = accent.withAlphaComponent(0.7); glow.shadowBlurRadius = 4; glow.shadowOffset = .zero
+        glow.set()
+        accent.setFill()
+        NSBezierPath(roundedRect: bar, xRadius: uh / 2, yRadius: uh / 2).fill()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    override func layout() {
+        super.layout()
+        positionUnderline(animated: false)   // snap on resize / initial place; selection changes animate
+    }
+
+    /// Slide (or snap) the horizontal underline subview to the active segment. Core Animation makes
+    /// the slide smooth without redrawing the frosted bar.
+    private func positionUnderline(animated: Bool) {
+        guard !isStackedRows, !titles.isEmpty, segmentWidth > 4 else { underlineView.isHidden = true; return }
+        underlineView.isHidden = false
+        let i = min(max(selectedIndex, 0), titles.count - 1)
+        let inset: CGFloat = 8, h: CGFloat = 12   // 12px tall so the bar's glow has room
+        let frame = NSRect(x: CGFloat(i) * segmentWidth + inset, y: bounds.height - h,   // flipped: bottom
+                           width: max(4, segmentWidth - inset * 2), height: h)
+        if animated, underlineView.frame != .zero, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                underlineView.animator().frame = frame
+            }
+        } else {
+            underlineView.frame = frame
+        }
+    }
+
     private func drawHorizontal() {
         guard !titles.isEmpty else { return }
         for (index, title) in titles.enumerated() {
@@ -122,18 +174,9 @@ final class TabBarView: NSView {
                       options: [.drawsBeforeStartingLocation, .drawsAfterEndingLocation])
             NSGraphicsContext.restoreGraphicsState()
 
-            // Crisp accent underline: inset with rounded ends + a soft glow, so it reads as a
-            // deliberate bar rather than an edge-to-edge line.
-            let uh: CGFloat = 2.5, inset: CGFloat = 8
-            let bar = NSRect(x: rect.minX + inset, y: rect.maxY - uh - 1.5,
-                             width: max(4, rect.width - inset * 2), height: uh)
-            NSGraphicsContext.saveGraphicsState()
-            let glow = NSShadow()
-            glow.shadowColor = accent.withAlphaComponent(0.7); glow.shadowBlurRadius = 4; glow.shadowOffset = .zero
-            glow.set()
-            accent.setFill()
-            NSBezierPath(roundedRect: bar, xRadius: uh / 2, yRadius: uh / 2).fill()
-            NSGraphicsContext.restoreGraphicsState()
+            // Stacked rows draw their underline per-row here; horizontal tabs use the single SLIDING
+            // underline drawn once in draw() (so it can animate between segments).
+            if isStackedRows { drawUnderline(in: rect) }
         }
 
         // Quiet hairline separator on the right edge (skip the rightmost) for gentle structure.
@@ -280,5 +323,23 @@ final class TabBarView: NSView {
         dragSourceIndex = nil
         didDrag = false
         if wasDragging { onDragStateChange?(false) }
+    }
+}
+
+/// The sliding active-tab underline: a crisp accent bar with a soft glow, at the bottom of its own
+/// (unflipped) bounds. Layer-backed so its frame animates smoothly via Core Animation.
+private final class TabUnderlineView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }   // never intercept tab clicks
+    override func draw(_ dirtyRect: NSRect) {
+        let accent = Config.color(from: Config.shared.tabActiveColor)
+        let uh: CGFloat = 2.5
+        let bar = NSRect(x: 0, y: 1.5, width: bounds.width, height: uh)   // bottom of the strip
+        NSGraphicsContext.saveGraphicsState()
+        let glow = NSShadow()
+        glow.shadowColor = accent.withAlphaComponent(0.7); glow.shadowBlurRadius = 4; glow.shadowOffset = .zero
+        glow.set()
+        accent.setFill()
+        NSBezierPath(roundedRect: bar, xRadius: uh / 2, yRadius: uh / 2).fill()
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
