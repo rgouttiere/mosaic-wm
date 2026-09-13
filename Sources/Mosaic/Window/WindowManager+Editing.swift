@@ -282,19 +282,22 @@ extension WindowManager {
     /// split beside/under the whole tab group. Shared by the tab-strip drag, the modifier-hold
     /// "drag any window" capture, and the keyboard grab mode — they all just supply a leaf + a point.
     func dropLeaf(_ dragged: Container, at point: NSPoint) {
-        dropHighlight.hide()   // the drag is ending — clear the highlight now
-
-        // Resolve the drop target across all managed screens/desktops.
+        // Resolve the target tile + zone under the cursor, then hand off to the shared insert.
         guard let dropScreen = NSScreen.screens.first(where: { $0.frame.contains(point) }),
               let dropSpaceID = currentWorkspace(for: dropScreen),
-              let targetState = spaces[dropSpaceID],
-              let targetRoot = targetState.root,
+              let targetRoot = spaces[dropSpaceID]?.root,
               let targetLeaf = visibleLeaf(at: point, in: targetRoot),
-              targetLeaf !== dragged, !contains(dragged, targetLeaf),
-              let sourceState = stateContaining(dragged) else { return }
+              let frame = targetLeaf.window?.frame else { dropHighlight.hide(); return }
+        dropInto(dragged, onto: targetLeaf, zone: dropZone(at: point, in: Geometry.flip(frame)))
+    }
 
-        // Where in the target tile did we land? Center = tab into it; an edge = split beside/under.
-        let zone = (targetLeaf.window?.frame).map { dropZone(at: point, in: Geometry.flip($0)) } ?? .center
+    /// Insert `dragged` relative to `targetLeaf`: center = tab into it, an edge = split beside/under the
+    /// whole tab group. Shared by the tab-strip drag, the modifier-hold capture, and the keyboard grab.
+    func dropInto(_ dragged: Container, onto targetLeaf: Container, zone: DropZone) {
+        dropHighlight.hide()   // the drag is ending — clear the highlight now
+        guard targetLeaf !== dragged, !contains(dragged, targetLeaf),
+              let sourceState = stateContaining(dragged),
+              let targetState = stateContaining(targetLeaf) else { return }
 
         // Detach from the source tree and collapse what it leaves behind.
         if let parent = dragged.parent, let i = parent.index(of: dragged) {

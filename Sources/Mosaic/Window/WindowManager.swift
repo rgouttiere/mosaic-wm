@@ -136,6 +136,9 @@ final class WindowManager {
     /// re-renders the source screen correctly (mouse crossing screens won't switch it).
     var tabDragging = false
     var grabbedLeaf: Container?   // the leaf being moved by a modifier-hold drag or keyboard grab
+    var grabTarget: Container?    // keyboard grab: the tile the drop is currently aimed at
+    var grabKeyWindow: NSWindow?  // keyboard grab: transparent key panel that captures hjkl/⏎/Esc
+    var grabMonitor: Any?         // keyboard grab: local key/mouse monitor
     let workspaceHUD = WorkspaceHUD()
     let notchHUD = NotchHUD()
     /// Notifies the menu bar of the current workspace number (nil = unknown/unmanaged).

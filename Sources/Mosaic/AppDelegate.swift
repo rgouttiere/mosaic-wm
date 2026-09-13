@@ -351,6 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "hints": { wm.showHints() },
             "expose": { wm.showExpose() },
             "pip": { wm.togglePiP() },
+            "grab": { wm.beginKeyboardGrab() },
             "unassign": { wm.unassignCurrent() },
             "workspace-back": { wm.workspaceBack() },
             "workspace-next": { wm.cycleWorkspace(next: true) },
