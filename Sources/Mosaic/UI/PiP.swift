@@ -74,6 +74,23 @@ final class PiP: NSObject, SCStreamDelegate, SCStreamOutput {
 
     // MARK: - Panel
 
+    /// Bring the PiP to the pointer: centre it under the mouse, clamped to that screen's visible frame
+    /// so it can't hang off an edge. Instant — deliberately NOT animated across the desktop, since a
+    /// rectangle flying between monitors is exactly the travelling motion this UI avoids. No-op when
+    /// the PiP isn't running.
+    func moveToMouse() {
+        guard let p = panel else { return }
+        let mouse = NSEvent.mouseLocation
+        let scr = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        var origin = NSPoint(x: mouse.x - p.frame.width / 2, y: mouse.y - p.frame.height / 2)
+        if let v = scr?.visibleFrame {
+            origin.x = min(max(origin.x, v.minX), max(v.minX, v.maxX - p.frame.width))
+            origin.y = min(max(origin.y, v.minY), max(v.minY, v.maxY - p.frame.height))
+        }
+        p.setFrameOrigin(origin)
+        p.orderFrontRegardless()
+    }
+
     private func showPanel() {
         let p = PiPPanel(contentRect: NSRect(x: 0, y: 0, width: 480, height: 270))
         panel = p

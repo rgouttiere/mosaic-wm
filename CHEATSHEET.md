@@ -26,7 +26,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 - **Accent** (`config.json`): **`accentColor`** is the single accent for the whole UI — `"accent"`/`"system"` follows the macOS system accent, or a hex like `"#a6e3a1"` pins it. Everything set to `"accent"` (`borderColor`, `tabActiveColor`, `dropHighlightColor`) and all overlays (exposé, switcher, HUD, hints, drag ghost) resolve through it, so one value re-themes the lot.
 - **Window borders** (`config.json`): the focused window keeps its bright halo; **`borderInactive: true`** also draws a permanent dim accent border on every other tile. **`inactiveBorderOpacity`** (default `0.42`) tunes how present those inactive borders are. **`dimInactiveMonitors: true`** fades the borders + tab strips on the monitor(s) without keyboard focus, by **`inactiveMonitorDim`** (default `0.6`, the fraction of brightness they keep; `1` = no dim).
 - **Trackpad gestures** (`config.json`): **`trackpadGestures: true`** enables native 3-finger swipes (raw MultitouchSupport) — ←/→ switch workspace, ↑ opens the exposé, ↓ commits, and in the exposé 3-finger moves the selection while 2-finger navigates the grid. Disable macOS's own 3/4-finger gestures first so they don't fight. Off by default.
-- **Picture-in-picture** (`pip` action): a live, floating, draggable mirror of the focused window (even one parked on another workspace) via ScreenCaptureKit — the source keeps playing, so audio continues. Right-click / Space = play-pause, scroll = the player's volume, ⤢ = return to the window. Needs Screen Recording. No default key — bind `pip` in `keybindings`.
+- **Picture-in-picture** (`pip` action): a live, floating, draggable mirror of the focused window (even one parked on another workspace) via ScreenCaptureKit — the source keeps playing, so audio continues. Right-click / Space = play-pause, scroll = the player's volume, ⤢ = return to the window. Needs Screen Recording. No default key for `pip` — bind it in `keybindings`. **⌘⌥⇧P** (`pip-here`) brings the PiP **centred under the mouse pointer** on whatever screen you're on (clamped so it can't hang off an edge) — so you never have to drag it across monitors.
 - **Notch HUD** (`config.json`): **`notchHud: true`** shows the workspace indicator as a dynamic-island pill under the notch on switch (instead of the corner HUD).
 - **Scratchpad**: a dedicated app shown/hidden as a floating panel (survives relaunch).
 - **Rules** (`config.json`): `float`, `groupWith`, `place` (`column`/`tab`), `workspace: N`, `fullscreen` (`false` = force windowed/tileable, `true` = force native full screen; add `fullscreenLock: true` to keep enforcing it).
@@ -71,6 +71,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 | Toggle floating | ⌘⌥F |
 | Zoom / monocle | ⌘⌥↩ |
 | Grab (move window: hjkl aim, ⏎ tab, ⇧hjkl split) | ⌘⌥M |
+| Bring picture-in-picture under the mouse | ⌘⌥⇧P |
 
 ### Workspaces & screens
 | Action | Shortcut |
@@ -105,7 +106,7 @@ mosaic toggle-stacked
 mosaic dump-layout       # write /tmp/mosaic-dump.txt
 ```
 
-Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `unassign-N`, `unassign`, `switcher`, `hints`, `expose`, `pip`, `grab`, `workspace-back`, …) plus `reload-config` and `dump-layout`.
+Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `unassign-N`, `unassign`, `switcher`, `hints`, `expose`, `pip`, `pip-here`, `grab`, `workspace-back`, …) plus `reload-config` and `dump-layout`.
 
 A binding value may list **several combos**, comma-separated — e.g. `"resize-up": "ctrl alt k, ctrl alt up"` binds an action to both. An empty value (`""`) disables the binding.
 

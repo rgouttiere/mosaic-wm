@@ -351,6 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "hints": { wm.showHints() },
             "expose": { wm.showExpose() },
             "pip": { wm.togglePiP() },
+            "pip-here": { if #available(macOS 13.0, *) { PiP.shared.moveToMouse() } },
             "grab": { wm.beginKeyboardGrab() },
             "unassign": { wm.unassignCurrent() },
             "workspace-back": { wm.workspaceBack() },

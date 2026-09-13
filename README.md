@@ -19,7 +19,7 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 - **External-bar aware** — reserve a top strip for a bar like [sketchybar](https://github.com/FelixKratz/SketchyBar) (`externalBarTop`, notch-aware per screen) and publish workspace names + per-monitor placement for it to render.
 - **Emulated workspaces** (v2) — one macOS Space; a "workspace" is a logical window set that Mosaic parks off-screen / brings back, each pinned to a monitor. No CGS/Spaces private API, no drift on wake — the AX-only replacement for real Spaces.
 - **Native trackpad gestures** (opt-in `trackpadGestures`) — 3-finger swipes drive workspaces + the exposé (raw MultitouchSupport, works with SIP on).
-- **Live picture-in-picture** (`pip`) — a floating, draggable mirror of any window (even one parked on another workspace) via ScreenCaptureKit; the source keeps playing, so audio continues.
+- **Live picture-in-picture** (`pip`) — a floating, draggable mirror of any window (even one parked on another workspace) via ScreenCaptureKit; the source keeps playing, so audio continues. `pip-here` (⌘⌥⇧P) summons it under the mouse pointer instead of dragging it between monitors.
 - **Master-stack layout** — a `master-stack` tiling mode (one master + a tabbed stack), alongside `columns` / `grouped` / `tabbed`.
 - **Survives dock/undock & reboot** — layouts persist keyed by a stable per-monitor fingerprint.
 - **Live JSON config** — modes, gaps, styling, per-app rules, keybindings; **auto-reloads on save** (no restart).

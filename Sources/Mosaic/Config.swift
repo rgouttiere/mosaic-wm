@@ -169,6 +169,7 @@ final class Config {
         "switcher": "cmd alt p",   // fuzzy quick-switcher (workspaces + windows)
         "hints": "cmd alt j",      // vimium-style window hints (type a letter to focus)
         "expose": "cmd alt o",     // schematic workspace overview
+        "pip-here": "cmd alt shift p",   // bring the picture-in-picture under the mouse pointer
         "grab": "cmd alt m",       // keyboard grab: pick up focused window, hjkl to aim, ⏎ tab / ⇧hjkl split
         "unassign": "cmd alt ctrl 0",   // unset the current desktop's workspace number
         "workspace-back": "cmd alt b",   // bounce to the previous workspace (i3 back-and-forth)
