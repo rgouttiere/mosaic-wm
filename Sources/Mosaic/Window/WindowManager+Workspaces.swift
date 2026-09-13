@@ -190,38 +190,45 @@ extension WindowManager {
                 perScreen.append(HintTarget(frameCocoa: Geometry.flip(axFrame),
                                             focus: { [weak self] in self?.focusVisibleWindow(leaf) }))
             }
-            // Reading order within the screen: group windows into ROWS (tops within a tolerance —
-            // real AX frames jitter by a title bar or two even when tiled to the same top), then
-            // order each row left→right. A single tolerance-band comparator is NOT a valid strict
-            // weak ordering (intransitive across a chain of near-equal tops), which made Swift's
-            // sort swap adjacent labels — the "f/g inverted" bug. Explicit clustering is deterministic.
-            let rowTolerance: CGFloat = 40
-            var rows: [[HintTarget]] = []
-            for t in perScreen.sorted(by: { $0.frameCocoa.maxY > $1.frameCocoa.maxY }) {   // top→bottom
-                if let head = rows.last?.first, abs(head.frameCocoa.maxY - t.frameCocoa.maxY) <= rowTolerance {
-                    rows[rows.count - 1].append(t)
+            // Reading order within the screen: walk each COLUMN top→bottom before moving on to the
+            // next column — these layouts are column-first (a horizontal split makes columns), so the
+            // letters should run DOWN a column, not across the screen. Cluster by LEFT edge with a
+            // tolerance (real AX frames jitter by a pixel or two even when tiled to the same x). A
+            // single tolerance-band comparator is NOT a valid strict weak ordering (intransitive
+            // across a chain of near-equal edges), which made Swift's sort swap adjacent labels —
+            // the "f/g inverted" bug. Explicit clustering is deterministic.
+            let colTolerance: CGFloat = 40
+            var cols: [[HintTarget]] = []
+            for t in perScreen.sorted(by: { $0.frameCocoa.minX < $1.frameCocoa.minX }) {   // left→right
+                if let head = cols.last?.first, abs(head.frameCocoa.minX - t.frameCocoa.minX) <= colTolerance {
+                    cols[cols.count - 1].append(t)
                 } else {
-                    rows.append([t])
+                    cols.append([t])
                 }
             }
-            for row in rows {
-                targets.append(contentsOf: row.sorted { $0.frameCocoa.minX < $1.frameCocoa.minX })   // left→right
+            for col in cols {
+                targets.append(contentsOf: col.sorted { $0.frameCocoa.maxY > $1.frameCocoa.maxY })   // top→bottom
             }
         }
         HintsOverlay.show(targets)
     }
 
-    /// Focus a hinted window. If it's on another screen/desktop, warp the mouse onto it so
-    /// the mouse-follows model adopts that desktop, then move Mosaic's focus + border there.
+    /// Focus a hinted window and put the mouse in the middle of its tile. The warp matters even for a
+    /// same-screen jump: with several windows per screen the pointer would otherwise stay on the tile
+    /// you jumped FROM, so the mouse-follows model would pull focus straight back on the next event.
+    /// Crossing to another screen/desktop additionally needs a checkSpaceChange once the warp landed.
     func focusVisibleWindow(_ leaf: Container) {
         guard let w = leaf.window else { return }
         AX.makeMain(w.element); w.activateApp(); AX.raise(w.element)
+        let warp = hintWarpPoint(leaf)
+        if let p = warp {
+            CGWarpMouseCursorPosition(p)
+            CGAssociateMouseAndMouseCursorPosition(1)
+        }
         if treeContainsLeaf(leaf) {              // already on the active desktop
             focused = leaf
             refreshFocusAndDim()
-        } else if let f = w.frame {              // another screen → follow it there
-            CGWarpMouseCursorPosition(CGPoint(x: f.midX, y: f.midY))   // AX frame is CG (top-left)
-            CGAssociateMouseAndMouseCursorPosition(1)
+        } else if warp != nil {                  // another screen → let the warp land, then adopt it
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
                 guard let self else { return }
                 self.checkSpaceChange()
@@ -229,6 +236,18 @@ extension WindowManager {
                 self.refreshFocusAndDim()
             }
         }
+    }
+
+    /// Middle of a leaf's TILE in CG coords (top-left origin, what CGWarp wants). Prefers the arranged
+    /// tile over the window frame so an aspect-fit window (IINA, letterboxed inside its tile) still
+    /// parks the pointer in the tile's centre. Falls back to the live window frame, already CG.
+    private func hintWarpPoint(_ leaf: Container) -> CGPoint? {
+        let tile = leaf.lastFrame
+        if tile.width > 0, tile.height > 0 {
+            let cg = Geometry.flip(tile)   // arranged rects are Cocoa; flip → CG/top-left
+            return CGPoint(x: cg.midX, y: cg.midY)
+        }
+        return leaf.window?.frame.map { CGPoint(x: $0.midX, y: $0.midY) }
     }
 
     /// Fuzzy quick-switcher: jump to a workspace (by name/number) or a window (by title).
