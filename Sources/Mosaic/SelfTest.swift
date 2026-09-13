@@ -72,6 +72,21 @@ enum SelfTest {
         h.check(parkedLeft.maxX <= leftScreen.minX + 1, "parkRect: leftmost monitor parks off its own left edge")
         h.eq(parkedLeft.minY, leftLayout.minY, "parkRect: leftmost monitor keeps Y (no resize)")
 
+        // aspectFit: largest box of a given w/h ratio, centred inside the tile (for IINA & co).
+        let fitTall = Geometry.aspectFit(CGRect(x: 0, y: 0, width: 1000, height: 1000), aspect: 16.0/9)
+        h.eq(fitTall.width, 1000, "aspectFit: tile taller than 16:9 → full width")
+        h.eq(fitTall.height, 1000 * 9.0/16, "aspectFit: … height from the ratio (letterbox)")
+        h.eq(fitTall.minX, 0, "aspectFit: full-width box keeps X")
+        h.check(abs(fitTall.midY - 500) < 0.01, "aspectFit: letterboxed box is vertically centred")
+        let fitWide = Geometry.aspectFit(CGRect(x: 0, y: 0, width: 3000, height: 1000), aspect: 16.0/9)
+        h.eq(fitWide.height, 1000, "aspectFit: tile wider than 16:9 → full height")
+        h.check(abs(fitWide.width - 1000 * 16.0/9) < 0.01, "aspectFit: … width from the ratio (pillarbox)")
+        h.check(abs(fitWide.midX - 1500) < 0.01, "aspectFit: pillarboxed box is horizontally centred")
+        let fitExact = Geometry.aspectFit(CGRect(x: 10, y: 20, width: 1600, height: 900), aspect: 16.0/9)
+        h.check(abs(fitExact.width - 1600) < 0.01 && abs(fitExact.height - 900) < 0.01, "aspectFit: exact-ratio tile → fills it")
+        let fitDegenerate = Geometry.aspectFit(CGRect(x: 0, y: 0, width: 800, height: 600), aspect: 0)
+        h.eq(fitDegenerate.width, 800, "aspectFit: aspect ≤ 0 → tile unchanged")
+
         // Workspace→monitor partition (model A): 1...9 split into contiguous even-ish blocks.
         // 1 monitor → everything on monitor 0.
         for n in 1...9 { h.eq(WindowManager.monitorBlock(forWorkspace: n, monitorCount: 1), 0, "block: 1 monitor → 0 (ws \(n))") }

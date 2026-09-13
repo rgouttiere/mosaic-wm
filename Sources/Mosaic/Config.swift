@@ -46,6 +46,11 @@ final class Config {
         "skitch", "shottr", "cleanshot", "cleanshot x", "monosnap", "snagit",
     ]
     var floatingApps: Set<String> = Config.defaultFloatingApps
+    /// Apps whose windows lock to a fixed video aspect (IINA, mpv…). Rather than let such a window
+    /// overshoot its tile (freezing the column, since it refuses to shrink one axis), Mosaic sizes it
+    /// to the largest aspect-correct box that fits the tile, centres it, and letterboxes the rest.
+    static let defaultAspectFitApps: Set<String> = ["iina", "mpv"]
+    var aspectFitApps: Set<String> = Config.defaultAspectFitApps
     var rules: [AppRule] = []
     var showWorkspaceHUD: Bool = true
     var notchHud: Bool = false   // dynamic-island HUD under the notch on workspace switch (replaces the top-right HUD)
@@ -204,6 +209,7 @@ final class Config {
         var autoFloatDialogs: Bool?
         var defaultMode: String?
         var floatingApps: [String]?
+        var aspectFitApps: [String]?
         var rules: [AppRule]?
         var showWorkspaceHUD: Bool?
         var notchHud: Bool?
@@ -241,7 +247,7 @@ final class Config {
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
-            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, rules, showWorkspaceHUD, notchHud, hudPosition
+            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, aspectFitApps, rules, showWorkspaceHUD, notchHud, hudPosition
             case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius, inactiveBorderOpacity, inactiveMonitorDim
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
@@ -286,6 +292,7 @@ final class Config {
             autoFloatDialogs = v(.autoFloatDialogs)
             defaultMode = v(.defaultMode)
             floatingApps = v(.floatingApps)
+            aspectFitApps = v(.aspectFitApps)
             rules = v(.rules)
             showWorkspaceHUD = v(.showWorkspaceHUD)
             notchHud = v(.notchHud)
@@ -395,6 +402,7 @@ final class Config {
         ejectNativeFullscreen = false
         autoFloatDialogs = false
         floatingApps = Config.defaultFloatingApps
+        aspectFitApps = Config.defaultAspectFitApps
         rules = []
         showWorkspaceHUD = true
         notchHud = false
@@ -441,7 +449,7 @@ final class Config {
             "focusGlowRadius", "focusGlowFade",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
-            "floatingApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
+            "floatingApps", "aspectFitApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
             "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "inactiveBorderOpacity", "inactiveMonitorDim", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
@@ -499,6 +507,7 @@ final class Config {
         if let b = file.autoFloatDialogs { autoFloatDialogs = b }
         if let m = file.defaultMode { defaultMode = m }
         if let f = file.floatingApps { floatingApps = Set(f.map { $0.lowercased() }) }
+        if let f = file.aspectFitApps { aspectFitApps = Set(f.map { $0.lowercased() }) }
         if let r = file.rules { rules = r }
         if let h = file.showWorkspaceHUD { showWorkspaceHUD = h }
         if let b = file.notchHud { notchHud = b }
@@ -593,6 +602,7 @@ final class Config {
             "tabBarHeight": Double(tabBarHeight),
             "defaultMode": defaultMode,
             "floatingApps": Array(floatingApps).sorted(),
+            "aspectFitApps": Array(aspectFitApps).sorted(),
             "rules": [["app": "skitch", "float": true]],   // example; see README for fields
             "showWorkspaceHUD": showWorkspaceHUD,
             "hudPosition": hudPosition,

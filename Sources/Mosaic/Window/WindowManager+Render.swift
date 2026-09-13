@@ -213,6 +213,7 @@ extension WindowManager {
         sweepOrphanStrips()   // hide strips not on any desktop's visible path
         layoutResizeHandles()
         applyOpacity()
+        refreshAspectRatios()   // fit + centre aspect-locked windows (IINA) before the letterbox reads them
         decorateTiles()   // permanent borders + letterbox gap fill, one AX read per window
         dimInactiveMonitorTabBars()   // fade tab strips off the focused monitor (opt-in)
         updateFocusIndicator(onScreen: onScreen)   // halo LAST → sits on top of the borders + fill
@@ -285,6 +286,28 @@ extension WindowManager {
             }
         }
         letterbox.end()
+    }
+
+    /// Learn each visible aspect-fit window's true ratio (IINA & co) and re-centre it inside its tile.
+    /// arrange() places a known-ratio window straight into its fit box; the FIRST time (ratio unknown)
+    /// it placed the full slot, so the window snapped to its native aspect — we read that back here and
+    /// immediately fit+centre it (AX setFrame is synchronous, so this settles within the same render,
+    /// no overshoot flash). Re-learns if the video's aspect later changes. Runs before decorateTiles so
+    /// the letterbox is computed off the fitted frame.
+    func refreshAspectRatios() {
+        let gap = CGFloat(Config.shared.gap)
+        for (did, wsNum) in shownOnDisplay {
+            guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
+            root.forEachVisibleLeaf { leaf in
+                guard let w = leaf.window, w.isAspectFit, !w.isFullscreen,
+                      let f = w.frame, f.width > 1, f.height > 1 else { return }
+                let cand = f.width / f.height
+                if w.aspectRatio == 0 || abs(cand - w.aspectRatio) / w.aspectRatio > 0.02 {
+                    w.aspectRatio = cand
+                    w.setCocoaFrame(Geometry.aspectFit(leaf.lastFrame.insetBy(dx: gap / 2, dy: gap / 2), aspect: cand))
+                }
+            }
+        }
     }
 
     /// One pass over every shown, visible tile that drives BOTH the inactive border AND the letterbox

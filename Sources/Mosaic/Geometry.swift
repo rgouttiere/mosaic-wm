@@ -19,6 +19,20 @@ enum Geometry {
                height: rect.height)
     }
 
+    /// The largest box of the given width/height `aspect` that fits inside `tile`, centred. Used to
+    /// place an aspect-locked window (IINA) inside its tile without overshooting — the leftover gap is
+    /// letterboxed. `aspect` ≤ 0 or a degenerate tile → the tile unchanged. Pure + unit-tested.
+    static func aspectFit(_ tile: CGRect, aspect: CGFloat) -> CGRect {
+        guard aspect > 0, tile.width > 0, tile.height > 0 else { return tile }
+        let tileAspect = tile.width / tile.height
+        var w = tile.width, h = tile.height
+        if tileAspect > aspect { w = tile.height * aspect }   // tile wider than content → pillarbox
+        else { h = tile.width / aspect }                      // tile taller than content → letterbox
+        return CGRect(x: tile.minX + (tile.width - w) / 2,
+                      y: tile.minY + (tile.height - h) / 2,
+                      width: w, height: h)
+    }
+
     /// Emulated-workspace parking (v2): the Cocoa rect a parked workspace is laid out in — pushed
     /// off the edge of ITS OWN home monitor that faces empty space (no adjacent screen), so macOS'
     /// clamp lands the residual ~40px strip on that same monitor. This is the crux of the two bugs

@@ -171,6 +171,7 @@ extension WindowManager {
         guard let root, let screen = activeScreen else { return }
         root.arrange(in: layoutRect(screen), visibleOnly: true)
         parkHiddenTabsLive(on: screen)
+        refreshAspectRatios()   // keep IINA fit+centred as the tile shrinks/grows
         layoutResizeHandles()
         // Borders + letterbox in one pass: borders follow the moving edges, and the gap fill runs
         // live too — a growing tile outruns the async AX resize, and the uncovered slice would

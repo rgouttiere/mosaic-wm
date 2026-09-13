@@ -44,6 +44,18 @@ final class ManagedWindow {
     /// overflow its tile forever (the "Deezer moves strangely in a narrow column" case).
     var learnedMin: CGSize = .zero
 
+    /// Learned width/height ratio of an aspect-locked window (IINA & co). 0 = unknown / not aspect-fit.
+    /// Once known, arrange() sizes the window to the largest box of this ratio that fits its tile and
+    /// centres it (letterbox around), so an aspect-locked window can't overshoot and freeze its column.
+    var aspectRatio: CGFloat = 0
+
+    /// This window's app is on the `aspectFitApps` list → treat it as aspect-locked (see aspectRatio).
+    var isAspectFit: Bool {
+        if Config.shared.aspectFitApps.contains(appName.lowercased()) { return true }
+        if let b = app.bundleIdentifier?.lowercased(), Config.shared.aspectFitApps.contains(b) { return true }
+        return false
+    }
+
     /// Last frame (AX coords) we asked this window to take. Lets `setCocoaFrame` skip a
     /// redundant AX write — the expensive op, since each write forces the app to re-layout
     /// its content — when the target is unchanged. Mosaic is the layout authority and does

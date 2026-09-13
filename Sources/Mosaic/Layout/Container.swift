@@ -264,8 +264,16 @@ final class Container {
             tabBar?.orderOut(nil)
             // Don't reposition a full-screen window (it's on its own Space); it keeps
             // its slot in the tree and reclaims it when it leaves full screen.
-            if window?.isFullscreen != true {
-                window?.setCocoaFrame(rect.insetBy(dx: gap / 2, dy: gap / 2))
+            if let w = window, w.isFullscreen != true {
+                let slot = rect.insetBy(dx: gap / 2, dy: gap / 2)
+                // Aspect-locked window with a learned ratio → size it to the largest box of that ratio
+                // that fits the slot and centre it, so it never overshoots and freezes the column. The
+                // letterbox fill (computed off this full-tile lastFrame) covers the surrounding gap.
+                if w.isAspectFit, w.aspectRatio > 0 {
+                    w.setCocoaFrame(Geometry.aspectFit(slot, aspect: w.aspectRatio))
+                } else {
+                    w.setCocoaFrame(slot)
+                }
             }
             return
         }
