@@ -143,6 +143,7 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `exposeThumbnails` | `true` | Live window previews in the exposé (ScreenCaptureKit; needs Screen Recording). `false` = schematic tiles, no capture, no permission prompt. |
 | `onWorkspaceChange` | `""` | Shell command run on every workspace change (env `MOSAIC_WORKSPACE` = focused number). Point it at a sketchybar trigger; see [CHEATSHEET.md](CHEATSHEET.md#status-bar-sketchybar). `""` = off. |
 | `floatingApps` | *(screenshot tools)* | App names or bundle ids (lowercased) that never tile — they always float. |
+| `aspectFitApps` | `["iina", "mpv"]` | App names or bundle ids whose windows lock to a fixed video aspect. Mosaic fits such a window to the largest aspect-correct box inside its tile, centres it, and letterboxes the rest — so it can't overshoot and freeze its column, even as the visible tab. |
 | `keybindings` | *(see below)* | Map an action to a shortcut, e.g. `"tile": "cmd alt t"`. Only the entries you list override the defaults. |
 
 Per-app auto-placement `rules`, applied as windows open:
