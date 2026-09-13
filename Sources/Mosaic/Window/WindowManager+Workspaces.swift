@@ -338,16 +338,27 @@ extension WindowManager {
             NSLog("Mosaic: PiP — no focused window"); return
         }
         let ws = Int(activeSpaceID ?? 1)   // workspace to return to, captured now
-        PiP.shared.onStop = { [weak self] in            // remove the source's letterbox cover
+        PiP.shared.onStop = { [weak self] in            // remove the source's letterbox cover + tab badge
+            self?.pipSourceLeaf?.isPiPSource = false
             self?.pipSourceLeaf = nil
-            self?.updateLetterboxFill()
+            self?.render()   // re-arrange so the tab bars drop the badge
         }
         PiP.shared.toggle(windowID: id, pid: w.app.processIdentifier) { [weak self, weak leaf] in
             guard let self, let leaf else { return }
             self.revealForPiP(leaf, inWorkspace: ws)
         }
         pipSourceLeaf = leaf            // cover its on-screen tile so the video isn't shown twice
-        updateLetterboxFill()
+        leaf.isPiPSource = true         // its tab gets a PiP badge
+        // If the source is one tab of a group, show a SIBLING in the tile instead: the video already
+        // plays in the floating PiP, so the tile is better spent on the other tab than on a black
+        // cover of the very window you're watching. Focus follows what's now visible. A lone tile has
+        // no sibling to show, so it keeps the letterbox cover.
+        if let group = nearestTabbed(from: leaf), group.children.count > 1,
+           let i = group.children.firstIndex(where: { $0 === leaf || contains($0, leaf) }) {
+            group.selected = (i + 1) % group.children.count
+            focused = group.children[group.selected].firstVisibleLeaf()
+        }
+        render()
     }
 
     /// Return from the PiP onto the source window: switch to its workspace, re-select it along its

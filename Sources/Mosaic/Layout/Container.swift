@@ -21,6 +21,12 @@ final class Container {
     /// The window, for leaves only. A `var` so a leaf can adopt a replacement window in
     /// place — e.g. when an app swaps one window for another (IINA's launcher → video).
     var window: ManagedWindow?
+    /// Set on the leaf currently mirrored in the picture-in-picture (maintained by the WindowManager).
+    /// The tab bar badges it, so you can tell at a glance where the floating PiP's video comes from
+    /// even though the tile itself is showing a sibling tab.
+    var isPiPSource = false
+    /// Does this subtree hold the PiP source? A tab entry can be a nested group, not a bare leaf.
+    var containsPiPSource: Bool { isPiPSource || children.contains { $0.containsPiPSource } }
     /// Selected child index, for `.tabbed` containers. Always kept in range.
     var selected = 0 {
         didSet {
@@ -366,6 +372,7 @@ final class Container {
         bar.tabView.rows = []
         bar.tabView.titles = children.map { $0.title }
         bar.tabView.icons = children.map { $0.appIcon }
+        bar.tabView.pipFlags = children.map { $0.containsPiPSource }
         bar.tabView.selectedIndex = selected
         bar.place(at: strip)
         if visibleOnly {
@@ -386,14 +393,17 @@ final class Container {
         let bar = ensureTabBar()
         var rows: [[String]] = []
         var rowIcons: [[NSImage?]] = []
+        var rowPips: [[Bool]] = []
         var selSeg: [Int] = []
         for child in children {
             if !child.isLeaf, child.layout == .tabbed, !child.stacked, child.children.count > 1 {
                 rows.append(child.children.map { $0.title })
                 rowIcons.append(child.children.map { $0.appIcon })
+                rowPips.append(child.children.map { $0.containsPiPSource })
                 selSeg.append(min(max(child.selected, 0), child.children.count - 1))
             } else {
-                rows.append([child.title]); rowIcons.append([child.appIcon]); selSeg.append(0)
+                rows.append([child.title]); rowIcons.append([child.appIcon])
+                rowPips.append([child.containsPiPSource]); selSeg.append(0)
             }
         }
         // Clamp so a tall stack in a short pane can't produce a negative content height.
@@ -404,6 +414,7 @@ final class Container {
         bar.tabView.titles = []
         bar.tabView.rows = rows
         bar.tabView.rowIcons = rowIcons
+        bar.tabView.rowPipFlags = rowPips
         bar.tabView.selectedSeg = selSeg
         bar.tabView.selectedRow = selected
         bar.place(at: strip)

@@ -10,6 +10,9 @@ final class TabBarView: NSView {
     // Horizontal tabbed mode.
     var titles: [String] = [] { didSet { guard oldValue != titles else { return }; needsDisplay = true; positionUnderline(animated: false) } }
     var icons: [NSImage?] = [] { didSet { needsDisplay = true } }
+    /// Per-tab: this window is currently mirrored in the picture-in-picture → badge it.
+    var pipFlags: [Bool] = [] { didSet { needsDisplay = true } }
+    var rowPipFlags: [[Bool]] = [] { didSet { needsDisplay = true } }
     var selectedIndex = 0 { didSet { guard oldValue != selectedIndex else { return }; needsDisplay = true; positionUnderline(animated: true) } }
 
     // The active-tab underline is its own layer-backed subview so it slides via Core Animation
@@ -157,7 +160,8 @@ final class TabBarView: NSView {
             let rect = NSRect(x: CGFloat(index) * segmentWidth, y: 0, width: segmentWidth, height: bounds.height)
             drawSegment(title, icon: icons.indices.contains(index) ? icons[index] : nil,
                         in: rect, active: index == selectedIndex,
-                        hovered: hover == HoverKey(row: 0, seg: index))
+                        hovered: hover == HoverKey(row: 0, seg: index),
+                        pip: pipFlags.indices.contains(index) && pipFlags[index])
         }
     }
 
@@ -169,13 +173,14 @@ final class TabBarView: NSView {
             for (s, title) in segs.enumerated() {
                 let rect = NSRect(x: CGFloat(s) * segW, y: rowY, width: segW, height: rowHeight)
                 let icon = rowIcons.indices.contains(r) && rowIcons[r].indices.contains(s) ? rowIcons[r][s] : nil
+                let isPip = rowPipFlags.indices.contains(r) && rowPipFlags[r].indices.contains(s) && rowPipFlags[r][s]
                 drawSegment(title, icon: icon, in: rect, active: r == selectedRow && s == activeSeg,
-                            hovered: hover == HoverKey(row: r, seg: s))
+                            hovered: hover == HoverKey(row: r, seg: s), pip: isPip)
             }
         }
     }
 
-    private func drawSegment(_ title: String, icon: NSImage?, in rect: NSRect, active: Bool, hovered: Bool = false) {
+    private func drawSegment(_ title: String, icon: NSImage?, in rect: NSRect, active: Bool, hovered: Bool = false, pip: Bool = false) {
         let cfg = Config.shared
         let fontSize = CGFloat(cfg.tabFontSize)
         let accent = Config.color(from: cfg.tabActiveColor)
@@ -231,9 +236,24 @@ final class TabBarView: NSView {
             .paragraphStyle: style,
             .shadow: shadow,
         ]
+        // "Mirrored in the PiP" badge, right-aligned — the tile may be showing a sibling tab, so this
+        // is what tells you where the floating video is coming from. Drawn before the label so the
+        // title truncates against it instead of running underneath.
+        var textRight = rect.maxX - 8
+        if pip {
+            let s = min(rect.height - 10, 13)
+            let box = NSRect(x: rect.maxX - 8 - s, y: rect.midY - s / 2, width: s, height: s)
+            let conf = NSImage.SymbolConfiguration(pointSize: s, weight: .semibold)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [accent]))
+            NSImage(systemSymbolName: "pip.fill", accessibilityDescription: "Mirrored in picture-in-picture")?
+                .withSymbolConfiguration(conf)?
+                .draw(in: box, from: .zero, operation: .sourceOver, fraction: active ? 1 : 0.75)
+            textRight = box.minX - 6
+        }
+
         let textHeight = fontSize + 4
         let textRect = NSRect(x: textLeft, y: rect.midY - textHeight / 2,
-                              width: max(0, rect.maxX - textLeft - 8), height: textHeight)
+                              width: max(0, textRight - textLeft), height: textHeight)
         (title as NSString).draw(in: textRect, withAttributes: attrs)
     }
 
