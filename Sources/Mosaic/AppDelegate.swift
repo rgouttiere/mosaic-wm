@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presentConfigIssues()   // surface any problems from the startup config load
         startWatchingConfig()   // hot-reload config.json on save (no manual reload-config)
         updateTrackpadGestures()   // opt-in native 3-finger swipe → workspace nav
+        updateWindowDrag()         // hold-modifier + left-drag to move any window
 
         // CLI channel: `mosaic <action>` posts this; run the matching action on the main thread.
         DistributedNotificationCenter.default().addObserver(
@@ -275,6 +276,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         g.start()
     }
+    /// Wire the "drag any window" capture (modifier-hold + left-drag). Reconfigured on hot-reload so a
+    /// changed `dragModifier` takes effect immediately (empty = tear the tap down).
+    private func updateWindowDrag() {
+        let c = WindowDragCapture.shared
+        c.beginGrab = { [weak self] p in self?.windowManager.beginWindowGrab(at: p) ?? false }
+        c.moveGrab  = { [weak self] p in self?.windowManager.moveWindowGrab(to: p) }
+        c.endGrab   = { [weak self] p in self?.windowManager.endWindowGrab(at: p) }
+        c.configure(modifier: Config.shared.dragModifier)
+    }
+
     @objc private func clearLayout() { windowManager.clear() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.shared.configURL) }
     @objc private func dumpLayout() { windowManager.dumpLayout() }
@@ -475,6 +486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyExposeSwitch() // re-arm the ⌘Tab tap with the (possibly changed) combo
         rebuildMenu()       // refresh combos shown in the menu
         updateTrackpadGestures()   // (re)arm or disarm the trackpad swipe on config change
+        updateWindowDrag()         // (re)configure the drag-any-window chord
         presentConfigIssues()   // warn if the edited config has problems
         NSLog("Mosaic: config reloaded")
     }

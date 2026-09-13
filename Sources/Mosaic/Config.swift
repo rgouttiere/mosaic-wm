@@ -40,6 +40,7 @@ final class Config {
     var warpMouseOnSwitch: Bool = true
     var workspaceWrap: Bool = true   // cycle workspaces circularly (Ctrl+h/l, 3-finger swipe); false = stop at the ends
     var trackpadGestures: Bool = false   // opt-in: 3-finger horizontal swipe → workspace prev/next (raw MultitouchSupport)
+    var dragModifier: String = "ctrl alt cmd"   // hold this chord + left-drag anywhere to move ANY window (tab=center, split=edge); "" = off
     var ejectNativeFullscreen: Bool = false  // v2: send a managed window that enters native full screen back to windowed (strict emulated)
     var autoFloatDialogs: Bool = false       // v2: auto-float standard windows with no full-screen button (dialogs/palettes), except terminals
     static let defaultFloatingApps: Set<String> = [
@@ -205,6 +206,7 @@ final class Config {
         var warpMouseOnSwitch: Bool?
         var workspaceWrap: Bool?
         var trackpadGestures: Bool?
+        var dragModifier: String?
         var ejectNativeFullscreen: Bool?
         var autoFloatDialogs: Bool?
         var defaultMode: String?
@@ -247,7 +249,7 @@ final class Config {
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
-            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, aspectFitApps, rules, showWorkspaceHUD, notchHud, hudPosition
+            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, dragModifier, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, aspectFitApps, rules, showWorkspaceHUD, notchHud, hudPosition
             case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius, inactiveBorderOpacity, inactiveMonitorDim
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
@@ -288,6 +290,7 @@ final class Config {
             warpMouseOnSwitch = v(.warpMouseOnSwitch)
             workspaceWrap = v(.workspaceWrap)
             trackpadGestures = v(.trackpadGestures)
+            dragModifier = v(.dragModifier)
             ejectNativeFullscreen = v(.ejectNativeFullscreen)
             autoFloatDialogs = v(.autoFloatDialogs)
             defaultMode = v(.defaultMode)
@@ -399,6 +402,7 @@ final class Config {
         warpMouseOnSwitch = true
         workspaceWrap = true
         trackpadGestures = false
+        dragModifier = "ctrl alt cmd"
         ejectNativeFullscreen = false
         autoFloatDialogs = false
         floatingApps = Config.defaultFloatingApps
@@ -448,7 +452,7 @@ final class Config {
             "gap", "outerGap", "externalBarTop", "notchBarOffset", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
             "focusGlowRadius", "focusGlowFade",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
-            "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
+            "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "dragModifier", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
             "floatingApps", "aspectFitApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
             "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "inactiveBorderOpacity", "inactiveMonitorDim", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
@@ -503,6 +507,7 @@ final class Config {
         if let w = file.warpMouseOnSwitch { warpMouseOnSwitch = w }
         if let b = file.workspaceWrap { workspaceWrap = b }
         if let g = file.trackpadGestures { trackpadGestures = g }
+        if let s = file.dragModifier { dragModifier = s }
         if let b = file.ejectNativeFullscreen { ejectNativeFullscreen = b }
         if let b = file.autoFloatDialogs { autoFloatDialogs = b }
         if let m = file.defaultMode { defaultMode = m }
@@ -599,6 +604,7 @@ final class Config {
             "warpMouseOnSwitch": warpMouseOnSwitch,
             "workspaceWrap": workspaceWrap,
             "trackpadGestures": trackpadGestures,
+            "dragModifier": dragModifier,
             "tabBarHeight": Double(tabBarHeight),
             "defaultMode": defaultMode,
             "floatingApps": Array(floatingApps).sorted(),

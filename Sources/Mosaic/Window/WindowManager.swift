@@ -135,6 +135,7 @@ final class WindowManager {
     /// True while a tab is being dragged — freeze the active desktop so the drop
     /// re-renders the source screen correctly (mouse crossing screens won't switch it).
     var tabDragging = false
+    var grabbedLeaf: Container?   // the leaf being moved by a modifier-hold drag or keyboard grab
     let workspaceHUD = WorkspaceHUD()
     let notchHUD = NotchHUD()
     /// Notifies the menu bar of the current workspace number (nil = unknown/unmanaged).

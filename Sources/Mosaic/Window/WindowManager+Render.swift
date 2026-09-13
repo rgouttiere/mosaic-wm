@@ -145,7 +145,12 @@ extension WindowManager {
             // filled or already centred, so a settled zoom re-writes nothing (no per-render flicker).
             let cur = w.frame.map { Geometry.flip($0) } ?? area
             let fills = cur.width >= area.width - 8 && cur.height >= area.height - 8
-            let centeredAlready = !fills && abs(cur.midX - area.midX) < 3 && abs(cur.midY - area.midY) < 3
+            // A settled letterboxed zoom touches the screen on its LONG axis (fit-to-width or
+            // fit-to-height). Require that before trusting "already centred" — otherwise a small
+            // aspect-fit window that happens to sit dead-centre (e.g. IINA alone in the middle column,
+            // centred by aspectFit) is mistaken for a finished zoom and never blown up.
+            let spansOneAxis = cur.width >= area.width - 8 || cur.height >= area.height - 8
+            let centeredAlready = !fills && spansOneAxis && abs(cur.midX - area.midX) < 3 && abs(cur.midY - area.midY) < 3
             var frameForBorder = area
             var box: NSRect?   // the centred window rect to letterbox around; nil = fills, no bars
             if fills {

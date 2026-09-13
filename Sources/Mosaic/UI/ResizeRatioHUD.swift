@@ -12,7 +12,10 @@ final class ResizeRatioHUD {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 22),
                           styleMask: .borderless, backing: .buffered, defer: false)
         window.isOpaque = false; window.backgroundColor = .clear; window.hasShadow = true
-        window.level = .floating; window.ignoresMouseEvents = true
+        // Above the letterbox fill + window borders (all at .floating), which are re-ordered front on
+        // every live-resize frame — otherwise the gap fill of an aspect tile covers the ratio readout.
+        window.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 2)
+        window.ignoresMouseEvents = true
         window.collectionBehavior = [.ignoresCycle, .moveToActiveSpace]
         effect.material = .hudWindow; effect.blendingMode = .behindWindow; effect.state = .active
         effect.wantsLayer = true

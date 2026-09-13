@@ -274,9 +274,15 @@ extension WindowManager {
     /// Move a dragged tab into whatever group/window is under the drop point — works
     /// across desktops AND screens (source and target may be in different trees).
     func dropTab(from source: Container, index: Int, at point: NSPoint) {
-        dropHighlight.hide()   // the drag is ending — clear the highlight now
         guard source.children.indices.contains(index) else { return }
-        let dragged = source.children[index]
+        dropLeaf(source.children[index], at: point)
+    }
+
+    /// Drop an already-resolved leaf onto the tile under `point`: center = tab into it, an edge =
+    /// split beside/under the whole tab group. Shared by the tab-strip drag, the modifier-hold
+    /// "drag any window" capture, and the keyboard grab mode — they all just supply a leaf + a point.
+    func dropLeaf(_ dragged: Container, at point: NSPoint) {
+        dropHighlight.hide()   // the drag is ending — clear the highlight now
 
         // Resolve the drop target across all managed screens/desktops.
         guard let dropScreen = NSScreen.screens.first(where: { $0.frame.contains(point) }),
@@ -344,12 +350,66 @@ extension WindowManager {
         } else {
             sourceState.focused = nil
         }
+        // The moved window lands in a new (often much smaller) tile. Drop its frame cache so arrange
+        // re-issues the AX write even if the target happens to match a stale cached frame. Keep any
+        // learned aspect ratio (the video aspect is invariant across a move) — arrange refits it to the
+        // new tile directly. Resetting it here would force a re-learn from IINA's still-resizing frame,
+        // which reads a transient shape and mis-fits until a manual resize (the bug we're fixing).
+        dragged.forEachLeaf { $0.window?.invalidateFrameCache() }
+
         arrangeState(sourceState)
         arrangeState(targetState)
         if let sr = sourceState.root { wireTabCallbacks(sr) }
         if let tr = targetState.root { wireTabCallbacks(tr) }
         render()   // refresh overlays of the active desktop
+        // A lazily-resizing app (IINA) may not have applied its new tile yet when render() read it
+        // back, so re-settle once shortly after — this is what a manual resize was doing by hand.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in self?.render() }
         saveNow()
+    }
+
+    // MARK: - Grab any window (modifier-hold drag + keyboard grab mode)
+
+    /// The visible tiled leaf under a Cocoa-global point, across every screen/desktop. nil over empty
+    /// space, a floating window, or an unmanaged area.
+    func leafAt(_ point: NSPoint) -> Container? {
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }),
+              let spaceID = currentWorkspace(for: screen),
+              let root = spaces[spaceID]?.root else { return nil }
+        return visibleLeaf(at: point, in: root)
+    }
+
+    /// Start dragging whatever tiled window sits under `point` (the modifier-hold capture calls this on
+    /// mouse-down). Reuses the tab-drag ghost + drop-highlight so it looks identical to a tab drag.
+    @discardableResult
+    func beginWindowGrab(at point: NSPoint) -> Bool {
+        guard let leaf = leafAt(point), leaf.window != nil else { return false }
+        grabbedLeaf = leaf
+        tabDragging = true
+        TabDragGhost.shared.show(leaf.title, at: point)
+        updateDropHighlight(at: point)
+        return true
+    }
+
+    func moveWindowGrab(to point: NSPoint) {
+        guard grabbedLeaf != nil else { return }
+        TabDragGhost.shared.move(to: point)
+        updateDropHighlight(at: point)
+    }
+
+    func endWindowGrab(at point: NSPoint) {
+        TabDragGhost.shared.hide()
+        guard let leaf = grabbedLeaf else { return }
+        grabbedLeaf = nil
+        tabDragging = false
+        dropLeaf(leaf, at: point)   // center = tab, edge = split (identical to a tab drop)
+    }
+
+    func cancelWindowGrab() {
+        TabDragGhost.shared.hide()
+        dropHighlight.hide()
+        grabbedLeaf = nil
+        tabDragging = false
     }
 
     /// Highlight the region the drop will land in — the full tile (center = tab) or the half it
