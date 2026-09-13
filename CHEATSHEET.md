@@ -10,6 +10,10 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
   - **Tabbed** — **⌘⌥S**: one window shown, a horizontal tab strip.
   - **Stacked** — **⌘⌥⇧S**: one window shown, a vertical title list. Can hold tab groups / splits (drawn inline). Drag a row to reorder it, or out of the bar to detach/move it (like horizontal tabs).
   - **Drag & drop**: drag a tab and drop it on another tile — the **centre** tabs into it, an **edge** (top/bottom/left/right) splits beside/under it. A frosted highlight previews the exact landing slice.
+- **Moving a window anywhere** (three ways, all landing it identically):
+  - **Drag its tab** (above) — needs the window to be in a tab strip.
+  - **Drag any window**: hold **`dragModifier`** (default **⌃⌥⌘**) and left-drag *anywhere* on a window — works for a lone column with no tab strip. Same centre/edge rule. Set `dragModifier: ""` to disable.
+  - **Keyboard grab** (**⌘⌥M**): picks up the focused window, then **hjkl**/arrows aim a target tile · **⏎** tabs it into the target · **⇧+h/j/k/l** splits it on that side (**⇧J** = below) · **Esc** or a click cancels. This is how you put a tabbed window *under* another one without the mouse.
 - **Preselect** (i3-style): **⌘⌥V** / **⌘⌥H** arm a split (below / right); the **next** window opened nests there. A tint on the focused window's edge shows where. Moving focus cancels it.
 - **Workspaces** numbered 1–9 (unique, across screens). Assign a desktop to a number, then jump to it. Optionally **name** them via `workspaceNames` in config (the number stays the key; the name is just a label). **`workspaceWrap`** (default `true`): cycling (Ctrl+←/→ or the 3-finger swipe) wraps around; set `false` to stop at the first/last workspace.
 - **Quick-switcher / command palette** (**⌘⌥P**): a fuzzy popup. **"Go"** mode jumps to a workspace (by name/number) or window (by title) — grouped under section headers, most-recent first, with per-workspace window counts and app icons. **←/→** flips to **"Actions"** mode to run any Mosaic action. **↑/↓** move (skipping headers) · **⏎** go/run · **⌘⏎** move the focused window to the highlighted workspace · **Esc** dismiss.
@@ -66,6 +70,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 | Next / previous tab | ⌘⌥. / ⌘⌥, |
 | Toggle floating | ⌘⌥F |
 | Zoom / monocle | ⌘⌥↩ |
+| Grab (move window: hjkl aim, ⏎ tab, ⇧hjkl split) | ⌘⌥M |
 
 ### Workspaces & screens
 | Action | Shortcut |
@@ -100,7 +105,7 @@ mosaic toggle-stacked
 mosaic dump-layout       # write /tmp/mosaic-dump.txt
 ```
 
-Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `unassign-N`, `unassign`, `switcher`, `hints`, `expose`, `pip`, `workspace-back`, …) plus `reload-config` and `dump-layout`.
+Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `unassign-N`, `unassign`, `switcher`, `hints`, `expose`, `pip`, `grab`, `workspace-back`, …) plus `reload-config` and `dump-layout`.
 
 A binding value may list **several combos**, comma-separated — e.g. `"resize-up": "ctrl alt k, ctrl alt up"` binds an action to both. An empty value (`""`) disables the binding.
 

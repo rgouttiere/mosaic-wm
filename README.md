@@ -10,6 +10,7 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 
 - **Tab & stack containers across apps** — merge any windows (Firefox + Terminal + Notes…) into one tile as tabs (horizontal bar) or a stack (vertical title list). Nest them inside splits.
 - **i3-style layout tree** — split H/V, tabbed, stacked, arbitrarily nested; keyboard-driven focus / move / resize, plus mouse resize and drag & drop of tabs **and** stacked rows to reorder or detach them (including across groups and screens).
+- **Move a window anywhere** — hold `dragModifier` (default ⌃⌥⌘) and drag *any* window (even a lone column with no tab strip), or use the keyboard grab (`grab`, ⌘⌥M): aim a target tile with hjkl, **⏎** to tab into it, **⇧+hjkl** to split on that side. Dropping in the centre tabs, an edge splits.
 - **i3 preselect** — arm a split direction (`⌘⌥V`/`⌘⌥H`); the next window nests there.
 - **Numbered workspaces** (1–9, assignable, unique across screens) — optionally **named** (i3-style); **per-app scratchpad**, **zoom/monocle**.
 - **Quick-switcher / command palette** (`⌘⌥P`) — fuzzy-jump to any workspace or window (grouped, recency-ordered, with window counts + app icons), or flip with `←/→` to a **command palette** running any Mosaic action. `⌘⏎` moves the focused window to a workspace; `⌘⌥B` bounces to the previous workspace (i3 back-and-forth).
@@ -82,6 +83,7 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `defaultMode` | `"columns"` | How new windows are auto-placed: `columns`, `grouped` (by app), `tabbed`, or `master-stack`. |
 | `workspaceWrap` | `true` | Cycling workspaces (Ctrl+←/→, 3-finger swipe) wraps around; `false` stops at the first/last. |
 | `trackpadGestures` | `false` | Native 3-finger swipes → workspaces + exposé (MultitouchSupport). Disable macOS's own 3/4-finger gestures first. |
+| `dragModifier` | `"ctrl alt cmd"` | Modifier chord to hold to drag **any** window (not just a tab) — centre-drop tabs, edge-drop splits. `""` disables it. |
 | `tabBarHeight` | `22` | Height of the tab/stack bar. |
 | `warpMouseOnSwitch` | `true` | Move the mouse onto a workspace when you switch to it by shortcut (keeps the mouse-follows-focus model consistent). |
 | `workspaceNames` | `{}` | i3-style labels, e.g. `{ "2": "web", "3": "code" }`. The number stays the identity/shortcut key; the name is display-only. |
