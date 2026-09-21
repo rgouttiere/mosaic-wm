@@ -19,6 +19,27 @@ enum Geometry {
                height: rect.height)
     }
 
+    /// A learned tile minimum is never allowed past this share of the pair it belongs to. Strictly
+    /// below 1/2 by construction — see `resizeLimits`.
+    static let maxLearnedMinShare: CGFloat = 0.45
+
+    /// Travel limits for the split point between two adjacent tiles, as ratios of their parent.
+    ///
+    /// `pair` is the two tiles' ratios summed, `axis` the parent's extent along the split, and
+    /// `minI`/`minJ` each tile's known minimum in POINTS (nil → the 60pt baseline). Each minimum is
+    /// capped at `maxLearnedMinShare` of the pair, which is strictly below half, so `lo < hi` always
+    /// holds. Capping at half instead let two large minimums meet at `pair/2`: the range collapsed
+    /// to a single point and the divider froze dead centre, unmovable by mouse OR keyboard until the
+    /// learned minimums were dropped. Pure + unit-tested.
+    static func resizeLimits(pair: CGFloat, axis: CGFloat,
+                             minI: CGFloat?, minJ: CGFloat?) -> (lo: CGFloat, hi: CGFloat) {
+        guard pair > 0, axis > 0 else { return (0, 0) }
+        let cap = pair * maxLearnedMinShare
+        let lo = min(cap, max(0.05, (minI ?? 60) / axis))
+        let hi = pair - min(cap, max(0.05, (minJ ?? 60) / axis))
+        return (lo, hi)
+    }
+
     /// The largest box of the given width/height `aspect` that fits inside `tile`, centred. Used to
     /// place an aspect-locked window (IINA) inside its tile without overshooting — the leftover gap is
     /// letterboxed. `aspect` ≤ 0 or a degenerate tile → the tile unchanged. Pure + unit-tested.

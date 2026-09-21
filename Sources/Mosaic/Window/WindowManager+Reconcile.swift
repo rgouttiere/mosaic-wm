@@ -29,13 +29,18 @@ extension WindowManager {
                 if AX.isMinimized(w.element) { AX.setMinimized(w.element, false) }
             }
         }
+        // Learned resize minimums are derived state, re-learned on the next drag — and a poisoned
+        // entry (a window that read back bigger than its tile) is exactly the kind of stuck this key
+        // is for: it narrows or freezes a split and used to survive everything short of a restart.
+        resizeMinCache.removeAll()
+        lastResizePair = nil
         // A "lost"/stuck-off-screen window got there by an external move we didn't track, so its
         // frame cache is stale — drop it, else reassert recomputes the same rect and setCocoaFrame
         // skips the corrective write (the heal would no-op on exactly the windows it's meant to save).
         invalidateAllFrameCaches()
         reassertAllWorkspaces()
         updateFocusIndicator()
-        NSLog("Mosaic: recover — un-minimized stuck windows + re-asserted all workspaces")
+        NSLog("Mosaic: recover — un-minimized stuck windows + re-asserted all workspaces + dropped resize minimums")
     }
 
     /// Cycle the build strategy for the current desktop and rebuild it.

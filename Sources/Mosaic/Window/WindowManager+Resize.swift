@@ -53,6 +53,17 @@ extension WindowManager {
         node.children.forEach { collectBoundaries($0, into: &out) }
     }
 
+    /// Travel limits for the split point of the pair (i, i+1) — the learned minimums looked up,
+    /// the arithmetic in `Geometry.resizeLimits`. Shared by the live clamp and the end-of-gesture
+    /// re-clamp, which used to carry two copies of it.
+    func resizeBounds(_ c: Container, _ i: Int, axis: CGFloat) -> (lo: CGFloat, hi: CGFloat, pair: CGFloat) {
+        let pair = c.ratios[i] + c.ratios[i + 1]
+        let limits = Geometry.resizeLimits(pair: pair, axis: axis,
+                                           minI: resizeMinCache[ObjectIdentifier(c.children[i])],
+                                           minJ: resizeMinCache[ObjectIdentifier(c.children[i + 1])])
+        return (limits.lo, limits.hi, pair)
+    }
+
     func applyResize(_ handle: ResizeHandle, mouse: NSPoint) {
         guard let c = handle.container, c.children.count > handle.index + 1 else { return }
         c.normalizeRatios()
@@ -68,7 +79,7 @@ extension WindowManager {
     }
 
     /// Drop `resizeMinCache` entries whose container has left every Space's tree. The cache is
-    /// keyed by object identity and otherwise cleared only in `build()`, so a container that was
+    /// keyed by object identity and otherwise cleared only in `build()` / `recover()`, so one that was
     /// pair-resized and then collapsed (e.g. by a window close) would keep its learned minimum
     /// for the manager's lifetime — a slow, bounded leak. Cheap: the cache only ever holds
     /// pair-resized split children, and this runs only when a reconcile actually removed a leaf.
@@ -91,18 +102,12 @@ extension WindowManager {
         let f = c.lastFrame
         guard f.width > 0, f.height > 0 else { return }
         let axis = horizontal ? f.width : f.height
-        let pair = c.ratios[i] + c.ratios[i + 1]
-        let idI = ObjectIdentifier(c.children[i]), idJ = ObjectIdentifier(c.children[i + 1])
+        let b = resizeBounds(c, i, axis: axis)
+        let pair = b.pair
 
-        func clamp(_ value: CGFloat) -> CGFloat {
-            let minI = min(pair / 2, max(0.05, (resizeMinCache[idI] ?? 60) / axis))
-            let minJ = min(pair / 2, max(0.05, (resizeMinCache[idJ] ?? 60) / axis))
-            let lo = minI, hi = pair - minJ
-            return lo <= hi ? min(hi, max(lo, value)) : pair / 2
-        }
         func draw() { live ? scheduleLiveRender() : render() }
 
-        c.ratios[i] = clamp(proposed)
+        c.ratios[i] = min(b.hi, max(b.lo, proposed))
         c.ratios[i + 1] = pair - c.ratios[i]
         draw()
 
@@ -126,6 +131,13 @@ extension WindowManager {
     /// of a gesture (mouse-up / keyboard settle), not per event.
     func learnResizeMins() {
         guard let (c, i, horizontal) = lastResizePair, c.children.indices.contains(i + 1) else { return }
+        // One-shot: a pair is learned at the end of ITS OWN gesture. Leaving it armed let a later
+        // mouse-up or settle re-read the same pair long after its windows had moved on (monocle,
+        // fullscreen, a workspace switch) and bank that unrelated size as a minimum.
+        defer { lastResizePair = nil }
+        // Monocle blows the focused window up to the whole screen, so every frame read below would
+        // be that screen size rather than anything the tile could shrink to.
+        guard active?.isZoomed != true else { return }
         let f = c.lastFrame
         guard f.width > 0, f.height > 0 else { return }
         let axis = horizontal ? f.width : f.height
@@ -133,14 +145,21 @@ extension WindowManager {
         let idI = ObjectIdentifier(c.children[i]), idJ = ObjectIdentifier(c.children[i + 1])
         let actI = visibleAxisExtent(of: c.children[i], horizontal: horizontal)
         let actJ = visibleAxisExtent(of: c.children[i + 1], horizontal: horizontal)
-        var learned = false
-        if actI > c.ratios[i] * axis + 2, actI > (resizeMinCache[idI] ?? 0) { resizeMinCache[idI] = actI; learned = true }
-        if actJ > c.ratios[i + 1] * axis + 2, actJ > (resizeMinCache[idJ] ?? 0) { resizeMinCache[idJ] = actJ; learned = true }
+        // Never bank more than the pair's cap: a larger value buys no range (resizeBounds clamps it
+        // anyway) and only makes a stale entry indistinguishable from a real minimum.
+        let cap = pair * Geometry.maxLearnedMinShare * axis
+        func bank(_ id: ObjectIdentifier, actual: CGFloat, tile: CGFloat) -> Bool {
+            guard actual > tile + 2 else { return false }        // it fit — nothing to learn
+            let value = min(actual, cap)
+            guard value > (resizeMinCache[id] ?? 0) else { return false }
+            resizeMinCache[id] = value
+            return true
+        }
+        var learned = bank(idI, actual: actI, tile: c.ratios[i] * axis)
+        if bank(idJ, actual: actJ, tile: c.ratios[i + 1] * axis) { learned = true }
         guard learned else { return }
-        let minI = min(pair / 2, max(0.05, (resizeMinCache[idI] ?? 60) / axis))
-        let minJ = min(pair / 2, max(0.05, (resizeMinCache[idJ] ?? 60) / axis))
-        let lo = minI, hi = pair - minJ
-        c.ratios[i] = lo <= hi ? min(hi, max(lo, c.ratios[i])) : pair / 2
+        let b = resizeBounds(c, i, axis: axis)
+        c.ratios[i] = min(b.hi, max(b.lo, c.ratios[i]))
         c.ratios[i + 1] = pair - c.ratios[i]
         // Caller renders (a full render() at gesture end, which also restores the hidden tabs the
         // live path parked off-screen) — no render here.
@@ -152,7 +171,11 @@ extension WindowManager {
         var maxSize: CGFloat = 0
         func walk(_ n: Container) {
             if n.isLeaf {
-                if let fr = n.window?.frame { maxSize = max(maxSize, horizontal ? fr.width : fr.height) }
+                // A fullscreen window reports the whole display, not what it can shrink to (`frame`
+                // is a live AX read) — banking that would pin its split at the cap for good.
+                if let w = n.window, !w.isFullscreen, let fr = w.frame {
+                    maxSize = max(maxSize, horizontal ? fr.width : fr.height)
+                }
             } else if n.layout == .tabbed {
                 let idx = min(max(n.selected, 0), n.children.count - 1)
                 if n.children.indices.contains(idx) { walk(n.children[idx]) }

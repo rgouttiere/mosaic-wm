@@ -29,6 +29,7 @@ enum SelfTest {
         containerTests(h)
         configTests(h)
         windowManagerTests(h)
+        resizeLimitTests(h)
         print("MosaicSelfTest: \(h.passed) passed, \(h.failed) failed")
         return h.failed == 0 ? 0 : 1
     }
@@ -146,6 +147,61 @@ enum SelfTest {
             let (map, issues) = Config.parseWorkspaceMonitors(["2": 0])  // monitor index must be ≥ 1
             h.check(map.isEmpty, "wsMonitors: non-positive index dropped")
             h.eq(issues.count, 1, "wsMonitors: non-positive index reported")
+        }
+    }
+
+    // MARK: - Geometry: split travel limits (RESIZE-NEVER-FROZEN)
+
+    private static func resizeLimitTests(_ h: Harness) {
+        // Nothing learned yet: the 60pt baseline on a 1000pt axis leaves almost the whole range.
+        do {
+            let l = Geometry.resizeLimits(pair: 1, axis: 1000, minI: nil, minJ: nil)
+            h.check(abs(l.lo - 0.06) < 0.0001, "baseline: lo is 60pt of the axis")
+            h.check(abs(l.hi - 0.94) < 0.0001, "baseline: hi is the mirror of lo")
+        }
+        // The regression: two tiles that both read back oversized (a fullscreen window, an app that
+        // hadn't applied its shrink yet) used to push both minimums to pair/2, collapsing lo == hi
+        // and freezing the divider dead centre until Mosaic was restarted.
+        do {
+            let l = Geometry.resizeLimits(pair: 1, axis: 1000, minI: 900, minJ: 900)
+            h.check(l.lo < l.hi, "two oversized minimums still leave travel")
+            h.check(abs(l.lo - 0.45) < 0.0001, "oversized minI is capped at the share")
+            h.check(abs(l.hi - 0.55) < 0.0001, "oversized minJ is capped at the share")
+        }
+        // One side poisoned: the split keeps the range on the other side rather than centring.
+        do {
+            let l = Geometry.resizeLimits(pair: 1, axis: 1000, minI: 900, minJ: 100)
+            h.check(abs(l.lo - 0.45) < 0.0001, "asymmetric: capped side")
+            h.check(abs(l.hi - 0.9) < 0.0001, "asymmetric: honest side keeps its real minimum")
+        }
+        // A narrow pair (one boundary of a 5-way split) caps proportionally, not absolutely.
+        do {
+            let l = Geometry.resizeLimits(pair: 0.2, axis: 1000, minI: 900, minJ: 900)
+            h.check(l.lo < l.hi, "narrow pair: still movable")
+            h.check(abs(l.lo - 0.09) < 0.0001, "narrow pair: cap follows the pair")
+        }
+        // Degenerate inputs collapse to an empty range instead of producing NaN ratios.
+        do {
+            h.check(Geometry.resizeLimits(pair: 0, axis: 1000, minI: nil, minJ: nil) == (0, 0),
+                    "degenerate pair is rejected")
+            h.check(Geometry.resizeLimits(pair: 1, axis: 0, minI: nil, minJ: nil) == (0, 0),
+                    "degenerate axis is rejected")
+        }
+        // The load-bearing invariant, swept: whatever ends up in the cache, the split point keeps
+        // somewhere to go. This is what makes the freeze unreachable rather than merely unlikely.
+        do {
+            var frozen = 0
+            for pair in [CGFloat(0.05), 0.2, 0.5, 1.0] {
+                for axis in [CGFloat(200), 800, 3000] {
+                    for minI in [nil, CGFloat(0), 60, 500, 5000] as [CGFloat?] {
+                        for minJ in [nil, CGFloat(0), 60, 500, 5000] as [CGFloat?] {
+                            let l = Geometry.resizeLimits(pair: pair, axis: axis, minI: minI, minJ: minJ)
+                            if !(l.lo < l.hi) { frozen += 1 }
+                        }
+                    }
+                }
+            }
+            h.eq(frozen, 0, "no combination of learned minimums can freeze a split")
         }
     }
 
