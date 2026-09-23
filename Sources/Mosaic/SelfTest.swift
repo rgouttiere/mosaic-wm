@@ -30,6 +30,7 @@ enum SelfTest {
         configTests(h)
         windowManagerTests(h)
         resizeLimitTests(h)
+        coverTests(h)
         print("MosaicSelfTest: \(h.passed) passed, \(h.failed) failed")
         return h.failed == 0 ? 0 : 1
     }
@@ -148,6 +149,29 @@ enum SelfTest {
             h.check(map.isEmpty, "wsMonitors: non-positive index dropped")
             h.eq(issues.count, 1, "wsMonitors: non-positive index reported")
         }
+    }
+
+    // MARK: - Geometry: a window that owns a whole display (GAME-COVERS-SCREEN)
+
+    private static func coverTests(_ h: Harness) {
+        let screen = CGRect(x: 0, y: 0, width: 3440, height: 1440)
+        // The case this exists for: a game in borderless full screen, exactly display-sized.
+        h.check(Geometry.covers(screen: screen, window: screen), "exact display fill counts")
+        // Slack, so rounding to the display mode doesn't miss.
+        h.check(Geometry.covers(screen: screen, window: CGRect(x: 0, y: 0, width: 3439, height: 1439)),
+                "one pixel short still counts")
+        h.check(Geometry.covers(screen: screen, window: CGRect(x: -20, y: -20, width: 3480, height: 1480)),
+                "larger than the display counts")
+        // A maximised window that stops at the menu bar is NOT the whole display.
+        h.check(!Geometry.covers(screen: screen, window: CGRect(x: 0, y: 32, width: 3440, height: 1408)),
+                "a window below the menu bar does not count")
+        h.check(!Geometry.covers(screen: screen, window: CGRect(x: 0, y: 0, width: 1720, height: 1440)),
+                "half the width does not count")
+        // A window filling ANOTHER display must not mark this one.
+        h.check(!Geometry.covers(screen: screen, window: CGRect(x: 3440, y: 0, width: 2560, height: 1440)),
+                "a window on the neighbouring display does not count")
+        // Degenerate inputs can't be covered by anything.
+        h.check(!Geometry.covers(screen: .zero, window: screen), "a degenerate screen is never covered")
     }
 
     // MARK: - Geometry: split travel limits (RESIZE-NEVER-FROZEN)

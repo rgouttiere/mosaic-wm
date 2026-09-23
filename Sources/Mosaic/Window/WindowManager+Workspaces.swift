@@ -562,6 +562,9 @@ extension WindowManager {
             "workspaceDisplays": wsDisplays,
             "attention": attentionWorkspaces.sorted(),   // parked workspaces with unseen activity
             "monitors": monitors,
+            // Displays a game has taken over, so an external bar can drop below it (sketchybar:
+            // `--bar topmost=off`) the same way we stand our own overlays down.
+            "coveredDisplays": coveredDisplays().sorted().map { Int($0) },
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict,
                                                      options: [.prettyPrinted, .sortedKeys]) else { return }

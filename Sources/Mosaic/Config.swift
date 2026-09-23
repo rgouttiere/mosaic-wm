@@ -43,6 +43,9 @@ final class Config {
     var dragModifier: String = "ctrl alt cmd"   // hold this chord + left-drag anywhere to move ANY window (tab=center, split=edge); "" = off
     var ejectNativeFullscreen: Bool = false  // v2: send a managed window that enters native full screen back to windowed (strict emulated)
     var autoFloatDialogs: Bool = false       // v2: auto-float standard windows with no full-screen button (dialogs/palettes), except terminals
+    /// Stand down on a monitor a window we don't manage has taken over — a game in borderless
+    /// full screen. Geometric, so it needs no per-app list; see `coveredDisplays`.
+    var yieldToFullscreenWindows: Bool = true
     static let defaultFloatingApps: Set<String> = [
         "skitch", "shottr", "cleanshot", "cleanshot x", "monosnap", "snagit",
     ]
@@ -211,6 +214,7 @@ final class Config {
         var dragModifier: String?
         var ejectNativeFullscreen: Bool?
         var autoFloatDialogs: Bool?
+        var yieldToFullscreenWindows: Bool?
         var defaultMode: String?
         var floatingApps: [String]?
         var aspectFitApps: [String]?
@@ -251,7 +255,7 @@ final class Config {
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
-            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, dragModifier, ejectNativeFullscreen, autoFloatDialogs, defaultMode, floatingApps, aspectFitApps, rules, showWorkspaceHUD, notchHud, hudPosition
+            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, dragModifier, ejectNativeFullscreen, autoFloatDialogs, yieldToFullscreenWindows, defaultMode, floatingApps, aspectFitApps, rules, showWorkspaceHUD, notchHud, hudPosition
             case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius, inactiveBorderOpacity, inactiveMonitorDim
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
@@ -295,6 +299,7 @@ final class Config {
             dragModifier = v(.dragModifier)
             ejectNativeFullscreen = v(.ejectNativeFullscreen)
             autoFloatDialogs = v(.autoFloatDialogs)
+            yieldToFullscreenWindows = v(.yieldToFullscreenWindows)
             defaultMode = v(.defaultMode)
             floatingApps = v(.floatingApps)
             aspectFitApps = v(.aspectFitApps)
@@ -407,6 +412,7 @@ final class Config {
         dragModifier = "ctrl alt cmd"
         ejectNativeFullscreen = false
         autoFloatDialogs = false
+        yieldToFullscreenWindows = true
         floatingApps = Config.defaultFloatingApps
         aspectFitApps = Config.defaultAspectFitApps
         rules = []
@@ -454,7 +460,7 @@ final class Config {
             "gap", "outerGap", "externalBarTop", "notchBarOffset", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
             "focusGlowRadius", "focusGlowFade",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
-            "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "dragModifier", "ejectNativeFullscreen", "autoFloatDialogs", "defaultMode",
+            "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "dragModifier", "ejectNativeFullscreen", "autoFloatDialogs", "yieldToFullscreenWindows", "defaultMode",
             "floatingApps", "aspectFitApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
             "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "inactiveBorderOpacity", "inactiveMonitorDim", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",

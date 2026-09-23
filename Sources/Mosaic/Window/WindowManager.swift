@@ -159,6 +159,8 @@ final class WindowManager {
     /// once and then leave the user free to toggle it. Pruned to living windows each pass.
     var fullscreenApplied = Set<CGWindowID>()
     var decorationsSuppressed = false   // a screenshot tool is up → overlays hidden until it leaves
+    var coveredDisplayCache: Set<CGDirectDisplayID> = []   // displays a game has taken over
+    var coveredDisplayCacheTime = Date.distantPast
     var lastEmittedWorkspace: Int? = -1   // sentinel: forces the first emit through
 
     // MARK: - Emulated workspaces (v2 — replaces the CGS Space layer)

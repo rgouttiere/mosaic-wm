@@ -19,6 +19,15 @@ enum Geometry {
                height: rect.height)
     }
 
+    /// Does `window` cover the whole of `screen`? Both in AX/CG coordinates. A couple of points
+    /// of slack, because a game that rounds its size to the display mode shouldn't miss by a
+    /// pixel — and nothing smaller than the screen can qualify, whatever the slack. Pure +
+    /// unit-tested; see `WindowManager.coveredDisplays` for what it is used for.
+    static func covers(screen: CGRect, window: CGRect) -> Bool {
+        guard screen.width > 4, screen.height > 4 else { return false }
+        return window.contains(screen.insetBy(dx: 2, dy: 2))
+    }
+
     /// A learned tile minimum is never allowed past this share of the pair it belongs to. Strictly
     /// below 1/2 by construction — see `resizeLimits`.
     static let maxLearnedMinShare: CGFloat = 0.45

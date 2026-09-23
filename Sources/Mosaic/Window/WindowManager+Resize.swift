@@ -269,7 +269,8 @@ extension WindowManager {
         var out = "=== Mosaic layout dump ===\n"
         out += "activeSpaceID=\(activeSpaceID.map(String.init) ?? "nil")  screens=\(NSScreen.screens.count)  suspended=\(suspended)\n"
         for scr in NSScreen.screens {
-            out += "  monitor \(displayID(of: scr)) frame=\(rectStr(scr.frame)) visible=\(rectStr(scr.visibleFrame)) shows=\(shownOnDisplay[displayID(of: scr)].map(String.init) ?? "—")\n"
+            let taken = coveredDisplays().contains(displayID(of: scr)) ? "  COVERED (a fullscreen window owns it)" : ""
+            out += "  monitor \(displayID(of: scr)) frame=\(rectStr(scr.frame)) visible=\(rectStr(scr.visibleFrame)) shows=\(shownOnDisplay[displayID(of: scr)].map(String.init) ?? "—")\(taken)\n"
         }
         let screenFrames = NSScreen.screens.map { $0.frame }
         let onScreen = AX.onScreenWindowIDs()

@@ -117,6 +117,56 @@ extension WindowManager {
         return false
     }
 
+    /// Displays wholly covered by a window Mosaic does not manage — a game in borderless full
+    /// screen, typically. Such a window is ordinary and screen-sized, with a subrole we never
+    /// tile (WoW reports AXUnknown), so nothing in the layout knows the monitor is taken: our
+    /// overlays all sit at `.floating` or above and draw straight over it, and the focused-window
+    /// raise lifts a managed app's layer in front of it. Worse, focus never moves to an unmanaged
+    /// window, so the halo stays pinned to the last managed tile for as long as you play.
+    ///
+    /// Geometric on purpose: no per-game list to maintain, and it catches launchers and engines
+    /// alike. Set `yieldToFullscreenWindows: false` to turn it off.
+    ///
+    /// Cached briefly because the paths that re-show the halo (focus sync, mouse, reconcile) each
+    /// consult it without a full render; `maxAge: 0` forces the fresh read a render wants.
+    func coveredDisplays(maxAge: TimeInterval = 0.4) -> Set<CGDirectDisplayID> {
+        guard Config.shared.yieldToFullscreenWindows else { return [] }
+        if Date().timeIntervalSince(coveredDisplayCacheTime) < maxAge { return coveredDisplayCache }
+        var managed = Set<CGWindowID>()
+        for state in spaces.values {
+            state.root?.forEachLeaf { leaf in
+                guard let w = leaf.window else { return }
+                if let id = w.lastKnownID ?? AX.windowID(w.element) { managed.insert(id) }
+            }
+        }
+        let mine = ProcessInfo.processInfo.processIdentifier
+        let windows = AX.onScreenWindows().filter { $0.pid != mine && !managed.contains($0.id) }
+        var covered = Set<CGDirectDisplayID>()
+        for screen in NSScreen.screens {
+            // A couple of points of slack: a game that rounds its size to the display mode
+            // shouldn't miss by a pixel, and nothing smaller than the screen can qualify.
+            let frame = Geometry.flip(screen.frame)
+            if windows.contains(where: { Geometry.covers(screen: frame, window: $0.bounds) }) {
+                covered.insert(displayID(of: screen))
+            }
+        }
+        coveredDisplayCache = covered
+        coveredDisplayCacheTime = Date()
+        return covered
+    }
+
+    /// The display a Cocoa rect sits on, by its centre.
+    func displayID(forCocoaRect rect: CGRect) -> CGDirectDisplayID? {
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
+        return NSScreen.screens.first { $0.frame.contains(centre) }.map { displayID(of: $0) }
+    }
+
+    /// Is this Cocoa rect on a display a game has taken over?
+    func isCovered(cocoaRect rect: CGRect) -> Bool {
+        guard let did = displayID(forCocoaRect: rect) else { return false }
+        return coveredDisplays().contains(did)
+    }
+
     func render(activate: Bool = true) {
         guard let root, let screen = activeScreen else { return }
         let __perf = DispatchTime.now(); defer { Perf.record("render", since: __perf) }
@@ -128,12 +178,16 @@ extension WindowManager {
             return
         }
 
+        // Recomputed once per render so everything below agrees on which displays to leave alone.
+        let covered = coveredDisplays(maxAge: 0)
+        let hidden = covered.contains(displayID(of: screen))   // this screen belongs to a game
+
         // Monocle: the focused tile fills the screen; every overlay is hidden so nothing
         // floats over it. The tree keeps its frames for when we un-zoom.
         let area = layoutRect(screen)
         if active?.isZoomed == true, let w = focused?.window {
-            if activate { w.activateApp() }
-            if !w.isFullscreen { AX.raise(w.element) }   // raising a fullscreen tile would yank its Space
+            if activate && !hidden { w.activateApp() }
+            if !w.isFullscreen && !hidden { AX.raise(w.element) }   // raising a fullscreen tile would yank its Space
             if let id = AX.windowID(w.element) { w.setAlpha(1, id: id) }   // zoomed = full opacity
             root.forEachTabbed { $0.hideStrip() }   // only THIS desktop's strips, not other screens'
             hideAllHandles()
@@ -182,8 +236,8 @@ extension WindowManager {
 
             // Keep the focus contour framing the zoomed window, and a persistent ZOOM badge, so it
             // stays obvious you're in monocle (siblings hidden) and haven't just lost your layout.
-            if Config.shared.borderEnabled { focusIndicator.show(around: frameForBorder) } else { focusIndicator.hide() }
-            zoomBadge.show(on: screen)
+            if Config.shared.borderEnabled && !hidden { focusIndicator.show(around: frameForBorder) } else { focusIndicator.hide() }
+            if hidden { zoomBadge.hide() } else { zoomBadge.show(on: screen) }
             scheduleSave()
             return
         }
@@ -196,8 +250,11 @@ extension WindowManager {
         // One enumeration reused by the activate check and updateFocusIndicator below, instead
         // of two identical CGWindowList calls per render.
         let onScreen = AX.onScreenWindowIDs()
+        // Never raise a managed window onto a display a game owns — that is what puts the tiles
+        // you left behind in front of the game.
         if activate, let w = focused?.window,
-           let id = AX.windowID(w.element), onScreen.contains(id) {
+           let id = AX.windowID(w.element), onScreen.contains(id),
+           !(w.frame.map { isCovered(cocoaRect: Geometry.flip($0)) } ?? false) {
             // makeMain BEFORE activating: else activating the app first surfaces its old
             // main window (another tab of the same app) for a frame before we raise ours.
             AX.makeMain(w.element)
@@ -217,6 +274,12 @@ extension WindowManager {
 
         sweepOrphanStrips()   // hide strips not on any desktop's visible path
         layoutResizeHandles()
+        // Tab strips and resize handles are floating windows too: pull them off a covered display
+        // AFTER the passes above have placed them.
+        for (did, wsNum) in shownOnDisplay where covered.contains(did) {
+            spaces[wsNum]?.root?.forEachTabbed { $0.hideStrip() }
+        }
+        if hidden { hideAllHandles() }
         applyOpacity()
         refreshAspectRatios()   // fit + centre aspect-locked windows (IINA) before the letterbox reads them
         decorateTiles()   // permanent borders + letterbox gap fill, one AX read per window
@@ -323,11 +386,13 @@ extension WindowManager {
         if scratchpadVisible { windowBorders.hideAll(); letterbox.hideAll(); return }
         let drawBorders = Config.shared.borderInactive
         let activeDid = activeMonitorID()
+        let covered = coveredDisplays()
         if drawBorders { windowBorders.begin() }
         letterbox.begin()
         let t: CGFloat = 8   // ignore sub-8px mismatches — too small to be worth a bar
         for (did, wsNum) in shownOnDisplay {
             guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
+            guard !covered.contains(did) else { continue }   // a game owns this one — draw nothing
             let dim = activeDid != nil && did != activeDid
             root.forEachVisibleLeaf { leaf in
                 // The PiP source's whole tile is covered (shown here but mirrored in the PiP); no border.
@@ -361,10 +426,12 @@ extension WindowManager {
         // Optionally fade the borders on monitors without keyboard focus (the active one holds the
         // focused window) so a glance says "you are here".
         let activeDid = activeMonitorID()
+        let covered = coveredDisplays()
         // Border EVERY visible window, focused included — the borders are permanent so a focus change
         // never leaves a window bare. The focus halo is drawn afterwards, on top, so it still leads.
         for (did, wsNum) in shownOnDisplay {
             guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
+            guard !covered.contains(did) else { continue }   // a game owns this one — draw nothing
             let dim = activeDid != nil && did != activeDid
             root.forEachVisibleLeaf { leaf in
                 guard let w = leaf.window, !w.isFullscreen, let wf = w.frame else { return }
@@ -433,8 +500,11 @@ extension WindowManager {
         guard Config.shared.borderEnabled || ps != nil else { focusIndicator.hide(); return }
         // Only draw around a window that's actually on the current Space & on screen — a
         // stale/off-space focused window would otherwise get a border in empty space.
+        // Focus never moves to an unmanaged window, so without this the halo stays pinned to the
+        // last managed tile — tracing the screen edge over the game — for as long as you play.
         if let w = focused?.window, let frame = w.frame, !w.isFullscreen,
-           let id = AX.windowID(w.element), (onScreen ?? AX.onScreenWindowIDs()).contains(id) {
+           let id = AX.windowID(w.element), (onScreen ?? AX.onScreenWindowIDs()).contains(id),
+           !isCovered(cocoaRect: Geometry.flip(frame)) {
             focusIndicator.show(around: Geometry.flip(frame), preselect: ps)
         } else {
             focusIndicator.hide()
