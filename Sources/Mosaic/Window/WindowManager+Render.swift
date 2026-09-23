@@ -125,7 +125,8 @@ extension WindowManager {
     /// window, so the halo stays pinned to the last managed tile for as long as you play.
     ///
     /// Geometric on purpose: no per-game list to maintain, and it catches launchers and engines
-    /// alike. Set `yieldToFullscreenWindows: false` to turn it off.
+    /// alike. Set `yieldToFullscreenWindows: false` to turn it off. Covering alone doesn't count:
+    /// the game stays on screen behind whatever you alt-tab to — see `Geometry.isTakenOver`.
     ///
     /// Cached briefly because the paths that re-show the halo (focus sync, mouse, reconcile) each
     /// consult it without a full render; `maxAge: 0` forces the fresh read a render wants.
@@ -139,15 +140,28 @@ extension WindowManager {
                 if let id = w.lastKnownID ?? AX.windowID(w.element) { managed.insert(id) }
             }
         }
+        // A game stays on screen behind whatever you alt-tab to, so covering alone would keep us
+        // stood down while you work in a window on top of it. The test is the FRONTMOST APP, not
+        // z-order: Mosaic raises its own tiles on every render, so a z-order test sees one of them
+        // in front, concludes you are working, and disables itself — permanently, since the next
+        // render raises them again. Which app you are in can't loop that way.
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        var workingOn = Set<CGDirectDisplayID>()
+        for state in spaces.values {
+            state.root?.forEachVisibleLeaf { leaf in
+                guard let w = leaf.window, w.app.processIdentifier == front, let f = w.frame else { return }
+                if let did = displayID(forCocoaRect: Geometry.flip(f)) { workingOn.insert(did) }
+            }
+        }
         let mine = ProcessInfo.processInfo.processIdentifier
         let windows = AX.onScreenWindows().filter { $0.pid != mine && !managed.contains($0.id) }
         var covered = Set<CGDirectDisplayID>()
         for screen in NSScreen.screens {
-            // A couple of points of slack: a game that rounds its size to the display mode
-            // shouldn't miss by a pixel, and nothing smaller than the screen can qualify.
+            let did = displayID(of: screen)
+            guard !workingOn.contains(did) else { continue }   // you're in a tile on this one
             let frame = Geometry.flip(screen.frame)
             if windows.contains(where: { Geometry.covers(screen: frame, window: $0.bounds) }) {
-                covered.insert(displayID(of: screen))
+                covered.insert(did)
             }
         }
         coveredDisplayCache = covered
@@ -245,7 +259,7 @@ extension WindowManager {
 
         if let f = focused { selectTabsOnPath(to: f) }
         root.arrange(in: area)
-        root.raiseVisibleWindows()
+        if !hidden { root.raiseVisibleWindows() }   // never lift a tile over the game
 
         // One enumeration reused by the activate check and updateFocusIndicator below, instead
         // of two identical CGWindowList calls per render.
