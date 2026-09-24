@@ -372,10 +372,15 @@ extension WindowManager {
         // confirms a real close (survives transient wake/dock glitches); one miss schedules a
         // prompt re-check so a genuinely-closed window's tab can't linger.
         var gracePending = false
+        // Two misses (~0.2s) confirms a close in normal running. After a wake it confirms
+        // nothing: macOS hides windows from the AX enumeration for seconds while it puts the
+        // session back, and calling them closed is what detached half a layout and let the
+        // windows re-enter as new ones in the active workspace.
+        let missesToConfirm = Date() < wakeGraceUntil ? 25 : 2
         for leaf in staleLeaves {
             guard let w = leaf.window, w.resolvedID() == nil, !w.app.isHidden else { continue }
             w.missCount += 1
-            if w.missCount >= 2 { deadLeaves.append(leaf) } else { gracePending = true }
+            if w.missCount >= missesToConfirm { deadLeaves.append(leaf) } else { gracePending = true }
         }
         if gracePending {
             graceRecheck?.cancel()
@@ -393,6 +398,7 @@ extension WindowManager {
         // The window set changed, so the shared snapshot render reads is stale NOW, not in 150ms.
         invalidateWindowSnapshot()
 
+        for leaf in deadLeaves { rememberReturn(leaf) }   // before detaching loses the tree link
         observer.unwatch(deadLeaves.compactMap { $0.window })   // release regs for really-gone windows
         for leaf in deadLeaves { detach(leaf) }
         for window in additions { insert(window) }
@@ -432,6 +438,34 @@ extension WindowManager {
         }
     }
 
+    /// Note which workspace a leaf belonged to just before it is detached, so the same window
+    /// coming back within a couple of minutes goes home. Bundle-keyed on purpose: after a wake a
+    /// window's title is often not what it was, and every window of that app belongs to that
+    /// workspace anyway in the case this exists for.
+    func rememberReturn(_ leaf: Container) {
+        guard let w = leaf.window, let bundle = w.app.bundleIdentifier else { return }
+        var owner: UInt64?
+        for (sid, state) in spaces {
+            var here = false
+            state.root?.forEachLeaf { if $0 === leaf { here = true } }
+            if here { owner = sid; break }
+        }
+        guard let sid = owner, let n = workspaceNumber(for: sid), n >= 1, n <= 9 else { return }
+        returnHints[bundle] = (n, Date().addingTimeInterval(120))
+    }
+
+    /// Send a window back where it vanished from. Runs after the launch-restore hints, so a
+    /// relaunch after a reboot still wins.
+    func routeByReturnHint(_ window: ManagedWindow) -> Bool {
+        let now = Date()
+        returnHints = returnHints.filter { $0.value.until > now }
+        guard let bundle = window.app.bundleIdentifier, let hint = returnHints[bundle],
+              UInt64(hint.ws) != activeSpaceID else { return false }
+        returnHints[bundle] = nil
+        placeOnWorkspace(window, n: hint.ws)
+        return true
+    }
+
     func insert(_ window: ManagedWindow) {
         _ = window.resolvedID()   // cache its id now, so a later AX glitch can't make
                                   // reconcile treat it as new and insert a duplicate leaf
@@ -447,6 +481,9 @@ extension WindowManager {
         // Launch restore: an app relaunching after a reboot goes back to the workspace it was
         // saved in, not whatever's focused right now.
         if routeByHint(window) { return }
+        // Same idea within a session: a window that vanished from a workspace minutes ago and is
+        // coming back belongs there, not here.
+        if routeByReturnHint(window) { return }
 
         let leaf = Container(window: window)
         guard root != nil else { self.root = leaf; focused = leaf; return }

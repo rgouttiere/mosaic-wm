@@ -180,6 +180,13 @@ final class WindowManager {
     var windowSnapshotTime = Date.distantPast
     /// Non-active monitors are healed on a timer rather than on every render — see `render`.
     var lastOtherMonitorArrange = Date.distantPast
+    /// While this is in the future, a window missing from the AX enumeration is treated as slow
+    /// to come back rather than closed. macOS can take many seconds to re-materialise windows
+    /// after a long sleep, far longer than the two misses that normally confirm a close.
+    var wakeGraceUntil = Date.distantPast
+    /// Where a window that just vanished was living, so it returns there instead of landing in
+    /// whatever workspace happens to be active. Keyed by bundle id, with an expiry.
+    var returnHints: [String: (ws: Int, until: Date)] = [:]
     var lastEmittedWorkspace: Int? = -1   // sentinel: forces the first emit through
 
     // MARK: - Emulated workspaces (v2 — replaces the CGS Space layer)
@@ -519,6 +526,8 @@ final class WindowManager {
         // Scheduled flat rather than nested, so a sleep landing mid-sequence cancels the rest.
         scheduleWakeStep(in: 2.0, generation: generation) { wm in
             wm.suspendReasons.remove(.sleep)
+            // Reconcile resumes here, but macOS is still putting windows back for a while yet.
+            wm.wakeGraceUntil = Date().addingTimeInterval(30)
             // Re-derive BEFORE detecting the active workspace: checkSpaceChange reads this map.
             wm.ensureAllPresentMonitorsShown()   // guard against wake re-assigning display ids
             wm.activeSpaceID = nil   // force a fresh detect of the current workspace

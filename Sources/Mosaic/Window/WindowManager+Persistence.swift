@@ -112,6 +112,24 @@ extension WindowManager {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 
+    /// Keep a copy of the layout as it was a few minutes ago, next to the live one.
+    ///
+    /// Saves run constantly, so by the time you notice a layout has been mangled — a wake that
+    /// scattered windows across workspaces, say — the good version has long since been written
+    /// over. A copy that is only refreshed once it is older than the interval below always spans
+    /// an event like that: restore it with `cp state.json.prev state.json` while Mosaic is NOT
+    /// running, then relaunch.
+    func rollStateBackup() {
+        let fm = FileManager.default
+        let prev = stateURL.deletingLastPathComponent().appendingPathComponent("state.json.prev")
+        guard fm.fileExists(atPath: stateURL.path) else { return }
+        if let attrs = try? fm.attributesOfItem(atPath: prev.path),
+           let modified = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(modified) < 300 { return }   // still recent enough
+        try? fm.removeItem(at: prev)
+        try? fm.copyItem(at: stateURL, to: prev)
+    }
+
     func saveNow() {
         saveWork?.cancel()   // disarm any pending debounced save so it can't overwrite this
         var out: [String: SavedSpace] = [:]
@@ -133,6 +151,7 @@ extension WindowManager {
         let state = SavedState(spaces: out, assignments: nil,
                                assignmentApps: nil, scratchpadBundle: scratchpadBundleID,
                                shownByMonitor: shown)
+        rollStateBackup()
         do {
             try FileManager.default.createDirectory(
                 at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
