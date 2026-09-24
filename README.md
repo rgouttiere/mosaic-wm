@@ -88,6 +88,12 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `warpMouseOnSwitch` | `true` | Move the mouse onto a workspace when you switch to it by shortcut (keeps the mouse-follows-focus model consistent). |
 | `workspaceNames` | `{}` | i3-style labels, e.g. `{ "2": "web", "3": "code" }`. The number stays the identity/shortcut key; the name is display-only. |
 | `externalBarTop` | `0` | Pixels reserved at the top for an external bar (e.g. sketchybar), per screen, notch-aware. `0` = none. |
+| `notchBarOffset` | `40` | Extra top reserve on a **sole** notched built-in display, where an external bar sits below the notch. Must match that bar's own offset there. `0` = off. |
+| `workspaceMonitors` | `{}` | Pin workspaces to monitors, e.g. `{ "1": 1, "3": 2 }` — monitor index is 1-based, left to right. Unlisted workspaces fall back to an even split of 1-9 across the monitors present. |
+| `autoFloatDialogs` | `false` | Float a standard window that has no full-screen button (dialogs, palettes, settings panels) instead of tiling it. Terminals are excepted. A per-app `float` rule overrides this both ways. |
+| `ejectNativeFullscreen` | `false` | Send a managed window that enters native full screen straight back to windowed. Strict emulated model: nothing gets its own Space. |
+| `yieldToFullscreenWindows` | `true` | Stand down on a monitor taken over by a window Mosaic doesn't manage — a game in borderless full screen. No overlays and no raising there while you're in it; the layout is untouched and returns when the game does. |
+| `robustCrossAppTabs` | `false` | After a workspace switch, re-assert the selected tab of cross-app tab groups on the **other** shown monitors. macOS z-orders by app globally, so activating one monitor's app can bury another's selected tab. Costs a burst of app activations. |
 
 **Window appearance**
 
