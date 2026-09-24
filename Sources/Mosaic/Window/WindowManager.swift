@@ -184,6 +184,8 @@ final class WindowManager {
     /// to come back rather than closed. macOS can take many seconds to re-materialise windows
     /// after a long sleep, far longer than the two misses that normally confirm a close.
     var wakeGraceUntil = Date.distantPast
+    /// The ghost janitor runs on its own slower cadence — see `purgeVisibleGhosts`.
+    var lastGhostPurge = Date.distantPast
     /// Where a window that just vanished was living, so it returns there instead of landing in
     /// whatever workspace happens to be active. Keyed by bundle id, with an expiry.
     var returnHints: [String: (ws: Int, until: Date)] = [:]

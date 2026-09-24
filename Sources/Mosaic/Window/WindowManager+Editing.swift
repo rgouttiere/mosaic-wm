@@ -581,6 +581,13 @@ extension WindowManager {
     /// to reason about focus/preselect on a Space the user isn't on.
     func purgeVisibleGhosts() {
         guard !suspended, !isReconciling else { return }
+        // Throttled off the 0.4s timer: this is a janitor for monitors you are not looking at, so
+        // noticing a ghost within a couple of seconds is soon enough. The gate below was meant to
+        // keep the enumeration off idle machines, but it only closes when every screen shows the
+        // ACTIVE workspace — never true on a multi-monitor desk, where it therefore ran ~2.5x a
+        // second forever and defeated exactly the App-Nap quiescence it cites.
+        guard Date().timeIntervalSince(lastGhostPurge) > 2.0 else { return }
+        lastGhostPurge = Date()
         // Gate the expensive enumeration on cheap SPI: only a secondary monitor showing a
         // managed Space that is NOT the active one can hold a ghost here. On a single-monitor
         // setup (the common case) the sole screen's Space IS active, so there are no candidates
@@ -594,7 +601,8 @@ extension WindowManager {
             }
         guard !candidates.isEmpty else { return }
 
-        let onScreen = AX.onScreenWindowIDs()
+        // Reuse whatever render just enumerated rather than taking the list again.
+        let onScreen = Set(onScreenSnapshot(maxAge: 1.0).map { $0.id })
         var changed = false
         var adopted: [ManagedWindow] = []
         for (scr, st, r) in candidates {
@@ -628,7 +636,16 @@ extension WindowManager {
                     changed = true
                 } else {
                     w.missCount += 1
-                    if w.missCount >= 2 { observer.unwatch([w]); removeLeaf(leaf, from: st); changed = true }
+                    // Same reprieve as `reconcile`: after a wake, absence from the AX enumeration
+                    // means macOS hasn't finished putting the session back, not that the window
+                    // closed. This is the path that actually redealt a layout across workspaces —
+                    // it owns the VISIBLE, non-active monitors, which is where the damage showed.
+                    if w.missCount >= (Date() < wakeGraceUntil ? 25 : 2) {
+                        rememberReturn(leaf)   // so it comes back HERE, not to whatever is focused
+                        observer.unwatch([w])
+                        removeLeaf(leaf, from: st)
+                        changed = true
+                    }
                 }
             }
         }
