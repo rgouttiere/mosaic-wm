@@ -390,6 +390,8 @@ extension WindowManager {
         // `adopted`: a same-app replacement swapped a leaf's window in place — no add/remove, but the
         // newcomer still needs render() to place it into the slot and repaint its tab label.
         guard !deadLeaves.isEmpty || !additions.isEmpty || adopted else { return }
+        // The window set changed, so the shared snapshot render reads is stale NOW, not in 150ms.
+        invalidateWindowSnapshot()
 
         observer.unwatch(deadLeaves.compactMap { $0.window })   // release regs for really-gone windows
         for leaf in deadLeaves { detach(leaf) }

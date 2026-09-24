@@ -130,6 +130,17 @@ extension WindowManager {
     ///
     /// Cached briefly because the paths that re-show the halo (focus sync, mouse, reconcile) each
     /// consult it without a full render; `maxAge: 0` forces the fresh read a render wants.
+    /// How stale the shared window snapshot may get. Bounds only the changes nothing told us
+    /// about: `invalidateWindowSnapshot` drops it as soon as reconcile sees a window appear or go.
+    var snapshotTTL: TimeInterval { 0.15 }
+
+    /// Force the next read to re-enumerate. Called when the window set actually changed, so the
+    /// TTL above never delays a real add or removal.
+    func invalidateWindowSnapshot() {
+        windowSnapshotTime = .distantPast
+        coveredDisplayCacheTime = .distantPast
+    }
+
     /// The on-screen, layer-0 windows, at most `maxAge` old. Shared so a render enumerates once.
     func onScreenSnapshot(maxAge: TimeInterval = 0.4) -> [(id: CGWindowID, pid: pid_t, bounds: CGRect)] {
         if Date().timeIntervalSince(windowSnapshotTime) < maxAge { return windowSnapshot }
@@ -202,8 +213,11 @@ extension WindowManager {
             return
         }
 
-        // Recomputed once per render so everything below agrees on which displays to leave alone.
-        let covered = Perf.span("render.coveredDisplays") { coveredDisplays(maxAge: 0) }
+        // A game appearing or leaving is a human-scale event, and reconcile invalidates the
+        // snapshot the moment the window set actually changes, so re-reading the whole window list
+        // on EVERY render bought nothing — it cost ~6ms of each one. Everything below still agrees
+        // with itself: one value, read once here.
+        let covered = Perf.span("render.coveredDisplays") { coveredDisplays(maxAge: snapshotTTL) }
         let hidden = covered.contains(displayID(of: screen))   // this screen belongs to a game
 
         // Monocle: the focused tile fills the screen; every overlay is hidden so nothing
@@ -273,7 +287,7 @@ extension WindowManager {
 
         // The same enumeration `coveredDisplays` just took, reused by the activate check and
         // updateFocusIndicator below rather than taken a second time.
-        let onScreen = Perf.span("render.onScreenIDs") { Set(onScreenSnapshot().map { $0.id }) }
+        let onScreen = Perf.span("render.onScreenIDs") { Set(onScreenSnapshot(maxAge: snapshotTTL).map { $0.id }) }
         // Never raise a managed window onto a display a game owns — that is what puts the tiles
         // you left behind in front of the game.
         if activate, let w = focused?.window,
@@ -292,9 +306,16 @@ extension WindowManager {
         // screen (an app nudged its window, a late wake, a new window) doesn't wait for a manual
         // visit. Position only — no raise/activate — so it never touches focus or cross-app z-order.
         // setCocoaFrame skips unchanged frames, so a settled monitor re-writes nothing.
-        Perf.span("render.arrangeOthers") {
-            for (did, n) in shownOnDisplay where n != activeSpaceID {
-                if let ws = spaces[n], let scr = self.screen(forDisplayID: did) { ws.root?.arrange(in: layoutRect(scr)) }
+        // Throttled: a monitor you aren't on drifts only when something external nudges a window,
+        // and healing it within a second is soon enough — whereas doing it on every render put a
+        // tree walk plus whatever AX writes it produced on the critical path of every focus change,
+        // with tails past 40ms when the frames were cold.
+        if Date().timeIntervalSince(lastOtherMonitorArrange) > 1.0 {
+            lastOtherMonitorArrange = Date()
+            Perf.span("render.arrangeOthers") {
+                for (did, n) in shownOnDisplay where n != activeSpaceID {
+                    if let ws = spaces[n], let scr = self.screen(forDisplayID: did) { ws.root?.arrange(in: layoutRect(scr)) }
+                }
             }
         }
 

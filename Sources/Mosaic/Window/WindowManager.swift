@@ -178,6 +178,8 @@ final class WindowManager {
     /// use. Same short TTL as the covered-display cache, for the same reason.
     var windowSnapshot: [(id: CGWindowID, pid: pid_t, bounds: CGRect)] = []
     var windowSnapshotTime = Date.distantPast
+    /// Non-active monitors are healed on a timer rather than on every render — see `render`.
+    var lastOtherMonitorArrange = Date.distantPast
     var lastEmittedWorkspace: Int? = -1   // sentinel: forces the first emit through
 
     // MARK: - Emulated workspaces (v2 — replaces the CGS Space layer)
