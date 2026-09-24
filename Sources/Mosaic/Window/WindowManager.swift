@@ -667,6 +667,12 @@ final class WindowManager {
             }
         }
         coverParkedSlivers()   // shown tiling back on top of any parked sliver
+        // A mixed-app tab group can't hide its inactive tabs with z-order, so they have to be
+        // pushed off-screen — and this is the path that places windows at launch and after a wake,
+        // where no render has run yet. Without it a restored desktop kept every hidden cross-app
+        // tab sitting in its tile, invisible only for as long as the z-order happened to fall the
+        // right way; the first tab change was what quietly fixed it.
+        parkHiddenCrossAppTabs()
         sweepOrphanStrips()
     }
 
