@@ -164,6 +164,11 @@ final class ManagedWindow {
     /// Give the app keyboard focus (without itself reordering Mosaic's stacking —
     /// the manager re-asserts window order afterwards).
     func activateApp() {
+        // Asking for an app that is already frontmost is still a cross-process request, and render
+        // asks on every focus change — measured at 1.5-9ms of one. Which app is front is a local
+        // read, so check before asking. The window-level work (makeMain, raise) is separate and
+        // still runs: this only skips the app-level switch that has already happened.
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier else { return }
         app.activate()
     }
 
