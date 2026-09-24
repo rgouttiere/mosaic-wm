@@ -8,9 +8,27 @@ import AppKit
 ///    their own bar, so overlays can never overlap.
 final class TabBarView: NSView {
     // Horizontal tabbed mode.
-    var titles: [String] = [] { didSet { needsDisplay = true } }
+    var titles: [String] = [] { didSet { guard oldValue != titles else { return }; needsDisplay = true; positionUnderline(animated: false) } }
     var icons: [NSImage?] = [] { didSet { needsDisplay = true } }
-    var selectedIndex = 0 { didSet { needsDisplay = true } }
+    /// Per-tab: this window is currently mirrored in the picture-in-picture → badge it.
+    var pipFlags: [Bool] = [] { didSet { needsDisplay = true } }
+    var rowPipFlags: [[Bool]] = [] { didSet { needsDisplay = true } }
+    var selectedIndex = 0 { didSet { guard oldValue != selectedIndex else { return }; needsDisplay = true; positionUnderline(animated: true) } }
+
+    // The active-tab underline is its own layer-backed subview so it slides via Core Animation
+    // (GPU, vsync) instead of a per-frame full redraw of the frosted bar. Stacked keeps per-row.
+    private let underlineView = TabUnderlineView()
+    private let hoverView = TabHoverView()   // sliding hover wash (horizontal mode)
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        hoverView.wantsLayer = true
+        hoverView.isHidden = true
+        addSubview(hoverView)               // behind the underline, over the segments (translucent)
+        underlineView.wantsLayer = true
+        addSubview(underlineView)
+    }
+    required init?(coder: NSCoder) { fatalError() }
 
     var vertical = false { didSet { needsDisplay = true } }
 
@@ -33,6 +51,10 @@ final class TabBarView: NSView {
     private var didDrag = false
     private var scrollAccum: CGFloat = 0
 
+    /// Which segment the pointer is over, for hover highlighting. Horizontal mode = row 0.
+    private struct HoverKey: Equatable { let row: Int; let seg: Int }
+    private var hover: HoverKey? { didSet { if oldValue != hover { needsDisplay = true; positionHover(animated: oldValue != nil) } } }
+
     private var isStackedRows: Bool { vertical && !rows.isEmpty }
     private var segmentWidth: CGFloat {
         titles.isEmpty ? bounds.width : bounds.width / CGFloat(titles.count)
@@ -46,15 +68,90 @@ final class TabBarView: NSView {
         return min(titles.count - 1, max(0, Int(point.x / segmentWidth)))
     }
 
+    /// The (row, segment) under `point` for hover highlighting; nil when outside the strip.
+    private func hoverKey(at point: NSPoint) -> HoverKey? {
+        guard bounds.contains(point) else { return nil }
+        if isStackedRows {
+            guard rowHeight > 0 else { return nil }
+            let r = min(rows.count - 1, max(0, Int(point.y / rowHeight)))
+            let segs = rows.indices.contains(r) ? rows[r] : []
+            let segW = segs.isEmpty ? bounds.width : bounds.width / CGFloat(segs.count)
+            let s = segW > 0 ? min(max(segs.count - 1, 0), max(0, Int(point.x / segW))) : 0
+            return HoverKey(row: r, seg: s)
+        }
+        guard !titles.isEmpty else { return nil }
+        return HoverKey(row: 0, seg: index(at: point))
+    }
+
     // MARK: - Draw
 
     override func draw(_ dirtyRect: NSRect) {
         let cfg = Config.shared
-        layer?.cornerRadius = CGFloat(cfg.tabCornerRadius)
-        layer?.masksToBounds = true
-        layer?.backgroundColor = Config.color(from: cfg.tabBarColor)
-            .withAlphaComponent(CGFloat(cfg.tabBarOpacity)).cgColor
+        // The frosted backdrop is the window's NSVisualEffectView; we only lay a hint of the theme
+        // colour over it so the strip reads as "ours" rather than a neutral system grey.
+        Config.color(from: cfg.tabBarColor).withAlphaComponent(0.22).setFill()
+        bounds.fill()
         if isStackedRows { drawStacked() } else { drawHorizontal() }
+    }
+
+    /// The active-tab accent underline (inset, rounded, soft glow) at the bottom of `rect` — used by
+    /// the STACKED per-row path. Horizontal tabs use the sliding `underlineView` instead.
+    private func drawUnderline(in rect: NSRect) {
+        let accent = Config.color(from: Config.shared.tabActiveColor)
+        let uh: CGFloat = 2.5, inset: CGFloat = 8
+        let bar = NSRect(x: rect.minX + inset, y: rect.maxY - uh - 1.5,
+                         width: max(4, rect.width - inset * 2), height: uh)
+        NSGraphicsContext.saveGraphicsState()
+        let glow = NSShadow()
+        glow.shadowColor = accent.withAlphaComponent(0.7); glow.shadowBlurRadius = 4; glow.shadowOffset = .zero
+        glow.set()
+        accent.setFill()
+        NSBezierPath(roundedRect: bar, xRadius: uh / 2, yRadius: uh / 2).fill()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    override func layout() {
+        super.layout()
+        positionUnderline(animated: false)   // snap on resize / initial place; selection changes animate
+        positionHover(animated: false)
+    }
+
+    /// Slide (or snap/hide) the hover wash to the hovered segment (horizontal mode only). Hidden on
+    /// the active tab (it has its own gradient) and when nothing is hovered.
+    private func positionHover(animated: Bool) {
+        guard !isStackedRows, let h = hover, h.row == 0, h.seg != selectedIndex,
+              titles.indices.contains(h.seg), segmentWidth > 4 else { hoverView.isHidden = true; return }
+        let frame = NSRect(x: CGFloat(h.seg) * segmentWidth, y: 0, width: segmentWidth, height: bounds.height)
+        if hoverView.isHidden { hoverView.frame = frame; hoverView.isHidden = false; return }   // appearing → snap
+        if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.11
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                hoverView.animator().frame = frame
+            }
+        } else {
+            hoverView.frame = frame
+        }
+    }
+
+    /// Slide (or snap) the horizontal underline subview to the active segment. Core Animation makes
+    /// the slide smooth without redrawing the frosted bar.
+    private func positionUnderline(animated: Bool) {
+        guard !isStackedRows, !titles.isEmpty, segmentWidth > 4 else { underlineView.isHidden = true; return }
+        underlineView.isHidden = false
+        let i = min(max(selectedIndex, 0), titles.count - 1)
+        let inset: CGFloat = 8, h: CGFloat = 12   // 12px tall so the bar's glow has room
+        let frame = NSRect(x: CGFloat(i) * segmentWidth + inset, y: bounds.height - h,   // flipped: bottom
+                           width: max(4, segmentWidth - inset * 2), height: h)
+        if animated, underlineView.frame != .zero, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                underlineView.animator().frame = frame
+            }
+        } else {
+            underlineView.frame = frame
+        }
     }
 
     private func drawHorizontal() {
@@ -62,7 +159,9 @@ final class TabBarView: NSView {
         for (index, title) in titles.enumerated() {
             let rect = NSRect(x: CGFloat(index) * segmentWidth, y: 0, width: segmentWidth, height: bounds.height)
             drawSegment(title, icon: icons.indices.contains(index) ? icons[index] : nil,
-                        in: rect, active: index == selectedIndex)
+                        in: rect, active: index == selectedIndex,
+                        hovered: hover == HoverKey(row: 0, seg: index),
+                        pip: pipFlags.indices.contains(index) && pipFlags[index])
         }
     }
 
@@ -74,55 +173,108 @@ final class TabBarView: NSView {
             for (s, title) in segs.enumerated() {
                 let rect = NSRect(x: CGFloat(s) * segW, y: rowY, width: segW, height: rowHeight)
                 let icon = rowIcons.indices.contains(r) && rowIcons[r].indices.contains(s) ? rowIcons[r][s] : nil
-                drawSegment(title, icon: icon, in: rect, active: r == selectedRow && s == activeSeg)
+                let isPip = rowPipFlags.indices.contains(r) && rowPipFlags[r].indices.contains(s) && rowPipFlags[r][s]
+                drawSegment(title, icon: icon, in: rect, active: r == selectedRow && s == activeSeg,
+                            hovered: hover == HoverKey(row: r, seg: s), pip: isPip)
             }
         }
     }
 
-    private func drawSegment(_ title: String, icon: NSImage?, in rect: NSRect, active: Bool) {
+    private func drawSegment(_ title: String, icon: NSImage?, in rect: NSRect, active: Bool, hovered: Bool = false, pip: Bool = false) {
         let cfg = Config.shared
-        let radius = CGFloat(cfg.tabCornerRadius)
         let fontSize = CGFloat(cfg.tabFontSize)
+        let accent = Config.color(from: cfg.tabActiveColor)
+
+        // Hover cue on non-active tabs. Stacked rows draw it here; horizontal tabs use the sliding
+        // hoverView so the wash glides between segments.
+        if hovered && !active && isStackedRows {
+            accent.withAlphaComponent(0.20).setFill()
+            rect.fill()
+        }
 
         if active {
-            Config.color(from: cfg.tabActiveColor).setFill()
-            let pad = CGFloat(cfg.tabActivePadding)
-            let pill = rect.insetBy(dx: pad, dy: pad + 1)
-            let r = min(radius, pill.height / 2)
-            NSBezierPath(roundedRect: pill, xRadius: r, yRadius: r).fill()
+            // Subtle vertical tint gradient (deeper toward the underline) for a touch of depth —
+            // the view is flipped, so maxY is the bottom, where the accent bar sits.
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(rect: rect).setClip()
+            NSGradient(starting: accent.withAlphaComponent(0.22), ending: accent.withAlphaComponent(0.05))?
+                .draw(from: NSPoint(x: rect.midX, y: rect.maxY), to: NSPoint(x: rect.midX, y: rect.minY),
+                      options: [.drawsBeforeStartingLocation, .drawsAfterEndingLocation])
+            NSGraphicsContext.restoreGraphicsState()
+
+            // Stacked rows draw their underline per-row here; horizontal tabs use the single SLIDING
+            // underline drawn once in draw() (so it can animate between segments).
+            if isStackedRows { drawUnderline(in: rect) }
+        }
+
+        // Quiet hairline separator on the right edge (skip the rightmost) for gentle structure.
+        if rect.maxX < bounds.width - 1 {
+            NSColor.white.withAlphaComponent(0.06).setFill()
+            NSRect(x: rect.maxX - 1, y: rect.minY + 4, width: 1, height: rect.height - 8).fill()
         }
 
         var textLeft = rect.minX + 10
         if let icon {
-            let s = min(rect.height - 6, 16)
+            let s = min(rect.height - 8, 15)
+            NSGraphicsContext.current?.imageInterpolation = .high
             icon.draw(in: NSRect(x: rect.minX + 8, y: rect.midY - s / 2, width: s, height: s))
             textLeft = rect.minX + 8 + s + 6
         }
+
         let style = NSMutableParagraphStyle()
         style.alignment = (isStackedRows || icon != nil) ? .left : .center
         style.lineBreakMode = .byTruncatingTail
-        var attrs: [NSAttributedString.Key: Any] = [
+        // A light shadow on every label keeps it legible over the (busy) frosted backdrop.
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+        shadow.shadowBlurRadius = 1.5
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: active ? .semibold : .regular),
             .foregroundColor: active ? Config.color(from: cfg.tabActiveTextColor)
                                      : Config.color(from: cfg.tabTextColor),
             .paragraphStyle: style,
+            .shadow: shadow,
         ]
-        if active {
-            // Ombre portée subtile pour détacher le libellé du fond d'accent
-            // sans l'alourdir (un stroke rend le texte fin illisible).
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
-            shadow.shadowBlurRadius = 2
-            shadow.shadowOffset = NSSize(width: 0, height: -1)
-            attrs[.shadow] = shadow
+        // "Mirrored in the PiP" badge, right-aligned — the tile may be showing a sibling tab, so this
+        // is what tells you where the floating video is coming from. Drawn before the label so the
+        // title truncates against it instead of running underneath.
+        var textRight = rect.maxX - 8
+        if pip {
+            let s = min(rect.height - 10, 13)
+            let box = NSRect(x: rect.maxX - 8 - s, y: rect.midY - s / 2, width: s, height: s)
+            let conf = NSImage.SymbolConfiguration(pointSize: s, weight: .semibold)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [accent]))
+            NSImage(systemSymbolName: "pip.fill", accessibilityDescription: "Mirrored in picture-in-picture")?
+                .withSymbolConfiguration(conf)?
+                .draw(in: box, from: .zero, operation: .sourceOver, fraction: active ? 1 : 0.75)
+            textRight = box.minX - 6
         }
+
         let textHeight = fontSize + 4
         let textRect = NSRect(x: textLeft, y: rect.midY - textHeight / 2,
-                              width: max(0, rect.maxX - textLeft - 8), height: textHeight)
+                              width: max(0, textRight - textLeft), height: textHeight)
         (title as NSString).draw(in: textRect, withAttributes: attrs)
     }
 
     // MARK: - Mouse
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for ta in trackingAreas { removeTrackingArea(ta) }
+        addTrackingArea(NSTrackingArea(rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways], owner: self))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        hover = hoverKey(at: convert(event.locationInWindow, from: nil))
+    }
+    override func mouseExited(with event: NSEvent) { hover = nil }
 
     /// Scroll over the strip to cycle tabs (horizontal) or stack rows (vertical), wrapping.
     override func scrollWheel(with event: NSEvent) {
@@ -180,6 +332,7 @@ final class TabBarView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let source = dragSourceIndex else { return }
+        hover = nil   // suppress the hover cue while dragging a tab
         if !didDrag {
             onDragStateChange?(true)
             TabDragGhost.shared.show(dragLabel(source), at: NSEvent.mouseLocation)
@@ -213,5 +366,33 @@ final class TabBarView: NSView {
         dragSourceIndex = nil
         didDrag = false
         if wasDragging { onDragStateChange?(false) }
+    }
+}
+
+/// The sliding hover wash: a translucent accent fill that glides between tabs. Translucent so the
+/// label under it stays readable.
+private final class TabHoverView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        Config.color(from: Config.shared.tabActiveColor).withAlphaComponent(0.20).setFill()
+        bounds.fill()
+    }
+}
+
+/// The sliding active-tab underline: a crisp accent bar with a soft glow, at the bottom of its own
+/// (unflipped) bounds. Layer-backed so its frame animates smoothly via Core Animation.
+private final class TabUnderlineView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }   // never intercept tab clicks
+    override func draw(_ dirtyRect: NSRect) {
+        let accent = Config.color(from: Config.shared.tabActiveColor)
+        let uh: CGFloat = 2.5
+        let bar = NSRect(x: 0, y: 1.5, width: bounds.width, height: uh)   // bottom of the strip
+        NSGraphicsContext.saveGraphicsState()
+        let glow = NSShadow()
+        glow.shadowColor = accent.withAlphaComponent(0.7); glow.shadowBlurRadius = 4; glow.shadowOffset = .zero
+        glow.set()
+        accent.setFill()
+        NSBezierPath(roundedRect: bar, xRadius: uh / 2, yRadius: uh / 2).fill()
+        NSGraphicsContext.restoreGraphicsState()
     }
 }

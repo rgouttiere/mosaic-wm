@@ -19,10 +19,10 @@ struct SwitcherMode { let name: String; let sections: [SwitcherSection] }
 
 private enum Sw {
     static let bg      = NSColor(srgbRed: 0x1e/255, green: 0x1e/255, blue: 0x1e/255, alpha: 0.98)
-    static let text    = NSColor(srgbRed: 0xf9/255, green: 0xf8/255, blue: 0xf5/255, alpha: 1)
-    static let subtext = NSColor(srgbRed: 0xa8/255, green: 0x99/255, blue: 0x84/255, alpha: 1)
-    static let accent  = NSColor(srgbRed: 0xa6/255, green: 0xe3/255, blue: 0xa1/255, alpha: 1)
-    static let sel     = NSColor(srgbRed: 0x2e/255, green: 0x7d/255, blue: 0x32/255, alpha: 0.55)
+    static var text: NSColor    { Palette.text }
+    static var subtext: NSColor { Palette.subtext }
+    static var accent: NSColor  { Palette.accent }
+    static var sel: NSColor     { Palette.accent.withAlphaComponent(0.30) }   // selected-row wash, tied to the accent
     static let badgeBg = NSColor(srgbRed: 0x31/255, green: 0x32/255, blue: 0x44/255, alpha: 1)
 }
 
@@ -32,7 +32,9 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
     private static var shared: SwitcherPanel?
 
     private let field = NSTextField()
+    private let scroll = NSScrollView()
     private let table = NSTableView()
+    private let selBar = SwitcherSelBar()   // single sliding selection indicator (animated)
     private let footer = NSTextField(labelWithString: "")
     private let modeLabel = NSTextField(labelWithString: "")
     private let modes: [SwitcherMode]
@@ -74,13 +76,23 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         backgroundColor = .clear
         hasShadow = true
 
-        let container = NSView(frame: NSRect(origin: .zero, size: rect.size))
+        let container = NSVisualEffectView(frame: NSRect(origin: .zero, size: rect.size))
+        container.material = .hudWindow          // same frosted material as the tab bars
+        container.blendingMode = .behindWindow
+        container.state = .active
         container.wantsLayer = true
-        container.layer?.backgroundColor = Sw.bg.cgColor
-        container.layer?.cornerRadius = 14
+        container.layer?.cornerRadius = CGFloat(Config.shared.tabCornerRadius)   // match the theme's square corners
+        container.layer?.masksToBounds = true
         container.layer?.borderWidth = 1
         container.layer?.borderColor = Sw.accent.withAlphaComponent(0.35).cgColor
         contentView = container
+
+        // Subtle dark tint over the frost so the large text stays crisp and it reads themed.
+        let tint = NSView(frame: container.bounds)
+        tint.autoresizingMask = [.width, .height]
+        tint.wantsLayer = true
+        tint.layer?.backgroundColor = Sw.bg.withAlphaComponent(0.4).cgColor
+        container.addSubview(tint)
 
         field.frame = NSRect(x: 18, y: h - 56, width: w - 36, height: 40)
         field.font = .systemFont(ofSize: 22)
@@ -103,7 +115,7 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         modeLabel.alignment = .center
         container.addSubview(modeLabel)
 
-        let scroll = NSScrollView(frame: NSRect(x: 8, y: 34, width: w - 16, height: h - 124))
+        scroll.frame = NSRect(x: 8, y: 34, width: w - 16, height: h - 124)
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -121,6 +133,9 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         table.addTableColumn(col)
         scroll.documentView = table
         container.addSubview(scroll)
+        // Floating selection indicator that SLIDES between rows (translucent, so text reads through).
+        selBar.wantsLayer = true
+        scroll.contentView.addSubview(selBar)
 
         footer.frame = NSRect(x: 18, y: 10, width: w - 36, height: 16)
         footer.font = .systemFont(ofSize: 11)
@@ -181,6 +196,7 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         rows = out
         table.reloadData()
         if let first = firstItem(from: 0, dir: 1) { table.selectRowIndexes([first], byExtendingSelection: false) }
+        positionSelBar(animated: false)   // list changed → snap, don't slide across a filter
     }
 
     private static func fuzzyScore(_ needle: String, _ haystack: String) -> Int? {
@@ -214,6 +230,25 @@ final class SwitcherPanel: NSPanel, NSTableViewDataSource, NSTableViewDelegate, 
         if let next = firstItem(from: (cur < 0 ? -1 : cur) + delta, dir: delta) {
             table.selectRowIndexes([next], byExtendingSelection: false)
             table.scrollRowToVisible(next)
+            positionSelBar(animated: true)   // slide the indicator to the new row
+        }
+    }
+
+    /// Slide (or snap) the single selection indicator to the current row, in the clip view's coords
+    /// so it tracks scrolling. Translucent, so it can float over the row text.
+    private func positionSelBar(animated: Bool) {
+        let row = table.selectedRow
+        guard row >= 0, isItem(row) else { selBar.isHidden = true; return }
+        let target = table.convert(table.rect(ofRow: row), to: scroll.contentView)
+        selBar.isHidden = false
+        if animated, selBar.frame != .zero, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.14
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                selBar.animator().frame = target
+            }
+        } else {
+            selBar.frame = target
         }
     }
 
@@ -309,10 +344,26 @@ private func swHighlightedTitle(_ title: String, query: String) -> NSAttributedS
 }
 
 private final class SwitcherRowView: NSTableRowView {
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else { return }
-        Sw.sel.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 6, dy: 2), xRadius: 8, yRadius: 8).fill()
+    // Selection is drawn by the single sliding SwitcherSelBar, not per-row.
+    override func drawSelection(in dirtyRect: NSRect) {}
+}
+
+/// The single selection indicator that slides between rows — a quiet wash + a crisp accent bar with
+/// a soft glow on the leading edge. Translucent so the row text reads through it.
+private final class SwitcherSelBar: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }   // never intercept clicks
+    override func draw(_ dirtyRect: NSRect) {
+        let r = bounds.insetBy(dx: 6, dy: 2)
+        Sw.accent.withAlphaComponent(0.15).setFill()
+        NSBezierPath(roundedRect: r, xRadius: 7, yRadius: 7).fill()
+        let bar = NSRect(x: r.minX, y: r.minY + 4, width: 3, height: r.height - 8)
+        NSGraphicsContext.saveGraphicsState()
+        let glow = NSShadow()
+        glow.shadowColor = Sw.accent.withAlphaComponent(0.7); glow.shadowBlurRadius = 5; glow.shadowOffset = .zero
+        glow.set()
+        Sw.accent.setFill()
+        NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).fill()
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 

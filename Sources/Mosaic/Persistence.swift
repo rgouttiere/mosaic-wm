@@ -36,6 +36,9 @@ struct SavedState: Codable {
     var assignments: [String: UInt64]?          // key = String(workspace number) → spaceID
     var assignmentApps: [String: String]?       // key = String(workspace number) → app bundle id
     var scratchpadBundle: String?               // scratchpad app bundle id
+    /// v2: which workspace number was shown on each monitor, in left→right monitor order, so a
+    /// restart restores the exact view. 0 = nothing shown there. Absent = older save.
+    var shownByMonitor: [Int]?
 }
 
 /// A per-app auto-placement rule from config. `app` is matched (case-insensitive

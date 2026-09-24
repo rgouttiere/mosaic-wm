@@ -108,6 +108,24 @@ final class WindowObserver {
         let work = DispatchWorkItem { [weak self] in self?.onChange() }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: work)
+        scheduleSettle()
+    }
+
+    private var settleWork: [DispatchWorkItem] = []
+
+    /// A window-created / app-shown / app-activated notification frequently fires just BEFORE the
+    /// window is actually on-screen and placeable, so the immediate (0.04s) reconcile misses it and
+    /// fast-paths out — leaving the tile un-updated until the user next interacts. Fire a couple of
+    /// confirming reconciles once the window has had time to materialise. These are event-driven
+    /// (only after a real notification) and coalesced across a burst, so an idle desktop stays
+    /// quiet — no continuous polling that would defeat App Nap.
+    private func scheduleSettle() {
+        settleWork.forEach { $0.cancel() }
+        settleWork = [0.3, 0.8].map { delay in
+            let w = DispatchWorkItem { [weak self] in self?.onChange() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: w)
+            return w
+        }
     }
 
     // MARK: - App tracking

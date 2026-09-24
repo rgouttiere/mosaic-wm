@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let windowManager = WindowManager()
     private var hotkeys: HotkeyManager?
     private let cmdTabTap = CmdTabTap()
+    private let comboTap = ComboTap()
+    /// Actions routed through the event tap (not Carbon) so they beat reserved system shortcuts —
+    /// e.g. workspace nav on Ctrl+←/→ works without disabling Mission Control's "move a space".
+    private let tapRoutedActions: Set<String> = ["workspace-next", "workspace-prev"]
     private var statusItem: NSStatusItem!
     private var configWatch: DispatchSourceFileSystemObject?
     private var configReloadWork: DispatchWorkItem?
@@ -28,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager.startObserving()
         presentConfigIssues()   // surface any problems from the startup config load
         startWatchingConfig()   // hot-reload config.json on save (no manual reload-config)
+        updateTrackpadGestures()   // opt-in native 3-finger swipe → workspace nav
+        updateWindowDrag()         // hold-modifier + left-drag to move any window
 
         // CLI channel: `mosaic <action>` posts this; run the matching action on the main thread.
         DistributedNotificationCenter.default().addObserver(
@@ -66,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        windowManager.resetAllOpacity()
+        windowManager.unparkAll()   // bring parked (off-screen, transparent) windows back so none is stranded
         windowManager.saveNow()
     }
 
@@ -97,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Clickable actions: title + the actual configured combo.
         let clickable: [(action: String, title: String, selector: Selector)] = [
             ("tile", "Tile current desktop", #selector(tileCurrentSpace)),
-            ("cycle-mode", "Cycle layout: Columns → Grouped → Tabbed", #selector(cycleMode)),
+            ("cycle-mode", "Cycle layout: Columns → Grouped → Tabbed → Master-Stack", #selector(cycleMode)),
             ("manage-all", "Manage all desktops (toggle)", #selector(toggleManageAll)),
         ]
         for entry in clickable {
@@ -109,9 +115,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         let nav: [(action: String, title: String, selector: Selector)] = [
             ("expose", "Overview (Exposé)", #selector(showExpose)),
+            ("pip", "Picture-in-picture (focused window)", #selector(togglePiP)),
             ("switcher", "Quick-switcher / palette", #selector(showSwitcher)),
             ("hints", "Window hints", #selector(showHints)),
             ("workspace-back", "Back to previous workspace", #selector(workspaceBack)),
+            ("workspace-prev", "Previous workspace (this screen)", #selector(workspacePrev)),
+            ("workspace-next", "Next workspace (this screen)", #selector(workspaceNext)),
         ]
         for entry in nav {
             let combo = MenuFormat.combo(bindings[entry.action])
@@ -178,6 +187,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("zoom", "Zoom tile (monocle)", #selector(zoomTile)),
             ("scratchpad-send", "Send to scratchpad", #selector(scratchpadSend)),
             ("scratchpad-toggle", "Toggle scratchpad", #selector(scratchpadToggle)),
+            ("scratchpad-release", "Release scratchpad", #selector(scratchpadRelease)),
+            ("recover", "Recover windows (heal)", #selector(recoverWindows)),
+            ("dump-layout", "Dump layout (debug → /tmp/mosaic-dump.txt)", #selector(dumpLayout)),
         ]
         for entry in clickable2 {
             let combo = MenuFormat.combo(bindings[entry.action])
@@ -221,12 +233,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func zoomTile() { windowManager.toggleZoom() }
     @objc private func scratchpadSend() { windowManager.sendToScratchpad() }
     @objc private func scratchpadToggle() { windowManager.toggleScratchpad() }
+    @objc private func scratchpadRelease() { windowManager.releaseScratchpad() }
+    @objc private func recoverWindows() { windowManager.recover() }
     @objc private func assignFromMenu(_ sender: NSMenuItem) { windowManager.assignWorkspace(sender.tag) }
     @objc private func unassignThisDesktop() { windowManager.unassignCurrent() }
     @objc private func showSwitcher() { windowManager.showSwitcher() }
     @objc private func showHints() { windowManager.showHints() }
     @objc private func showExpose() { windowManager.showExpose() }
+    @objc private func togglePiP() { windowManager.togglePiP() }
     @objc private func workspaceBack() { windowManager.workspaceBack() }
+    @objc private func workspaceNext() { windowManager.cycleWorkspace(next: true) }
+    @objc private func workspacePrev() { windowManager.cycleWorkspace(next: false) }
+
+    /// Start/stop the native 3-finger swipes from config.trackpadGestures. Idempotent: safe on
+    /// launch and on every reload. Context-aware — the same swipe navigates the exposé when it's
+    /// open, else drives workspaces / opens the exposé. Swipe left = next (macOS convention).
+    private func updateTrackpadGestures() {
+        let g = TrackpadGestures.shared
+        guard Config.shared.trackpadGestures else { g.stop(); return }
+        g.onSwipeLeft = { [weak self] in
+            if ExposeOverlay.isOpen { ExposeOverlay.navLeft() }
+            else { self?.windowManager.cycleWorkspace(next: false) }   // swipe left → workspace on the left
+        }
+        g.onSwipeRight = { [weak self] in
+            if ExposeOverlay.isOpen { ExposeOverlay.navRight() }
+            else { self?.windowManager.cycleWorkspace(next: true) }    // swipe right → workspace on the right
+        }
+        g.onSwipeUp = { [weak self] in
+            if ExposeOverlay.isOpen { ExposeOverlay.navUp() }
+            else { self?.windowManager.showExpose() }
+        }
+        g.onSwipeDown = {
+            if ExposeOverlay.isOpen { ExposeOverlay.commit() }   // validate selection + close; closed: nothing
+        }
+        // 2-finger swipe → grid nav (columns + rows), but only while the exposé is open.
+        g.isExposeNavActive = { ExposeOverlay.isOpen }
+        g.onExposeNav = { col, row in
+            if col < 0 { ExposeOverlay.navLeft() }
+            else if col > 0 { ExposeOverlay.navRight() }
+            else if row < 0 { ExposeOverlay.navUp() }
+            else if row > 0 { ExposeOverlay.navDown() }
+        }
+        g.start()
+    }
+    /// Wire the "drag any window" capture (modifier-hold + left-drag). Reconfigured on hot-reload so a
+    /// changed `dragModifier` takes effect immediately (empty = tear the tap down).
+    private func updateWindowDrag() {
+        let c = WindowDragCapture.shared
+        c.beginGrab = { [weak self] p in self?.windowManager.beginWindowGrab(at: p) ?? false }
+        c.moveGrab  = { [weak self] p in self?.windowManager.moveWindowGrab(to: p) }
+        c.endGrab   = { [weak self] p in self?.windowManager.endWindowGrab(at: p) }
+        c.configure(modifier: Config.shared.dragModifier)
+    }
+
     @objc private func clearLayout() { windowManager.clear() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.shared.configURL) }
     @objc private func dumpLayout() { windowManager.dumpLayout() }
@@ -280,6 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "zoom": { wm.toggleZoom() },
             "scratchpad-send": { wm.sendToScratchpad() },
             "scratchpad-toggle": { wm.toggleScratchpad() },
+            "scratchpad-release": { wm.releaseScratchpad() },
             "move-screen-next": { wm.moveToScreen(next: true) },
             "move-screen-prev": { wm.moveToScreen(next: false) },
             "move-desktop-next": { wm.moveToDesktop(next: true) },
@@ -290,8 +350,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "switcher": { wm.showSwitcher() },
             "hints": { wm.showHints() },
             "expose": { wm.showExpose() },
+            "pip": { wm.togglePiP() },
+            "pip-here": { if #available(macOS 13.0, *) { PiP.shared.moveToMouse() } },
+            "grab": { wm.beginKeyboardGrab() },
             "unassign": { wm.unassignCurrent() },
             "workspace-back": { wm.workspaceBack() },
+            "workspace-next": { wm.cycleWorkspace(next: true) },
+            "workspace-prev": { wm.cycleWorkspace(next: false) },
+            "recover": { wm.recover() },
             "reload-config": { [weak self] in self?.reloadConfig() },
             "dump-layout": { wm.dumpLayout() },
         ]
@@ -346,15 +412,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hk.unregisterAll()
         let actions = makeActions()
 
+        var tapBindings: [ComboTap.Binding] = []
         for (action, combo) in Config.shared.keybindings {
+            // A binding value may hold several combos, comma-separated ("ctrl alt k, ctrl alt up"),
+            // so one action can fire from more than one shortcut. An empty/blank value = disabled.
+            let combos = combo.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            if combos.isEmpty { continue }
             guard let run = actions[action] else {
                 NSLog("Mosaic: unknown action '\(action)' in keybindings"); continue
             }
-            guard let parsed = KeyCombo.parse(combo) else {
-                NSLog("Mosaic: invalid key combo '\(combo)' for '\(action)'"); continue
+            for one in combos {
+                guard let parsed = KeyCombo.parse(one) else {
+                    NSLog("Mosaic: invalid key combo '\(one)' for '\(action)'"); continue
+                }
+                if tapRoutedActions.contains(action) {
+                    // Route through the CGEventTap so it fires BEFORE macOS' reserved shortcut (and is
+                    // swallowed from apps). Carbon RegisterEventHotKey would lose the race to the system.
+                    tapBindings.append(.init(keyCode: Int64(parsed.keyCode),
+                                             mods: Self.cgFlags(fromCarbon: parsed.modifiers), action: run))
+                } else {
+                    hk.register(keyCode: parsed.keyCode, modifiers: parsed.modifiers, action: run)
+                }
             }
-            hk.register(keyCode: parsed.keyCode, modifiers: parsed.modifiers, action: run)
         }
+        comboTap.setBindings(tapBindings)   // empty list tears the tap down
+    }
+
+    /// Carbon modifier mask (⌘⌥⌃⇧ from `KeyCombo.parse`) → `CGEventFlags` for the event tap.
+    private static func cgFlags(fromCarbon mods: UInt32) -> CGEventFlags {
+        var flags: CGEventFlags = []
+        if mods & UInt32(cmdKey)     != 0 { flags.insert(.maskCommand) }
+        if mods & UInt32(optionKey)  != 0 { flags.insert(.maskAlternate) }
+        if mods & UInt32(controlKey) != 0 { flags.insert(.maskControl) }
+        if mods & UInt32(shiftKey)   != 0 { flags.insert(.maskShift) }
+        return flags
     }
 
     /// Watch config.json and hot-reload it on save. Editors save atomically (write a temp
@@ -396,6 +487,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotkeys()   // unregisters old, applies new bindings
         applyExposeSwitch() // re-arm the ⌘Tab tap with the (possibly changed) combo
         rebuildMenu()       // refresh combos shown in the menu
+        updateTrackpadGestures()   // (re)arm or disarm the trackpad swipe on config change
+        updateWindowDrag()         // (re)configure the drag-any-window chord
         presentConfigIssues()   // warn if the edited config has problems
         NSLog("Mosaic: config reloaded")
     }

@@ -29,24 +29,204 @@ enum SelfTest {
         containerTests(h)
         configTests(h)
         windowManagerTests(h)
+        resizeLimitTests(h)
+        coverTests(h)
         print("MosaicSelfTest: \(h.passed) passed, \(h.failed) failed")
         return h.failed == 0 ? 0 : 1
     }
 
-    // MARK: - WindowManager: drifted-window detection (wake/display re-home)
+    // MARK: - Geometry: emulated-workspace parking (v2)
 
     private static func windowManagerTests(_ h: Harness) {
-        let left = CGRect(x: -1512, y: 0, width: 1512, height: 982)   // screen to the left (negative x)
-        let main = CGRect(x: 0, y: 0, width: 3440, height: 1440)
-        let screens = [left, main]
-        h.check(WindowManager.isDrifted(center: CGPoint(x: -700, y: 400), home: main, screens: screens),
-                "isDrifted: window on left but home is main → drifted")
-        h.check(!WindowManager.isDrifted(center: CGPoint(x: 1000, y: 400), home: main, screens: screens),
-                "isDrifted: window on its home (main) → not drifted")
-        h.check(!WindowManager.isDrifted(center: CGPoint(x: -700, y: 400), home: left, screens: screens),
-                "isDrifted: window on left, home left → not drifted")
-        h.check(!WindowManager.isDrifted(center: CGPoint(x: 99999, y: 0), home: main, screens: screens),
-                "isDrifted: off all screens → not touched (false)")
+        // A parked workspace is the on-screen layout rect pushed off ITS OWN home monitor's void-
+        // facing edge — never onto a neighbour — so size is always preserved (no cross-resolution
+        // clamp) and the strip lands on that same monitor.
+        let layout = CGRect(x: 10, y: 40, width: 1490, height: 900)   // an on-screen tiling rect
+        let main = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        // Single monitor: void on both sides → push off the right edge, size preserved.
+        let parked = Geometry.parkRect(layoutRect: layout, screenFrame: main, desktop: main)
+        h.eq(parked.width, layout.width, "parkRect: width preserved (pure translation)")
+        h.eq(parked.height, layout.height, "parkRect: height preserved (no vertical clamp)")
+        h.eq(parked.minY, layout.minY, "parkRect: Y unchanged → window keeps its exact height")
+        h.check(parked.minX >= main.maxX, "parkRect: single monitor parks off its right edge")
+
+        // Three monitors in a row. The INTERIOR (centre) monitor has neighbours on both sides, so a
+        // horizontal push would land a foreign-sized window on a neighbour (the 1080p-clamp bug).
+        // It must push straight DOWN off its own bottom edge instead — X/width/Y-height unchanged.
+        let leftScreen  = CGRect(x: -1512, y: 0, width: 1512, height: 982)
+        let centre      = main                                          // 0..1512, the interior one
+        let rightScreen = CGRect(x: 1512, y: 0, width: 1920, height: 1080)
+        let desktop = leftScreen.union(centre).union(rightScreen)
+        let centreLayout = CGRect(x: 10, y: 40, width: 1490, height: 900)
+        let parkedCentre = Geometry.parkRect(layoutRect: centreLayout, screenFrame: centre, desktop: desktop)
+        h.eq(parkedCentre.minX, centreLayout.minX, "parkRect: interior monitor keeps X (no sideways clamp onto a neighbour)")
+        h.eq(parkedCentre.width, centreLayout.width, "parkRect: interior monitor keeps width")
+        h.eq(parkedCentre.height, centreLayout.height, "parkRect: interior monitor keeps height (down push, not corner)")
+        h.check(parkedCentre.maxY <= centre.minY + 1, "parkRect: interior monitor parks below its own bottom edge")
+        // The rightmost monitor pushes off its own right edge (its width, not the desktop's).
+        let rightLayout = CGRect(x: 1522, y: 40, width: 1900, height: 1000)
+        let parkedRight = Geometry.parkRect(layoutRect: rightLayout, screenFrame: rightScreen, desktop: desktop)
+        h.check(parkedRight.minX >= rightScreen.maxX, "parkRect: rightmost monitor parks off its own right edge")
+        h.eq(parkedRight.minY, rightLayout.minY, "parkRect: rightmost monitor keeps Y (no resize)")
+        // The leftmost monitor pushes off its own left edge (into the void on the left).
+        let leftLayout = CGRect(x: -1502, y: 40, width: 1490, height: 900)
+        let parkedLeft = Geometry.parkRect(layoutRect: leftLayout, screenFrame: leftScreen, desktop: desktop)
+        h.check(parkedLeft.maxX <= leftScreen.minX + 1, "parkRect: leftmost monitor parks off its own left edge")
+        h.eq(parkedLeft.minY, leftLayout.minY, "parkRect: leftmost monitor keeps Y (no resize)")
+
+        // aspectFit: largest box of a given w/h ratio, centred inside the tile (for IINA & co).
+        let fitTall = Geometry.aspectFit(CGRect(x: 0, y: 0, width: 1000, height: 1000), aspect: 16.0/9)
+        h.eq(fitTall.width, 1000, "aspectFit: tile taller than 16:9 → full width")
+        h.eq(fitTall.height, 1000 * 9.0/16, "aspectFit: … height from the ratio (letterbox)")
+        h.eq(fitTall.minX, 0, "aspectFit: full-width box keeps X")
+        h.check(abs(fitTall.midY - 500) < 0.01, "aspectFit: letterboxed box is vertically centred")
+        let fitWide = Geometry.aspectFit(CGRect(x: 0, y: 0, width: 3000, height: 1000), aspect: 16.0/9)
+        h.eq(fitWide.height, 1000, "aspectFit: tile wider than 16:9 → full height")
+        h.check(abs(fitWide.width - 1000 * 16.0/9) < 0.01, "aspectFit: … width from the ratio (pillarbox)")
+        h.check(abs(fitWide.midX - 1500) < 0.01, "aspectFit: pillarboxed box is horizontally centred")
+        let fitExact = Geometry.aspectFit(CGRect(x: 10, y: 20, width: 1600, height: 900), aspect: 16.0/9)
+        h.check(abs(fitExact.width - 1600) < 0.01 && abs(fitExact.height - 900) < 0.01, "aspectFit: exact-ratio tile → fills it")
+        let fitDegenerate = Geometry.aspectFit(CGRect(x: 0, y: 0, width: 800, height: 600), aspect: 0)
+        h.eq(fitDegenerate.width, 800, "aspectFit: aspect ≤ 0 → tile unchanged")
+
+        // Workspace→monitor partition (model A): 1...9 split into contiguous even-ish blocks.
+        // 1 monitor → everything on monitor 0.
+        for n in 1...9 { h.eq(WindowManager.monitorBlock(forWorkspace: n, monitorCount: 1), 0, "block: 1 monitor → 0 (ws \(n))") }
+        // 3 monitors → 1-3 | 4-6 | 7-9.
+        h.eq(WindowManager.monitorBlock(forWorkspace: 1, monitorCount: 3), 0, "block: 3 mon, ws1 → 0")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 3, monitorCount: 3), 0, "block: 3 mon, ws3 → 0")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 4, monitorCount: 3), 1, "block: 3 mon, ws4 → 1")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 6, monitorCount: 3), 1, "block: 3 mon, ws6 → 1")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 7, monitorCount: 3), 2, "block: 3 mon, ws7 → 2")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 9, monitorCount: 3), 2, "block: 3 mon, ws9 → 2")
+        // 2 monitors → 1-5 | 6-9 (remainder goes to the first monitor).
+        h.eq(WindowManager.monitorBlock(forWorkspace: 5, monitorCount: 2), 0, "block: 2 mon, ws5 → 0")
+        h.eq(WindowManager.monitorBlock(forWorkspace: 6, monitorCount: 2), 1, "block: 2 mon, ws6 → 1")
+        // Every workspace maps to a valid monitor index for any plausible monitor count.
+        for count in 1...9 {
+            for n in 1...9 {
+                let b = WindowManager.monitorBlock(forWorkspace: n, monitorCount: count)
+                h.check(b >= 0 && b < count, "block: in range (count \(count), ws \(n) → \(b))")
+            }
+        }
+
+        // previewFrames: pure layout geometry (the exposé uses it for parked workspaces, whose
+        // real window frames are clamped off-screen). splitH halves width; splitV halves height,
+        // first child on top (Cocoa y grows up).
+        do {
+            let a = Container(layout: .splitH, children: [])
+            let b = Container(layout: .splitH, children: [])
+            let root = Container(layout: .splitH, children: [a, b])
+            let f = root.previewFrames(in: NSRect(x: 0, y: 0, width: 1000, height: 800))
+            h.eq(f[ObjectIdentifier(a)]?.width ?? -1, 500, "previewFrames: splitH child half width")
+            h.eq(f[ObjectIdentifier(a)]?.minX ?? -1, 0, "previewFrames: splitH first child at left")
+            h.eq(f[ObjectIdentifier(b)]?.minX ?? -1, 500, "previewFrames: splitH second child offset right")
+            h.eq(f[ObjectIdentifier(a)]?.height ?? -1, 800, "previewFrames: splitH keeps full height")
+        }
+        do {
+            let a = Container(layout: .splitH, children: [])
+            let b = Container(layout: .splitH, children: [])
+            let root = Container(layout: .splitV, children: [a, b])
+            let f = root.previewFrames(in: NSRect(x: 0, y: 0, width: 1000, height: 800))
+            h.eq(f[ObjectIdentifier(a)]?.minY ?? -1, 400, "previewFrames: splitV first child on top")
+            h.eq(f[ObjectIdentifier(b)]?.minY ?? -1, 0, "previewFrames: splitV second child on bottom")
+            h.eq(f[ObjectIdentifier(a)]?.height ?? -1, 400, "previewFrames: splitV half height")
+        }
+
+        // parseWorkspaceMonitors: lenient like parseWorkspaceNames.
+        do {
+            let (map, issues) = Config.parseWorkspaceMonitors(["1": 1, "5": 2, "9": 3])
+            h.eq(map, [1: 1, 5: 2, 9: 3], "wsMonitors: valid")
+            h.check(issues.isEmpty, "wsMonitors: valid → no issues")
+        }
+        do {
+            let (map, issues) = Config.parseWorkspaceMonitors(["0": 1, "10": 2, "3": 2])  // out of range dropped
+            h.eq(map, [3: 2], "wsMonitors: out-of-range dropped")
+            h.eq(issues.count, 2, "wsMonitors: out-of-range reported")
+        }
+        do {
+            let (map, issues) = Config.parseWorkspaceMonitors(["2": 0])  // monitor index must be ≥ 1
+            h.check(map.isEmpty, "wsMonitors: non-positive index dropped")
+            h.eq(issues.count, 1, "wsMonitors: non-positive index reported")
+        }
+    }
+
+    // MARK: - Geometry: a window that owns a whole display (GAME-COVERS-SCREEN)
+
+    private static func coverTests(_ h: Harness) {
+        let screen = CGRect(x: 0, y: 0, width: 3440, height: 1440)
+        // The case this exists for: a game in borderless full screen, exactly display-sized.
+        h.check(Geometry.covers(screen: screen, window: screen), "exact display fill counts")
+        // Slack, so rounding to the display mode doesn't miss.
+        h.check(Geometry.covers(screen: screen, window: CGRect(x: 0, y: 0, width: 3439, height: 1439)),
+                "one pixel short still counts")
+        h.check(Geometry.covers(screen: screen, window: CGRect(x: -20, y: -20, width: 3480, height: 1480)),
+                "larger than the display counts")
+        // A maximised window that stops at the menu bar is NOT the whole display.
+        h.check(!Geometry.covers(screen: screen, window: CGRect(x: 0, y: 32, width: 3440, height: 1408)),
+                "a window below the menu bar does not count")
+        h.check(!Geometry.covers(screen: screen, window: CGRect(x: 0, y: 0, width: 1720, height: 1440)),
+                "half the width does not count")
+        // A window filling ANOTHER display must not mark this one.
+        h.check(!Geometry.covers(screen: screen, window: CGRect(x: 3440, y: 0, width: 2560, height: 1440)),
+                "a window on the neighbouring display does not count")
+        // Degenerate inputs can't be covered by anything.
+        h.check(!Geometry.covers(screen: .zero, window: screen), "a degenerate screen is never covered")
+    }
+
+    // MARK: - Geometry: split travel limits (RESIZE-NEVER-FROZEN)
+
+    private static func resizeLimitTests(_ h: Harness) {
+        // Nothing learned yet: the 60pt baseline on a 1000pt axis leaves almost the whole range.
+        do {
+            let l = Geometry.resizeLimits(pair: 1, axis: 1000, minI: nil, minJ: nil)
+            h.check(abs(l.lo - 0.06) < 0.0001, "baseline: lo is 60pt of the axis")
+            h.check(abs(l.hi - 0.94) < 0.0001, "baseline: hi is the mirror of lo")
+        }
+        // The regression: two tiles that both read back oversized (a fullscreen window, an app that
+        // hadn't applied its shrink yet) used to push both minimums to pair/2, collapsing lo == hi
+        // and freezing the divider dead centre until Mosaic was restarted.
+        do {
+            let l = Geometry.resizeLimits(pair: 1, axis: 1000, minI: 900, minJ: 900)
+            h.check(l.lo < l.hi, "two oversized minimums still leave travel")
+            h.check(abs(l.lo - 0.45) < 0.0001, "oversized minI is capped at the share")
+            h.check(abs(l.hi - 0.55) < 0.0001, "oversized minJ is capped at the share")
+        }
+        // One side poisoned: the split keeps the range on the other side rather than centring.
+        do {
+            let l = Geometry.resizeLimits(pair: 1, axis: 1000, minI: 900, minJ: 100)
+            h.check(abs(l.lo - 0.45) < 0.0001, "asymmetric: capped side")
+            h.check(abs(l.hi - 0.9) < 0.0001, "asymmetric: honest side keeps its real minimum")
+        }
+        // A narrow pair (one boundary of a 5-way split) caps proportionally, not absolutely.
+        do {
+            let l = Geometry.resizeLimits(pair: 0.2, axis: 1000, minI: 900, minJ: 900)
+            h.check(l.lo < l.hi, "narrow pair: still movable")
+            h.check(abs(l.lo - 0.09) < 0.0001, "narrow pair: cap follows the pair")
+        }
+        // Degenerate inputs collapse to an empty range instead of producing NaN ratios.
+        do {
+            h.check(Geometry.resizeLimits(pair: 0, axis: 1000, minI: nil, minJ: nil) == (0, 0),
+                    "degenerate pair is rejected")
+            h.check(Geometry.resizeLimits(pair: 1, axis: 0, minI: nil, minJ: nil) == (0, 0),
+                    "degenerate axis is rejected")
+        }
+        // The load-bearing invariant, swept: whatever ends up in the cache, the split point keeps
+        // somewhere to go. This is what makes the freeze unreachable rather than merely unlikely.
+        do {
+            var frozen = 0
+            for pair in [CGFloat(0.05), 0.2, 0.5, 1.0] {
+                for axis in [CGFloat(200), 800, 3000] {
+                    for minI in [nil, CGFloat(0), 60, 500, 5000] as [CGFloat?] {
+                        for minJ in [nil, CGFloat(0), 60, 500, 5000] as [CGFloat?] {
+                            let l = Geometry.resizeLimits(pair: pair, axis: axis, minI: minI, minJ: minJ)
+                            if !(l.lo < l.hi) { frozen += 1 }
+                        }
+                    }
+                }
+            }
+            h.eq(frozen, 0, "no combination of learned minimums can freeze a split")
+        }
     }
 
     // MARK: - Container: layout-tree invariants
@@ -106,6 +286,43 @@ enum SelfTest {
             h.eq(p.selected, 2, "selected clamps high → count-1")
             p.selected = -5
             h.eq(p.selected, 0, "selected clamps low → 0")
+        }
+
+        // firstVisibleLeaf — descends into the SELECTED tab, unlike firstLeaf (RESTORE-SELECTED-TAB)
+        do {
+            let (p, kids) = tabbedParent(3)          // [A,B,C]
+            p.selected = 2
+            h.check(p.firstVisibleLeaf() === kids[2], "firstVisibleLeaf → selected tab C")
+            p.selected = 0
+            h.check(p.firstVisibleLeaf() === kids[0], "firstVisibleLeaf → selected tab A")
+        }
+        do {
+            // nested tabbed: root selected=1 → inner, inner selected=2 → its 3rd child
+            let a = Container(layout: .splitH, children: [])
+            let (inner, ik) = tabbedParent(3); inner.selected = 2
+            let root = Container(layout: .tabbed, children: [a, inner]); root.selected = 1
+            h.check(root.firstVisibleLeaf() === ik[2], "firstVisibleLeaf: nested tabbed honors both selections")
+            h.check(root.firstLeaf() === a, "firstLeaf ignores selection → first child")
+        }
+        do {
+            // split picks its first child regardless of any tabbed sibling's selection
+            let leafX = Container(layout: .splitH, children: [])
+            let (tab, _) = tabbedParent(2); tab.selected = 1
+            let root = Container(layout: .splitH, children: [leafX, tab])
+            h.check(root.firstVisibleLeaf() === leafX, "firstVisibleLeaf: split → first child")
+        }
+
+        // solveSplit — min-size-aware split widths (MIN-SIZE-TILING)
+        do {
+            let a = Container.solveSplit(total: 1000, ratios: [0.5, 0.5], mins: [0, 0])
+            h.eq(a[0], 500, "solveSplit: no min → plain ratio split"); h.eq(a[1], 500, "solveSplit: … second")
+            let b = Container.solveSplit(total: 1000, ratios: [0.5, 0.5], mins: [700, 0])
+            h.eq(b[0], 700, "solveSplit: child pinned to its floor"); h.eq(b[1], 300, "solveSplit: sibling absorbs the deficit")
+            let c = Container.solveSplit(total: 3440, ratios: [0.25, 0.25, 0.25, 0.25], mins: [990, 0, 0, 0])
+            h.eq(c[0], 990, "solveSplit: floor 990 held in a 4-column split")
+            h.check(abs(c[1] - (3440 - 990) / 3) < 0.01, "solveSplit: the other 3 columns split the rest")
+            let d = Container.solveSplit(total: 1000, ratios: [0.5, 0.5], mins: [700, 700])
+            h.eq(d[0], 700, "solveSplit: over-constrained → each still gets its min (overflow)"); h.eq(d[1], 700, "solveSplit: … second")
         }
 
         // ratios stay consistent with child count

@@ -86,6 +86,17 @@ enum AX {
                                      minimized ? kCFBooleanTrue : kCFBooleanFalse)
     }
 
+    static func isMinimized(_ element: AXUIElement) -> Bool {
+        (copy(element, kAXMinimizedAttribute as String) as Bool?) ?? false
+    }
+
+    /// Whether the window exposes a native full-screen button. Real app windows have one;
+    /// dialogs, palettes and settings panels usually don't — the AeroSpace heuristic for
+    /// "this isn't a tileable window". A nil button element means absent.
+    static func hasFullscreenButton(_ element: AXUIElement) -> Bool {
+        (copy(element, "AXFullScreenButton") as AXUIElement?) != nil
+    }
+
     // MARK: Window identity & visibility
 
     static func windowID(_ element: AXUIElement) -> CGWindowID? {
@@ -139,6 +150,26 @@ enum AX {
             }
         }
         return ids
+    }
+
+    /// Every on-screen layer-0 window with its owner and bounds, in AX/CG coordinates (origin at
+    /// the top-left of the main display). Layer 0 is ordinary app windows, so Mosaic's own overlays
+    /// — all `.floating` or above — can never appear here.
+    static func onScreenWindows() -> [(id: CGWindowID, pid: pid_t, bounds: CGRect)] {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let info = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+        var out: [(id: CGWindowID, pid: pid_t, bounds: CGRect)] = []
+        for entry in info {
+            guard (entry[kCGWindowLayer as String] as? Int) == 0,
+                  let id = entry[kCGWindowNumber as String] as? CGWindowID,
+                  let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
+                  let dict = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict as CFDictionary) else { continue }
+            out.append((id, pid, bounds))
+        }
+        return out
     }
 
     // MARK: Enumeration

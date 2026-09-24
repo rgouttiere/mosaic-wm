@@ -21,6 +21,12 @@ final class Container {
     /// The window, for leaves only. A `var` so a leaf can adopt a replacement window in
     /// place — e.g. when an app swaps one window for another (IINA's launcher → video).
     var window: ManagedWindow?
+    /// Set on the leaf currently mirrored in the picture-in-picture (maintained by the WindowManager).
+    /// The tab bar badges it, so you can tell at a glance where the floating PiP's video comes from
+    /// even though the tile itself is showing a sibling tab.
+    var isPiPSource = false
+    /// Does this subtree hold the PiP source? A tab entry can be a nested group, not a bare leaf.
+    var containsPiPSource: Bool { isPiPSource || children.contains { $0.containsPiPSource } }
     /// Selected child index, for `.tabbed` containers. Always kept in range.
     var selected = 0 {
         didSet {
@@ -79,6 +85,18 @@ final class Container {
 
     func firstLeaf() -> Container {
         isLeaf ? self : (children.first?.firstLeaf() ?? self)
+    }
+
+    /// The first ON-SCREEN leaf, honoring tab/stack selection: a tabbed container descends into its
+    /// `selected` child, splits into their first. Unlike `firstLeaf` this lands on the tab actually
+    /// visible — used to restore focus onto last session's selected tab instead of snapping to tab 0.
+    func firstVisibleLeaf() -> Container {
+        guard !isLeaf, !children.isEmpty else { return self }
+        if layout == .tabbed {
+            let i = min(max(selected, 0), children.count - 1)
+            return children[i].firstVisibleLeaf()
+        }
+        return children[0].firstVisibleLeaf()
     }
 
     func forEachLeaf(_ body: (Container) -> Void) {
@@ -193,14 +211,83 @@ final class Container {
     /// The rect this node was last laid out in (Cocoa coords) — used to place resize handles.
     var lastFrame: NSRect = .zero
 
-    func arrange(in rect: NSRect) {
+    /// Split `total` among `ratios`, but never give a child less than `mins[i]` along the axis.
+    /// A child whose ratio-share falls under its min is PINNED to its min; the leftover is re-split
+    /// among the rest by ratio (iterating, since pinning one can starve another). If the mins can't
+    /// all fit (sum > total) every child still gets its min and the container simply overflows —
+    /// there is no smaller size the windows accept. With all-zero mins this is a plain ratio split.
+    static func solveSplit(total: CGFloat, ratios: [CGFloat], mins: [CGFloat]) -> [CGFloat] {
+        let n = ratios.count
+        guard n > 0 else { return [] }
+        var out = [CGFloat](repeating: 0, count: n)
+        var pinned = [Bool](repeating: false, count: n)
+        while true {
+            let pinnedSum = zip(pinned, mins).reduce(CGFloat(0)) { $1.0 ? $0 + $1.1 : $0 }
+            let free = max(0, total - pinnedSum)
+            let ratioSum = zip(pinned, ratios).reduce(CGFloat(0)) { $1.0 ? $0 : $0 + $1.1 }
+            let open = pinned.filter { !$0 }.count
+            var changed = false
+            for i in 0..<n where !pinned[i] {
+                let share = ratioSum > 0 ? free * ratios[i] / ratioSum : free / CGFloat(max(1, open))
+                if share < mins[i] { pinned[i] = true; changed = true } else { out[i] = share }
+            }
+            if !changed {
+                for i in 0..<n where pinned[i] { out[i] = mins[i] }
+                return out
+            }
+        }
+    }
+
+    /// Size this node needs along the given axis (horizontal = width), from learned window floors.
+    /// Splits along the axis sum their children; across it, take the max; tabs (overlapping) max.
+    func minAxisSize(horizontal: Bool) -> CGFloat {
+        if isLeaf { let m = window?.learnedMin ?? .zero; return horizontal ? m.width : m.height }
+        switch layout {
+        case .splitH:
+            return horizontal ? children.reduce(0) { $0 + $1.minAxisSize(horizontal: true) }
+                              : (children.map { $0.minAxisSize(horizontal: false) }.max() ?? 0)
+        case .splitV:
+            return horizontal ? (children.map { $0.minAxisSize(horizontal: true) }.max() ?? 0)
+                              : children.reduce(0) { $0 + $1.minAxisSize(horizontal: false) }
+        case .tabbed:
+            // Only the SELECTED tab is on-screen; the others overlap it. Reserving the MAX over all
+            // tabs lets a hidden tab freeze the column — e.g. IINA, whose aspect-lock inflates its
+            // learnedMin.width to the full video width, so a background IINA tab would pin the whole
+            // splitH and make it un-resizable. Mirror visibleAxisExtent: reserve for what's shown.
+            let idx = min(max(selected, 0), children.count - 1)
+            return children.indices.contains(idx) ? children[idx].minAxisSize(horizontal: horizontal) : 0
+        }
+    }
+
+    /// `visibleOnly` (live-resize path): a tabbed group arranges ONLY its selected child, leaving
+    /// hidden tabs untouched — arranging every tab into the visible content rect (the default) drags
+    /// hidden windows on-screen each frame, and only a subsequent full render's parkHiddenCrossAppTabs
+    /// pushes them back. During a 90fps drag there's no such pass, so they'd flash "behind" the tiling.
+    /// The WM parks the hidden ones off-screen once at gesture start instead.
+    /// Set when `WindowManager.parkHiddenCrossAppTabs` has moved this leaf off-screen: a hidden
+    /// tab of a mixed-app group, which z-order can't keep behind the selected one because macOS
+    /// stacks by app. `arrange` then records its geometry but issues no AX write, because the park
+    /// would immediately undo it — and since each write undid the other, `setCocoaFrame`'s cache
+    /// never skipped either, so every render paid two synchronous cross-process writes per hidden
+    /// tab. Cleared for whichever tab becomes selected, in `arrangeTabbed`.
+    var parkedOffScreen = false
+
+    func arrange(in rect: NSRect, visibleOnly: Bool = false) {
         lastFrame = rect
         guard !isLeaf else {
             tabBar?.orderOut(nil)
             // Don't reposition a full-screen window (it's on its own Space); it keeps
             // its slot in the tree and reclaims it when it leaves full screen.
-            if window?.isFullscreen != true {
-                window?.setCocoaFrame(rect.insetBy(dx: gap / 2, dy: gap / 2))
+            if let w = window, w.isFullscreen != true, !parkedOffScreen {
+                let slot = rect.insetBy(dx: gap / 2, dy: gap / 2)
+                // Aspect-locked window with a learned ratio → size it to the largest box of that ratio
+                // that fits the slot and centre it, so it never overshoots and freezes the column. The
+                // letterbox fill (computed off this full-tile lastFrame) covers the surrounding gap.
+                if w.isAspectFit, w.aspectRatio > 0 {
+                    w.setCocoaFrame(Geometry.aspectFit(slot, aspect: w.aspectRatio))
+                } else {
+                    w.setCocoaFrame(slot)
+                }
             }
             return
         }
@@ -210,37 +297,80 @@ final class Container {
         switch layout {
         case .splitH:
             tabBar?.orderOut(nil)
+            let widths = Container.solveSplit(total: rect.width, ratios: ratios,
+                                              mins: children.map { $0.minAxisSize(horizontal: true) })
             var x = rect.minX
             for (i, child) in children.enumerated() {
-                let w = rect.width * ratios[i]
-                child.arrange(in: NSRect(x: x, y: rect.minY, width: w, height: rect.height))
-                x += w
+                child.arrange(in: NSRect(x: x, y: rect.minY, width: widths[i], height: rect.height), visibleOnly: visibleOnly)
+                x += widths[i]
             }
 
         case .splitV:
             tabBar?.orderOut(nil)
             // Cocoa origin bottom-left: first child takes the top slice.
+            let heights = Container.solveSplit(total: rect.height, ratios: ratios,
+                                               mins: children.map { $0.minAxisSize(horizontal: false) })
             var y = rect.maxY
             for (i, child) in children.enumerated() {
-                let h = rect.height * ratios[i]
-                child.arrange(in: NSRect(x: rect.minX, y: y - h, width: rect.width, height: h))
-                y -= h
+                child.arrange(in: NSRect(x: rect.minX, y: y - heights[i], width: rect.width, height: heights[i]), visibleOnly: visibleOnly)
+                y -= heights[i]
             }
 
         case .tabbed:
             // A tab group with a single window shows no bar (avoids a phantom top gap).
             if children.count == 1 {
                 tabBar?.orderOut(nil)
-                children[0].arrange(in: rect)
+                children[0].arrange(in: rect, visibleOnly: visibleOnly)
                 return
             }
             selected = min(max(selected, 0), children.count - 1)
-            if stacked { arrangeStacked(in: rect) } else { arrangeTabbed(in: rect) }
+            if stacked { arrangeStacked(in: rect) } else { arrangeTabbed(in: rect, visibleOnly: visibleOnly) }
+        }
+    }
+
+    /// Pure geometry: the on-screen rect each node WOULD occupy if arranged in `rect`, recorded
+    /// by object identity, WITHOUT moving any window. The exposé uses this to preview a workspace
+    /// whose windows are parked off-screen — macOS clamps a parked window to a ~1px corner, so
+    /// reading its real frame loses the layout entirely. Mirrors `arrange`'s split/tabbed/stacked
+    /// geometry; ignores the constant gap/strip insets where they'd only shift a schematic tile
+    /// by a couple of pixels.
+    func previewFrames(in rect: NSRect) -> [ObjectIdentifier: NSRect] {
+        var out: [ObjectIdentifier: NSRect] = [:]
+        collectPreview(in: rect, into: &out)
+        return out
+    }
+
+    private func collectPreview(in rect: NSRect, into out: inout [ObjectIdentifier: NSRect]) {
+        out[ObjectIdentifier(self)] = rect
+        guard !isLeaf, !children.isEmpty else { return }
+        let r = ratios.count == children.count ? ratios : Container.equalRatios(children.count)
+        switch layout {
+        case .splitH:
+            let widths = Container.solveSplit(total: rect.width, ratios: r,
+                                              mins: children.map { $0.minAxisSize(horizontal: true) })
+            var x = rect.minX
+            for (i, child) in children.enumerated() {
+                child.collectPreview(in: NSRect(x: x, y: rect.minY, width: widths[i], height: rect.height), into: &out)
+                x += widths[i]
+            }
+        case .splitV:
+            let heights = Container.solveSplit(total: rect.height, ratios: r,
+                                               mins: children.map { $0.minAxisSize(horizontal: false) })
+            var y = rect.maxY
+            for (i, child) in children.enumerated() {
+                child.collectPreview(in: NSRect(x: rect.minX, y: y - heights[i], width: rect.width, height: heights[i]), into: &out)
+                y -= heights[i]
+            }
+        case .tabbed:
+            if children.count == 1 { children[0].collectPreview(in: rect, into: &out); return }
+            let stripH = stacked ? min(tabBarHeight * CGFloat(children.count), rect.height) : tabBarHeight
+            let content = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, rect.height - stripH))
+            for child in children { child.collectPreview(in: content, into: &out) }
         }
     }
 
     /// Horizontal tabs: one strip row; children fill the content below.
-    private func arrangeTabbed(in rect: NSRect) {
+    private func arrangeTabbed(in rect: NSRect, visibleOnly: Bool = false) {
         let bar = ensureTabBar()
         let strip = NSRect(x: rect.minX, y: rect.maxY - tabBarHeight, width: rect.width, height: tabBarHeight)
         // Clamp to 0 (as arrangeStacked already does) so a tab group in a pane shorter than the
@@ -250,9 +380,23 @@ final class Container {
         bar.tabView.rows = []
         bar.tabView.titles = children.map { $0.title }
         bar.tabView.icons = children.map { $0.appIcon }
+        bar.tabView.pipFlags = children.map { $0.containsPiPSource }
         bar.tabView.selectedIndex = selected
         bar.place(at: strip)
-        for child in children { child.arrange(in: content) }
+        if visibleOnly {
+            // Live resize: only the shown tab is arranged; hidden tabs are left where they are (parked
+            // off-screen by the WM) so they can't flash on-screen behind the tiling every frame.
+            let sel = min(max(selected, 0), children.count - 1)
+            if children.indices.contains(sel) { children[sel].arrange(in: content, visibleOnly: true) }
+        } else {
+            // Whatever becomes selected is on screen again: drop the park flag first, or this
+            // render would record its geometry and skip the very write that brings it back.
+            let sel = min(max(selected, 0), children.count - 1)
+            if children.indices.contains(sel) {
+                children[sel].forEachLeaf { $0.parkedOffScreen = false }
+            }
+            for child in children { child.arrange(in: content) }
+        }
     }
 
     /// Stacking with INLINE nested groups: one row per entry. A tab-group entry shows its
@@ -263,14 +407,17 @@ final class Container {
         let bar = ensureTabBar()
         var rows: [[String]] = []
         var rowIcons: [[NSImage?]] = []
+        var rowPips: [[Bool]] = []
         var selSeg: [Int] = []
         for child in children {
             if !child.isLeaf, child.layout == .tabbed, !child.stacked, child.children.count > 1 {
                 rows.append(child.children.map { $0.title })
                 rowIcons.append(child.children.map { $0.appIcon })
+                rowPips.append(child.children.map { $0.containsPiPSource })
                 selSeg.append(min(max(child.selected, 0), child.children.count - 1))
             } else {
-                rows.append([child.title]); rowIcons.append([child.appIcon]); selSeg.append(0)
+                rows.append([child.title]); rowIcons.append([child.appIcon])
+                rowPips.append([child.containsPiPSource]); selSeg.append(0)
             }
         }
         // Clamp so a tall stack in a short pane can't produce a negative content height.
@@ -281,6 +428,7 @@ final class Container {
         bar.tabView.titles = []
         bar.tabView.rows = rows
         bar.tabView.rowIcons = rowIcons
+        bar.tabView.rowPipFlags = rowPips
         bar.tabView.selectedSeg = selSeg
         bar.tabView.selectedRow = selected
         bar.place(at: strip)
@@ -295,6 +443,8 @@ final class Container {
     func arrangeStackEntry(in rect: NSRect, visible: Bool) {
         if isLeaf {
             tabBar?.orderOut(nil)
+            lastFrame = rect   // record the content tile (below the strip) — else the letterbox fills
+                               // the stale full-tile gap and paints over the stack strip
             if window?.isFullscreen != true { window?.setCocoaFrame(rect.insetBy(dx: gap / 2, dy: gap / 2)) }
             return
         }

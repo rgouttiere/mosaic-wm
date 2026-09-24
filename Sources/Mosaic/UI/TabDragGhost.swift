@@ -19,10 +19,17 @@ final class TabDragGhost {
         window.ignoresMouseEvents = true
         window.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .stationary]
 
-        let content = NSView(frame: window.frame)
+        // Frosted pill with an accent border — matches the PiP / active-tab language instead of a
+        // flat accent block. The blur sits over whatever's behind, the border carries the identity.
+        let content = NSVisualEffectView(frame: window.frame)
+        content.material = .hudWindow
+        content.blendingMode = .behindWindow
+        content.state = .active
         content.wantsLayer = true
-        content.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.95).cgColor
         content.layer?.cornerRadius = 8
+        content.layer?.masksToBounds = true
+        content.layer?.borderWidth = 1
+        content.layer?.borderColor = Palette.accent.withAlphaComponent(0.9).cgColor
         label.font = .systemFont(ofSize: 12, weight: .semibold)
         label.textColor = .white
         label.alignment = .center

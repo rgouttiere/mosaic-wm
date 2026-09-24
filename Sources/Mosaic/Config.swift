@@ -13,14 +13,24 @@ final class Config {
     var gap: CGFloat = 0          // inner gap between tiles
     var outerGap: CGFloat = 0     // margin between the tiling area and the screen edges
     var externalBarTop: CGFloat = 0  // px reserved at the top for an external bar (e.g. sketchybar)
+    var notchBarOffset: CGFloat = 40 // extra top reserve on a SOLE notched built-in display, where an external bar is shifted below the notch (must match sketchybar's y_offset there); 0 = off
     var workspaceNames: [Int: String] = [:]  // optional i3-style labels: workspace number → name
+    var workspaceMonitors: [Int: Int] = [:]  // optional override: workspace number → monitor index (1-based, left→right)
     var focusPulseWidth: CGFloat = 5   // px added to the focus border at the peak of the switch pulse (0 = off)
     var focusPulseDuration: Double = 0.38   // seconds the focus pulse takes to fade out
+    var focusGlowRadius: Double = 6    // px of soft accent halo around the focused window (0 = off, just the crisp border)
+    var focusGlowFade: Bool = true     // fade the focus border in on focus change (respects the system Reduce Motion setting)
     var exposeDim: Double = 0.7   // exposé backdrop opacity (0 = transparent, 1 = opaque black)
     var exposeSwitch = ""   // hold-combo to drive the exposé (e.g. "cmd tab"); empty = disabled
     var exposeAllScreens = false   // mirror the exposé/cmd-tab on every screen at once
+    var exposeThumbnails = true    // show live window previews in the exposé (needs Screen Recording); off = schematic tiles
     // Feature toggles (all on by default).
     var focusSync = true        // adopt keyboard/cmd-tab focus changes into the tabs
+    var robustCrossAppTabs = false   // opt-in: after a workspace switch, re-assert the selected tab of
+                                     // cross-app tabbed groups on OTHER shown monitors (macOS z-orders by
+                                     // app globally, so activating one monitor's app can bury another's
+                                     // selected tab). Costs a burst of app activations; can't satisfy two
+                                     // shown groups needing different apps of the same pair on top at once.
     var tabScrollCycle = true   // scroll over a tab bar to cycle its tabs
     var switcherFadeIn = true   // fade the quick-switcher popup in
     var tabBarHeight: CGFloat = 22
@@ -28,12 +38,38 @@ final class Config {
     /// Warp the mouse cursor to a workspace when switching to it by shortcut (keeps
     /// the mouse-follows model consistent → fewer stale-desktop refresh glitches).
     var warpMouseOnSwitch: Bool = true
+    var workspaceWrap: Bool = true   // cycle workspaces circularly (Ctrl+h/l, 3-finger swipe); false = stop at the ends
+    var trackpadGestures: Bool = false   // opt-in: 3-finger horizontal swipe → workspace prev/next (raw MultitouchSupport)
+    var dragModifier: String = "ctrl alt cmd"   // hold this chord + left-drag anywhere to move ANY window (tab=center, split=edge); "" = off
+    var ejectNativeFullscreen: Bool = false  // v2: send a managed window that enters native full screen back to windowed (strict emulated)
+    var autoFloatDialogs: Bool = false       // v2: auto-float standard windows with no full-screen button (dialogs/palettes), except terminals
+    /// Stand down on a monitor a window we don't manage has taken over — a game in borderless
+    /// full screen. Geometric, so it needs no per-app list; see `coveredDisplays`.
+    var yieldToFullscreenWindows: Bool = true
     static let defaultFloatingApps: Set<String> = [
         "skitch", "shottr", "cleanshot", "cleanshot x", "monosnap", "snagit",
+        // Control surfaces: a panel you poke at, never a window you work in.
+        "elgato stream deck", "com.elgato.streamdeck", "elgato wave link", "com.elgato.wavelink",
     ]
+    /// Apps that must tile even though they look dialog-like to `autoFloatDialogs` — no native
+    /// full-screen button, yet a window you work in. Terminals are the known population (the
+    /// AeroSpace exception); this is a config key rather than a hardcoded set so an app that
+    /// mis-declares itself can be named for what it is, instead of through a `float:false` rule
+    /// whose name says nothing about why. Matched on app name OR bundle id, like `floatingApps`.
+    static let defaultAlwaysTileApps: Set<String> = [
+        "org.alacritty", "io.alacritty", "com.github.wez.wezterm", "com.googlecode.iterm2",
+        "com.apple.terminal", "net.kovidgoyal.kitty", "dev.warp.warp-stable", "com.mitchellh.ghostty",
+    ]
+    var alwaysTileApps: Set<String> = Config.defaultAlwaysTileApps
     var floatingApps: Set<String> = Config.defaultFloatingApps
+    /// Apps whose windows lock to a fixed video aspect (IINA, mpv…). Rather than let such a window
+    /// overshoot its tile (freezing the column, since it refuses to shrink one axis), Mosaic sizes it
+    /// to the largest aspect-correct box that fits the tile, centres it, and letterboxes the rest.
+    static let defaultAspectFitApps: Set<String> = ["iina", "mpv"]
+    var aspectFitApps: Set<String> = Config.defaultAspectFitApps
     var rules: [AppRule] = []
     var showWorkspaceHUD: Bool = true
+    var notchHud: Bool = false   // dynamic-island HUD under the notch on workspace switch (replaces the top-right HUD)
     /// center | top | bottom | top-left | top-right | bottom-left | bottom-right
     var hudPosition: String = "top-right"
     /// Shell command run on every workspace change (exec-and-forget), with the env var
@@ -43,6 +79,15 @@ final class Config {
 
     // Window styling.
     var borderEnabled: Bool = true
+    var borderInactive: Bool = false   // also draw a dim accent border on non-focused tiled windows
+    var dimInactiveMonitors: Bool = false   // fade tile borders + tab strips on the monitor(s) without keyboard focus
+    var inactiveBorderOpacity: Double = 0.42   // opacity of the permanent border on non-focused windows (dimmed further off the focused monitor)
+    var inactiveMonitorDim: Double = 0.6   // dimInactiveMonitors: fraction of brightness the non-focused monitors keep (1 = none)
+    /// The single accent used across the whole UI. "accent"/"system" = the macOS system accent;
+    /// or a hex like "#a6e3a1". Every field set to "accent" (border, tabs, drop) resolves through
+    /// this, and the overlays read `Palette.accent`, so one value re-themes everything.
+    var accentColor: String = "accent"
+    var letterboxStyle: String = "black"   // fill for letterboxed-tile gaps: "black" (plain) or "matrix" (static rune rain)
     var borderColor: String = "accent"   // "accent" or hex like "#FF9500"
     var borderWidth: Double = 1
     var borderCornerRadius: Double = 18
@@ -64,11 +109,22 @@ final class Config {
     var dropHighlightColor: String = "accent"
 
     var borderNSColor: NSColor { Config.color(from: borderColor) }
+    /// The resolved accent (system or configured hex) — never recurses through the "accent" keyword.
+    var accentNSColor: NSColor {
+        let s = accentColor.lowercased()
+        if s == "accent" || s == "system" { return .controlAccentColor }
+        return Config.hexColor(accentColor) ?? .controlAccentColor
+    }
 
     static func color(from string: String) -> NSColor {
-        if string.lowercased() == "accent" { return .controlAccentColor }
+        if string.lowercased() == "accent" { return Config.shared.accentNSColor }
+        return hexColor(string) ?? .controlAccentColor
+    }
+
+    /// Parse "#RRGGBB" (or "RRGGBB"); nil if malformed.
+    static func hexColor(_ string: String) -> NSColor? {
         let hex = string.hasPrefix("#") ? String(string.dropFirst()) : string
-        guard hex.count == 6, let v = Int(hex, radix: 16) else { return .controlAccentColor }
+        guard hex.count == 6, let v = Int(hex, radix: 16) else { return nil }
         return NSColor(red: CGFloat((v >> 16) & 0xFF) / 255,
                        green: CGFloat((v >> 8) & 0xFF) / 255,
                        blue: CGFloat(v & 0xFF) / 255, alpha: 1)
@@ -128,8 +184,13 @@ final class Config {
         "switcher": "cmd alt p",   // fuzzy quick-switcher (workspaces + windows)
         "hints": "cmd alt j",      // vimium-style window hints (type a letter to focus)
         "expose": "cmd alt o",     // schematic workspace overview
+        "pip-here": "cmd alt shift p",   // bring the picture-in-picture under the mouse pointer
+        "grab": "cmd alt m",       // keyboard grab: pick up focused window, hjkl to aim, ⏎ tab / ⇧hjkl split
         "unassign": "cmd alt ctrl 0",   // unset the current desktop's workspace number
         "workspace-back": "cmd alt b",   // bounce to the previous workspace (i3 back-and-forth)
+        "workspace-next": "ctrl right",  // cycle this monitor's workspaces (needs macOS "Move a space" off)
+        "workspace-prev": "ctrl left",   // ← see README: disable Mission Control's Ctrl+←/→ first
+        "recover": "cmd alt shift return",   // panic heal: un-minimize + re-assert every workspace
         "scratchpad-toggle": "cmd alt minus",
         "scratchpad-send": "cmd alt shift minus",
         "move-screen-next": "cmd alt ]",
@@ -143,26 +204,47 @@ final class Config {
         var gap: Double?
         var outerGap: Double?
         var externalBarTop: Double?
+        var notchBarOffset: Double?
         var workspaceNames: [String: String]?
+        var workspaceMonitors: [String: Int]?
         var focusPulseWidth: Double?
         var focusPulseDuration: Double?
+        var focusGlowRadius: Double?
+        var focusGlowFade: Bool?
         var exposeDim: Double?
         var exposeSwitch: String?
         var exposeAllScreens: Bool?
+        var exposeThumbnails: Bool?
         var focusSync: Bool?
+        var robustCrossAppTabs: Bool?
         var tabScrollCycle: Bool?
         var switcherFadeIn: Bool?
         var tabBarHeight: Double?
         var warpMouseOnSwitch: Bool?
+        var workspaceWrap: Bool?
+        var trackpadGestures: Bool?
+        var dragModifier: String?
+        var ejectNativeFullscreen: Bool?
+        var autoFloatDialogs: Bool?
+        var yieldToFullscreenWindows: Bool?
         var defaultMode: String?
         var floatingApps: [String]?
+        var aspectFitApps: [String]?
+        var alwaysTileApps: [String]?
         var rules: [AppRule]?
         var showWorkspaceHUD: Bool?
+        var notchHud: Bool?
         var hudPosition: String?
         var onWorkspaceChange: String?
         var borderEnabled: Bool?
+        var borderInactive: Bool?
+        var dimInactiveMonitors: Bool?
+        var accentColor: String?
+        var letterboxStyle: String?
         var borderColor: String?
         var borderWidth: Double?
+        var inactiveBorderOpacity: Double?
+        var inactiveMonitorDim: Double?
         var borderCornerRadius: Double?
         var activeOpacity: Double?
         var inactiveOpacity: Double?
@@ -184,10 +266,10 @@ final class Config {
         /// Explicit keys (a custom `init(from:)` suppresses synthesis). `decodeIssues` is not a
         /// config key — it's populated by the initializer, never decoded.
         private enum CodingKeys: String, CodingKey {
-            case gap, outerGap, externalBarTop, workspaceNames, focusPulseWidth, focusPulseDuration
-            case exposeDim, exposeSwitch, exposeAllScreens, focusSync, tabScrollCycle, switcherFadeIn, tabBarHeight
-            case warpMouseOnSwitch, defaultMode, floatingApps, rules, showWorkspaceHUD, hudPosition
-            case onWorkspaceChange, borderEnabled, borderColor, borderWidth, borderCornerRadius
+            case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
+            case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
+            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, dragModifier, ejectNativeFullscreen, autoFloatDialogs, yieldToFullscreenWindows, defaultMode, floatingApps, aspectFitApps, alwaysTileApps, rules, showWorkspaceHUD, notchHud, hudPosition
+            case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius, inactiveBorderOpacity, inactiveMonitorDim
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
             case dropHighlightEnabled, dropHighlightColor, keybindings
@@ -208,26 +290,47 @@ final class Config {
             gap = v(.gap)
             outerGap = v(.outerGap)
             externalBarTop = v(.externalBarTop)
+            notchBarOffset = v(.notchBarOffset)
             workspaceNames = v(.workspaceNames)
+            workspaceMonitors = v(.workspaceMonitors)
             focusPulseWidth = v(.focusPulseWidth)
             focusPulseDuration = v(.focusPulseDuration)
+            focusGlowRadius = v(.focusGlowRadius)
+            focusGlowFade = v(.focusGlowFade)
             exposeDim = v(.exposeDim)
             exposeSwitch = v(.exposeSwitch)
             exposeAllScreens = v(.exposeAllScreens)
+            exposeThumbnails = v(.exposeThumbnails)
             focusSync = v(.focusSync)
+            robustCrossAppTabs = v(.robustCrossAppTabs)
             tabScrollCycle = v(.tabScrollCycle)
             switcherFadeIn = v(.switcherFadeIn)
             tabBarHeight = v(.tabBarHeight)
             warpMouseOnSwitch = v(.warpMouseOnSwitch)
+            workspaceWrap = v(.workspaceWrap)
+            trackpadGestures = v(.trackpadGestures)
+            dragModifier = v(.dragModifier)
+            ejectNativeFullscreen = v(.ejectNativeFullscreen)
+            autoFloatDialogs = v(.autoFloatDialogs)
+            yieldToFullscreenWindows = v(.yieldToFullscreenWindows)
             defaultMode = v(.defaultMode)
             floatingApps = v(.floatingApps)
+            aspectFitApps = v(.aspectFitApps)
+            alwaysTileApps = v(.alwaysTileApps)
             rules = v(.rules)
             showWorkspaceHUD = v(.showWorkspaceHUD)
+            notchHud = v(.notchHud)
             hudPosition = v(.hudPosition)
             onWorkspaceChange = v(.onWorkspaceChange)
             borderEnabled = v(.borderEnabled)
+            borderInactive = v(.borderInactive)
+            dimInactiveMonitors = v(.dimInactiveMonitors)
+            accentColor = v(.accentColor)
+            letterboxStyle = v(.letterboxStyle)
             borderColor = v(.borderColor)
             borderWidth = v(.borderWidth)
+            inactiveBorderOpacity = v(.inactiveBorderOpacity)
+            inactiveMonitorDim = v(.inactiveMonitorDim)
             borderCornerRadius = v(.borderCornerRadius)
             activeOpacity = v(.activeOpacity)
             inactiveOpacity = v(.inactiveOpacity)
@@ -272,32 +375,75 @@ final class Config {
         return (names, issues)
     }
 
+    /// Parse the `workspaceMonitors` map (workspace number → 1-based monitor index). Same
+    /// lenient rules as `parseWorkspaceNames`: keys outside 1…9 or collisions are dropped and
+    /// surfaced. A non-positive monitor index is dropped too. Pure + static → unit-testable.
+    static func parseWorkspaceMonitors(_ wm: [String: Int]) -> (map: [Int: Int], issues: [String]) {
+        var map: [Int: Int] = [:]
+        var issues: [String] = []
+        for (key, value) in wm {
+            guard let n = Int(key) else { continue }
+            guard (1...9).contains(n) else {
+                issues.append("workspaceMonitors: “\(key)” is outside 1…9 — ignored"); continue
+            }
+            guard value >= 1 else {
+                issues.append("workspaceMonitors: monitor index \(value) for workspace \(n) must be ≥ 1 — ignored"); continue
+            }
+            if map[n] != nil {
+                issues.append("workspaceMonitors: duplicate key for workspace \(n) — keeping \(value)")
+            }
+            map[n] = value
+        }
+        return (map, issues)
+    }
+
     func load() {
         // Reset to defaults first so a reload also reflects keys/bindings removed from
         // the file (not just overrides).
         gap = 0
         outerGap = 0
         externalBarTop = 0
+        notchBarOffset = 40
         workspaceNames = [:]
+        workspaceMonitors = [:]
         focusPulseWidth = 5
         focusPulseDuration = 0.38
+        focusGlowRadius = 6
+        focusGlowFade = true
         exposeDim = 0.7
         exposeSwitch = ""
         exposeAllScreens = false
+        exposeThumbnails = true
         focusSync = true
+        robustCrossAppTabs = false
         tabScrollCycle = true
         switcherFadeIn = true
         tabBarHeight = 22
         defaultMode = "columns"
         warpMouseOnSwitch = true
+        workspaceWrap = true
+        trackpadGestures = false
+        dragModifier = "ctrl alt cmd"
+        ejectNativeFullscreen = false
+        autoFloatDialogs = false
+        yieldToFullscreenWindows = true
         floatingApps = Config.defaultFloatingApps
+        aspectFitApps = Config.defaultAspectFitApps
+        alwaysTileApps = Config.defaultAlwaysTileApps
         rules = []
         showWorkspaceHUD = true
+        notchHud = false
         hudPosition = "top-right"
         onWorkspaceChange = ""
         borderEnabled = true
+        borderInactive = false
+        dimInactiveMonitors = false
+        accentColor = "accent"
+        letterboxStyle = "black"
         borderColor = "accent"
         borderWidth = 1
+        inactiveBorderOpacity = 0.42
+        inactiveMonitorDim = 0.6
         borderCornerRadius = 18
         activeOpacity = 1.0
         inactiveOpacity = 0.5
@@ -326,11 +472,12 @@ final class Config {
         }
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
         let known: Set<String> = [
-            "gap", "outerGap", "externalBarTop", "workspaceNames", "focusPulseWidth", "focusPulseDuration",
-            "exposeDim", "exposeSwitch", "exposeAllScreens", "focusSync", "tabScrollCycle", "switcherFadeIn",
-            "tabBarHeight", "warpMouseOnSwitch", "defaultMode",
-            "floatingApps", "rules", "showWorkspaceHUD", "hudPosition", "onWorkspaceChange", "borderEnabled",
-            "borderColor", "borderWidth", "borderCornerRadius", "activeOpacity",
+            "gap", "outerGap", "externalBarTop", "notchBarOffset", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
+            "focusGlowRadius", "focusGlowFade",
+            "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
+            "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "dragModifier", "ejectNativeFullscreen", "autoFloatDialogs", "yieldToFullscreenWindows", "defaultMode",
+            "floatingApps", "aspectFitApps", "alwaysTileApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
+            "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "inactiveBorderOpacity", "inactiveMonitorDim", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
             "tabActivePadding", "dropHighlightEnabled", "dropHighlightColor", "keybindings",
@@ -356,12 +503,17 @@ final class Config {
         if let g = file.gap { gap = CGFloat(g) }
         if let o = file.outerGap { outerGap = CGFloat(o) }
         if let e = file.externalBarTop { externalBarTop = CGFloat(e) }
+        if let e = file.notchBarOffset { notchBarOffset = CGFloat(e) }
         if let p = file.focusPulseWidth { focusPulseWidth = CGFloat(p) }
         if let d = file.focusPulseDuration { focusPulseDuration = d }
+        if let g = file.focusGlowRadius { focusGlowRadius = g }
+        if let b = file.focusGlowFade { focusGlowFade = b }
         if let d = file.exposeDim { exposeDim = d }
         if let s = file.exposeSwitch { exposeSwitch = s }
         if let b = file.exposeAllScreens { exposeAllScreens = b }
+        if let b = file.exposeThumbnails { exposeThumbnails = b }
         if let b = file.focusSync { focusSync = b }
+        if let b = file.robustCrossAppTabs { robustCrossAppTabs = b }
         if let b = file.tabScrollCycle { tabScrollCycle = b }
         if let b = file.switcherFadeIn { switcherFadeIn = b }
         if let wn = file.workspaceNames {
@@ -369,17 +521,36 @@ final class Config {
             workspaceNames = parsed.names
             loadIssues.append(contentsOf: parsed.issues)
         }
+        if let wm = file.workspaceMonitors {
+            let parsed = Config.parseWorkspaceMonitors(wm)
+            workspaceMonitors = parsed.map
+            loadIssues.append(contentsOf: parsed.issues)
+        }
         if let t = file.tabBarHeight { tabBarHeight = CGFloat(t) }
         if let w = file.warpMouseOnSwitch { warpMouseOnSwitch = w }
+        if let b = file.workspaceWrap { workspaceWrap = b }
+        if let g = file.trackpadGestures { trackpadGestures = g }
+        if let s = file.dragModifier { dragModifier = s }
+        if let b = file.ejectNativeFullscreen { ejectNativeFullscreen = b }
+        if let b = file.autoFloatDialogs { autoFloatDialogs = b }
         if let m = file.defaultMode { defaultMode = m }
         if let f = file.floatingApps { floatingApps = Set(f.map { $0.lowercased() }) }
+        if let f = file.aspectFitApps { aspectFitApps = Set(f.map { $0.lowercased() }) }
+        if let f = file.alwaysTileApps { alwaysTileApps = Set(f.map { $0.lowercased() }) }
         if let r = file.rules { rules = r }
         if let h = file.showWorkspaceHUD { showWorkspaceHUD = h }
+        if let b = file.notchHud { notchHud = b }
         if let p = file.hudPosition { hudPosition = p }
         if let o = file.onWorkspaceChange { onWorkspaceChange = o }
         if let b = file.borderEnabled { borderEnabled = b }
+        if let b = file.borderInactive { borderInactive = b }
+        if let b = file.dimInactiveMonitors { dimInactiveMonitors = b }
+        if let c = file.accentColor { accentColor = c }
+        if let s = file.letterboxStyle { letterboxStyle = s }
         if let c = file.borderColor { borderColor = c }
         if let w = file.borderWidth { borderWidth = w }
+        if let o = file.inactiveBorderOpacity { inactiveBorderOpacity = o }
+        if let d = file.inactiveMonitorDim { inactiveMonitorDim = d }
         if let r = file.borderCornerRadius { borderCornerRadius = r }
         if let a = file.activeOpacity { activeOpacity = a }
         if let i = file.inactiveOpacity { inactiveOpacity = i }
@@ -397,9 +568,9 @@ final class Config {
         if let k = file.keybindings { keybindings.merge(k) { _, new in new } }
 
         // 4) Semantic checks (values parsed fine but are out of range / unknown).
-        let validModes: Set<String> = ["columns", "grouped", "tabbed"]
+        let validModes: Set<String> = ["columns", "grouped", "tabbed", "master-stack", "masterstack", "master"]
         if !validModes.contains(defaultMode.lowercased()) {
-            loadIssues.append("unknown defaultMode “\(defaultMode)” (expected: columns, grouped, tabbed)")
+            loadIssues.append("unknown defaultMode “\(defaultMode)” (expected: columns, grouped, tabbed, master-stack)")
         }
         let validPos: Set<String> = ["center", "top", "bottom", "top-left", "top-right",
                                      "bottom-left", "bottom-right", "topleft", "topright",
@@ -415,14 +586,18 @@ final class Config {
             loadIssues.append("rule “\(rule.app)”: workspace \(rule.workspace!) out of range (1 to 9)")
         }
 
-        // Duplicate keybindings: two actions on the same combo → only one wins (undefined).
+        // Duplicate keybindings: two actions on the same combo → only one wins (undefined). Blank
+        // combos are disabled bindings, not shortcuts, so several "" are fine — skip them.
         var comboOwner: [String: String] = [:]
-        for (action, combo) in keybindings {
-            let norm = combo.lowercased().split { " +-".contains($0) }.sorted().joined(separator: "+")
-            if let other = comboOwner[norm] {
-                loadIssues.append("duplicate shortcut “\(combo)”: “\(action)” and “\(other)”")
-            } else {
-                comboOwner[norm] = action
+        for (action, value) in keybindings {
+            // A value may list several combos (comma-separated) — check each on its own.
+            for combo in value.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !combo.isEmpty {
+                let norm = combo.lowercased().split { " +-".contains($0) }.sorted().joined(separator: "+")
+                if let other = comboOwner[norm], other != action {
+                    loadIssues.append("duplicate shortcut “\(combo)”: “\(action)” and “\(other)”")
+                } else {
+                    comboOwner[norm] = action
+                }
             }
         }
 
@@ -451,15 +626,23 @@ final class Config {
             "outerGap": Double(outerGap),
             "externalBarTop": Double(externalBarTop),
             "warpMouseOnSwitch": warpMouseOnSwitch,
+            "workspaceWrap": workspaceWrap,
+            "trackpadGestures": trackpadGestures,
+            "dragModifier": dragModifier,
             "tabBarHeight": Double(tabBarHeight),
             "defaultMode": defaultMode,
             "floatingApps": Array(floatingApps).sorted(),
+            "aspectFitApps": Array(aspectFitApps).sorted(),
+            "alwaysTileApps": Array(alwaysTileApps).sorted(),
             "rules": [["app": "skitch", "float": true]],   // example; see README for fields
             "showWorkspaceHUD": showWorkspaceHUD,
             "hudPosition": hudPosition,
             "borderEnabled": borderEnabled,
+            "accentColor": accentColor,
             "borderColor": borderColor,
             "borderWidth": borderWidth,
+            "inactiveBorderOpacity": inactiveBorderOpacity,
+            "inactiveMonitorDim": inactiveMonitorDim,
             "borderCornerRadius": borderCornerRadius,
             "activeOpacity": activeOpacity,
             "inactiveOpacity": inactiveOpacity,

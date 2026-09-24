@@ -4,16 +4,33 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 
 ## Concepts
 
-- **Tiling modes** (auto-placement): `columns` · `grouped` (by app) · `tabbed`. Cycle with **⌘⌥W**. **⌘⌥T** (re)starts managing the current desktop.
+- **Tiling modes** (auto-placement): `columns` · `grouped` (by app) · `tabbed` · `master-stack` (one master + a tabbed stack). Cycle with **⌘⌥W**. **⌘⌥T** (re)starts managing the current desktop.
 - **Containers** (i3-style, nestable):
   - **Split** horizontal / vertical — toggle H↔V with **⌘⌥E**.
   - **Tabbed** — **⌘⌥S**: one window shown, a horizontal tab strip.
   - **Stacked** — **⌘⌥⇧S**: one window shown, a vertical title list. Can hold tab groups / splits (drawn inline). Drag a row to reorder it, or out of the bar to detach/move it (like horizontal tabs).
+  - **Drag & drop**: drag a tab and drop it on another tile — the **centre** tabs into it, an **edge** (top/bottom/left/right) splits beside/under it. A frosted highlight previews the exact landing slice.
+- **Moving a window anywhere** (three ways, all landing it identically):
+  - **Drag its tab** (above) — needs the window to be in a tab strip.
+  - **Drag any window**: hold **`dragModifier`** (default **⌃⌥⌘**) and left-drag *anywhere* on a window — works for a lone column with no tab strip. Same centre/edge rule. Set `dragModifier: ""` to disable.
+  - **Keyboard grab** (**⌘⌥M**): picks up the focused window, then **hjkl**/arrows aim a target tile · **⏎** tabs it into the target · **⇧+h/j/k/l** splits it on that side (**⇧J** = below) · **Esc** or a click cancels. This is how you put a tabbed window *under* another one without the mouse.
 - **Preselect** (i3-style): **⌘⌥V** / **⌘⌥H** arm a split (below / right); the **next** window opened nests there. A tint on the focused window's edge shows where. Moving focus cancels it.
-- **Workspaces** numbered 1–9 (unique, across screens). Assign a desktop to a number, then jump to it. Optionally **name** them via `workspaceNames` in config (the number stays the key; the name is just a label).
+- **Workspaces** numbered 1–9 (unique, across screens). Assign a desktop to a number, then jump to it. Optionally **name** them via `workspaceNames` in config (the number stays the key; the name is just a label). **`workspaceWrap`** (default `true`): cycling (Ctrl+←/→ or the 3-finger swipe) wraps around; set `false` to stop at the first/last workspace.
 - **Quick-switcher / command palette** (**⌘⌥P**): a fuzzy popup. **"Go"** mode jumps to a workspace (by name/number) or window (by title) — grouped under section headers, most-recent first, with per-workspace window counts and app icons. **←/→** flips to **"Actions"** mode to run any Mosaic action. **↑/↓** move (skipping headers) · **⏎** go/run · **⌘⏎** move the focused window to the highlighted workspace · **Esc** dismiss.
 - **Window hints** (**⌘⌥J**): overlays a letter on every visible window (across all screens); type it to focus that window (the mouse follows for cross-screen jumps). **⌘⌥J** again or **Esc** cancels.
-- **Schematic exposé** (**⌘⌥O**): a Mission-Control-style overview drawn from the layout tree — every workspace of every screen at once, one column per screen, tiles to scale with tab strips + app icons (fullscreen apps shown by name). **← → ↑ ↓** navigate (2D) · **⇥** cycle · **⏎** jump · **Esc** cancel. Set `exposeSwitch` (e.g. `"cmd tab"`) to also drive it as a schematic alt-tab: **hold** the modifier to browse, **⇥** to cycle, **release** to commit. It opens on the workspace you're on; set `exposeAllScreens: true` to show it on every screen at once. Off (native ⌘Tab) by default.
+- **Exposé** (**⌘⌥O**): a Mission-Control-style overview drawn from the layout tree — every workspace of every screen at once, one column per screen, tiles to scale with tab strips + app icons (fullscreen apps shown by name). Tiles show **live window previews** (captured on open via ScreenCaptureKit, parked workspaces included); the active tab of a tabbed group reads by a faint accent tint + underline. **← → ↑ ↓** navigate (2D) · **⇥** cycle · **⏎** jump · **Esc** cancel. Set `exposeSwitch` (e.g. `"cmd tab"`) to also drive it as an alt-tab: **hold** the modifier to browse, **⇥** to cycle, **release** to commit. It opens on the workspace you're on; set `exposeAllScreens: true` to show it on every screen at once. Off (native ⌘Tab) by default.
+  - Previews need the **Screen Recording** permission (macOS prompts for Mosaic on first exposé; if it doesn't, add Mosaic under *System Settings → Privacy & Security → Screen Recording* — macOS relaunches the app after). Set **`exposeThumbnails: false`** to disable previews entirely (no capture, no permission prompt) and fall back to schematic tiles. Default `true`.
+- **Focus halo** (`config.json`): the focused window gets a soft accent glow — **`focusGlowRadius`** px (default 6; 0 = just the crisp border). **`focusGlowFade`** (default true) fades the border in when focus jumps to another window (in place, never travelling; honours the system *Reduce Motion*).
+- **Letterbox** (`config.json`): a window that doesn't fill its tile (e.g. IINA keeping video aspect) gets its gap filled so a parked sibling's residual strip can't peek through. **`letterboxStyle`**: `"black"` (default, plain bars) or `"matrix"` (a static green rune-rain with a neon  logo, tinted by the accent).
+- **Aspect-fit apps** (`config.json`): **`aspectFitApps`** (default `["iina", "mpv"]`) lists apps whose windows lock to a fixed video aspect. Rather than let such a window overshoot its tile (which freezes the column, since it won't shrink one axis), Mosaic sizes it to the largest box of its own ratio that fits the tile, centres it, and letterboxes the rest — so the column stays resizable even while the video is the visible tab. Match by app name or bundle id.
+- **Accent** (`config.json`): **`accentColor`** is the single accent for the whole UI — `"accent"`/`"system"` follows the macOS system accent, or a hex like `"#a6e3a1"` pins it. Everything set to `"accent"` (`borderColor`, `tabActiveColor`, `dropHighlightColor`) and all overlays (exposé, switcher, HUD, hints, drag ghost) resolve through it, so one value re-themes the lot.
+- **Window borders** (`config.json`): the focused window keeps its bright halo; **`borderInactive: true`** also draws a permanent dim accent border on every other tile. **`inactiveBorderOpacity`** (default `0.42`) tunes how present those inactive borders are. **`dimInactiveMonitors: true`** fades the borders + tab strips on the monitor(s) without keyboard focus, by **`inactiveMonitorDim`** (default `0.6`, the fraction of brightness they keep; `1` = no dim).
+- **Workspace ↔ monitor** (`config.json`): **`workspaceMonitors`** pins workspaces to screens — `{ "1": 1, "3": 2 }`, index 1-based left to right. Anything unlisted is split evenly across the monitors present. This is what a workspace's *home* means: it is shown there, parked off that screen's edge when it isn't.
+- **Full-screen games** (`config.json`): a game in borderless full screen isn't a window Mosaic can tile (its subrole is `AXUnknown`) and macOS still reports it as on-screen, so nothing would tell the layout the monitor is taken. Mosaic detects it geometrically and stands down on that monitor: no halo, no borders, no tab strips, and no raising a tile in front of it. The layout keeps its frames and comes back when the game quits. **`yieldToFullscreenWindows: false`** turns it off. The taken displays are published in `status.json` as `coveredDisplays`, so an external bar can drop below the game too.
+- **Dialogs** (`config.json`): **`autoFloatDialogs: true`** floats a standard window with no full-screen button — dialogs, palettes, settings panels — instead of tiling it. Terminals are excepted — that exception is **`alwaysTileApps`**, a list you can extend when an app you work in ships no full-screen button and gets read as a dialog. A per-app `float` rule beats both. **`ejectNativeFullscreen: true`** additionally sends any managed window that enters native full screen back to windowed, so nothing ever gets its own Space.
+- **Trackpad gestures** (`config.json`): **`trackpadGestures: true`** enables native 3-finger swipes (raw MultitouchSupport) — ←/→ switch workspace, ↑ opens the exposé, ↓ commits, and in the exposé 3-finger moves the selection while 2-finger navigates the grid. Disable macOS's own 3/4-finger gestures first so they don't fight. Off by default.
+- **Picture-in-picture** (`pip` action): a live, floating, draggable mirror of the focused window (even one parked on another workspace) via ScreenCaptureKit — the source keeps playing, so audio continues. Right-click / Space = play-pause, scroll = the player's volume, ⤢ = return to the window. Needs Screen Recording. No default key for `pip` — bind it in `keybindings`. **⌘⌥⇧P** (`pip-here`) brings the PiP **centred under the mouse pointer** on whatever screen you're on (clamped so it can't hang off an edge) — so you never have to drag it across monitors. If the source window is one tab of a group, starting the PiP flips the tile to the **neighbouring tab** (the video already plays in the PiP, so the tile is better spent on the other tab) and the source's tab keeps a small **PiP badge** on its right so you can tell where the floating video comes from. A lone tile has no sibling to show, so it keeps the letterbox cover instead.
+- **Notch HUD** (`config.json`): **`notchHud: true`** shows the workspace indicator as a dynamic-island pill under the notch on switch (instead of the corner HUD).
 - **Scratchpad**: a dedicated app shown/hidden as a floating panel (survives relaunch).
 - **Rules** (`config.json`): `float`, `groupWith`, `place` (`column`/`tab`), `workspace: N`, `fullscreen` (`false` = force windowed/tileable, `true` = force native full screen; add `fullscreenLock: true` to keep enforcing it).
 
@@ -56,6 +73,8 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 | Next / previous tab | ⌘⌥. / ⌘⌥, |
 | Toggle floating | ⌘⌥F |
 | Zoom / monocle | ⌘⌥↩ |
+| Grab (move window: hjkl aim, ⏎ tab, ⇧hjkl split) | ⌘⌥M |
+| Bring picture-in-picture under the mouse | ⌘⌥⇧P |
 
 ### Workspaces & screens
 | Action | Shortcut |
@@ -90,7 +109,9 @@ mosaic toggle-stacked
 mosaic dump-layout       # write /tmp/mosaic-dump.txt
 ```
 
-Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `unassign-N`, `unassign`, `switcher`, `hints`, `expose`, `workspace-back`, …) plus `reload-config` and `dump-layout`.
+Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `unassign-N`, `unassign`, `switcher`, `hints`, `expose`, `pip`, `pip-here`, `grab`, `workspace-back`, …) plus `reload-config` and `dump-layout`.
+
+A binding value may list **several combos**, comma-separated — e.g. `"resize-up": "ctrl alt k, ctrl alt up"` binds an action to both. An empty value (`""`) disables the binding.
 
 **Query state** (for status bars / scripts):
 ```sh
@@ -117,11 +138,15 @@ sketchybar --set "$NAME" label="$FOCUSED"        # or loop over `mosaic query wo
 ```
 (`make install-cli` puts `mosaic` on your PATH; the hook's PATH already includes `/opt/homebrew/bin`.)
 
+Two config keys have to agree with the bar itself: **`externalBarTop`** reserves its height at the top of every screen, and **`notchBarOffset`** (default `40`) adds the extra reserve on a **sole** notched built-in display, where such a bar is shifted below the notch — it must match the offset the bar uses there, or you get a gap or an overlap.
+
+`mosaic query` prints the whole of `status.json` when given no argument, which also carries `coveredDisplays` (monitors taken over by a full-screen game) if you want the bar to get out of the way as well.
+
 ## Menu bar (▦)
 
 The menu-bar icon opens a menu with clickable entries for most actions (each showing its current shortcut), plus:
 
-- **Navigation & overlays** — Overview (Exposé), Quick-switcher / palette, Window hints, Back to previous workspace.
+- **Navigation & overlays** — Overview (Exposé), Picture-in-picture, Quick-switcher / palette, Window hints, Back to previous workspace.
 - **Assign this desktop to…** (submenu, workspaces 1–9) · **Unassign this desktop**.
 - **Open config file…** · **Reload config** · **Clear layout**.
 - **Debug: dump layout → /tmp/mosaic-dump.txt** (attach this to bug reports).
