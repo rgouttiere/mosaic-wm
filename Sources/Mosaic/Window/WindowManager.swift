@@ -111,7 +111,18 @@ final class WindowManager {
     var scratchpadVisible = false
 
     /// True while the machine/displays are asleep — no reconcile (AX is unreliable then).
-    var suspended = false
+    /// Why reconcile is currently held. It used to be a plain flag with four writers — the two
+    /// sleep notifications, `handleWake` and `handleDisplayChange` — and no owner, so a display
+    /// reconfigure settling during a sleep cleared the SLEEP's hold. Reconcile then ran against
+    /// sleeping windows, and mistaking one for a closed window is what destroys a screen's layout.
+    /// Each holder now releases only its own reason.
+    enum SuspendReason { case sleep, displayChange }
+    var suspendReasons: Set<SuspendReason> = []
+    var suspended: Bool { !suspendReasons.isEmpty }
+    /// Bumped on every sleep. Deferred wake steps capture it and bail if it moved, so a settle
+    /// scheduled before a sleep can't land after it and resume a machine that went back under.
+    var sleepGeneration: UInt64 = 0
+    var wakeWork: [DispatchWorkItem] = []
     /// Debounces display-config changes: we resume only once the set of displays has
     /// stopped changing (dock/undock fires many events and migrates windows mid-flight).
     var displayChangeWork: DispatchWorkItem?
@@ -437,7 +448,7 @@ final class WindowManager {
         // sleeping window for a closed one (which used to destroy a screen's layout).
         let ws = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
-            ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.suspended = true }
+            ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.noteSleep() }
         }
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
             ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.handleWake() }
@@ -467,14 +478,14 @@ final class WindowManager {
     /// placement. In the emulated model there are no real Spaces to drift between, so this is
     /// just geometry — no CGS moves, no per-window rehome heuristics.
     func handleDisplayChange() {
-        suspended = true
+        suspendReasons.insert(.displayChange)
         displayChangeWork?.cancel()
         let before = Set(NSScreen.screens.map(displayID(of:)))
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             let now = Set(NSScreen.screens.map(self.displayID(of:)))
             guard now == before else { self.handleDisplayChange(); return }   // still settling
-            self.suspended = false
+            self.suspendReasons.remove(.displayChange)   // never the sleep's hold, only ours
             // Re-derive BEFORE anything reads the map — checkSpaceChange bootstraps from it.
             self.ensureAllPresentMonitorsShown()   // dock: show/home ALL monitors, not just the mouse's
             self.activeSpaceID = nil
@@ -491,31 +502,58 @@ final class WindowManager {
     /// settle, then re-assert every workspace's placement (parked off-screen or tiled on its
     /// monitor) — which also brings the tab bars back. No CGS, no drift heuristics.
     func handleWake() {
-        suspended = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            guard let self else { return }
-            self.suspended = false
+        suspendReasons.insert(.sleep)
+        cancelWakeWork()   // both wake notifications fire for one wake — the last one wins, once
+        let generation = sleepGeneration
+        // Settle, then correct twice more: a slow wake can re-hide the overlays AND nudge windows
+        // again after the first pass, so external monitors that come back late (and any window
+        // macOS scatters afterwards) still get fixed without a manual visit to each workspace.
+        // Scheduled flat rather than nested, so a sleep landing mid-sequence cancels the rest.
+        scheduleWakeStep(in: 2.0, generation: generation) { wm in
+            wm.suspendReasons.remove(.sleep)
             // Re-derive BEFORE detecting the active workspace: checkSpaceChange reads this map.
-            self.ensureAllPresentMonitorsShown()   // guard against wake re-assigning display ids
-            self.activeSpaceID = nil   // force a fresh detect of the current workspace
-            self.checkSpaceChange()
-            self.invalidateAllFrameCaches()   // macOS scattered windows while asleep → force the re-tile writes
-            self.reassertAllWorkspaces()
-            self.emitWorkspaceState(self.activeSpaceID.map(Int.init))   // re-publish status.json (sketchybar)
-            // A slow wake can re-hide the overlays AND nudge windows again after we refresh; drop the
-            // frame cache and re-assert again at +2s and once more at +5s, so external monitors that
-            // wake late (and any window macOS scatters after the first passes) still get corrected
-            // without a manual visit to each workspace.
-            for delay in [2.0, 5.0] {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    guard let self else { return }
-                    self.ensureAllPresentMonitorsShown()
-                    self.invalidateAllFrameCaches()
-                    self.reassertAllWorkspaces()
-                    self.emitWorkspaceState(self.activeSpaceID.map(Int.init))
-                }
+            wm.ensureAllPresentMonitorsShown()   // guard against wake re-assigning display ids
+            wm.activeSpaceID = nil   // force a fresh detect of the current workspace
+            wm.checkSpaceChange()
+            wm.invalidateAllFrameCaches()   // macOS scattered windows while asleep → force the re-tile writes
+            wm.reassertAllWorkspaces()
+            wm.emitWorkspaceState(wm.activeSpaceID.map(Int.init))   // re-publish status.json (sketchybar)
+        }
+        for delay in [4.0, 7.0] {
+            scheduleWakeStep(in: delay, generation: generation) { wm in
+                wm.ensureAllPresentMonitorsShown()
+                wm.invalidateAllFrameCaches()
+                wm.reassertAllWorkspaces()
+                wm.emitWorkspaceState(wm.activeSpaceID.map(Int.init))
             }
         }
+    }
+
+    /// Going under: invalidate every wake step still in flight and hold reconcile. Without the
+    /// generation bump, a settle scheduled by the PREVIOUS wake could land a second into this
+    /// sleep and resume a machine that is already asleep.
+    func noteSleep() {
+        sleepGeneration &+= 1
+        cancelWakeWork()
+        suspendReasons.insert(.sleep)
+    }
+
+    func cancelWakeWork() {
+        wakeWork.forEach { $0.cancel() }
+        wakeWork.removeAll()
+    }
+
+    /// One step of the wake sequence: cancellable, and a no-op if the machine slept again since it
+    /// was scheduled. `body` takes the manager rather than capturing it, so the retained work item
+    /// doesn't hold a cycle back through `wakeWork`.
+    func scheduleWakeStep(in delay: TimeInterval, generation: UInt64,
+                          _ body: @escaping (WindowManager) -> Void) {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.sleepGeneration == generation else { return }
+            body(self)
+        }
+        wakeWork.append(work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// Drop placements that point at a monitor that's no longer attached, so a workspace homed
