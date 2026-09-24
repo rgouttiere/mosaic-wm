@@ -3,7 +3,7 @@
 *.xcodeproj
 .DS_Store
 .build/
-.claude/
+.claude/settings.local.json
 .swiftpm/
 Mosaic.zip
 Package.resolved
