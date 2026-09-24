@@ -36,9 +36,36 @@ final class ManagedWindow {
 
     var appName: String { app.localizedName ?? "App" }
 
+    /// The window's AX frame, reused briefly.
+    ///
+    /// One render makes several passes over the same windows — the letterbox fill, the inactive
+    /// borders and the focus halo each ask again — and every ask is a synchronous round trip to
+    /// the owning app. Against a slow one that dominates: with IINA in the layout, decorating the
+    /// tiles went from 6ms to 116ms, and the aspect-fit pass from 0.05ms to 30ms.
+    ///
+    /// Bounded by time rather than tied to a render, so reads from reconcile and the janitors are
+    /// covered too and a missed invalidation can only ever be 50ms stale. Every write invalidates,
+    /// so a read-back after `setCocoaFrame` still sees what the app actually accepted — which the
+    /// monocle path and the min-size clamp both depend on.
+    private var frameCache: CGRect?
+    private var frameCacheTime = Date.distantPast
+    private static let frameCacheTTL: TimeInterval = 0.05
+
     var frame: CGRect? {
+        if let cached = frameCache, Date().timeIntervalSince(frameCacheTime) < Self.frameCacheTTL {
+            Perf.count("ax.frameCacheHit")
+            return cached
+        }
         Perf.count("ax.frameRead")
-        return AX.frame(element)
+        return cacheFrame(AX.frame(element))
+    }
+
+    /// Remember a frame we just read. A failed read isn't cached, so the next ask retries.
+    @discardableResult
+    private func cacheFrame(_ frame: CGRect?) -> CGRect? {
+        frameCache = frame
+        frameCacheTime = frame == nil ? .distantPast : Date()
+        return frame
     }
 
     /// Learned size floor (points): if a tiling write got clamped UP — the app refuses to shrink
@@ -83,7 +110,7 @@ final class ManagedWindow {
             lastSetFrame = axRect
             // Detect a min-size clamp: if the window came out wider/taller than we asked, that size
             // is a floor it won't go under — record it so the split solver reserves the room.
-            if let actual = AX.frame(element)?.size {
+            if let actual = cacheFrame(AX.frame(element))?.size {   // seeds the cache with the truth
                 if actual.width  > axRect.size.width  + 2 { learnedMin.width  = max(learnedMin.width,  actual.width) }
                 if actual.height > axRect.size.height + 2 { learnedMin.height = max(learnedMin.height, actual.height) }
             }
@@ -95,7 +122,10 @@ final class ManagedWindow {
     /// display reconfigures; since we don't track external moves, the <1px skip above would
     /// otherwise no-op the corrective write and leave the window where the system scattered it
     /// (the "I must revisit every workspace after wake for it to lay out" bug).
-    func invalidateFrameCache() { lastSetFrame = nil }
+    func invalidateFrameCache() {
+        lastSetFrame = nil
+        frameCache = nil   // the system moved it behind our back: what we last read is suspect too
+    }
 
     /// Last opacity we set (via CGS). `applyOpacity` runs over every window on each render,
     /// so skipping unchanged writes avoids a burst of redundant private-API calls. ALL
