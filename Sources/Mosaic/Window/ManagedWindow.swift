@@ -36,7 +36,10 @@ final class ManagedWindow {
 
     var appName: String { app.localizedName ?? "App" }
 
-    var frame: CGRect? { AX.frame(element) }
+    var frame: CGRect? {
+        Perf.count("ax.frameRead")
+        return AX.frame(element)
+    }
 
     /// Learned size floor (points): if a tiling write got clamped UP — the app refuses to shrink
     /// past its own minimum (e.g. an Electron `minWidth`/`minHeight`) — we remember the size it
@@ -68,12 +71,14 @@ final class ManagedWindow {
         if let last = lastSetFrame,
            abs(last.origin.x - axRect.origin.x) < 1, abs(last.origin.y - axRect.origin.y) < 1,
            abs(last.size.width - axRect.size.width) < 1, abs(last.size.height - axRect.size.height) < 1 {
+            Perf.count("ax.frameWriteSkipped")
             return   // already where we put it → skip the costly AX write + app relayout
         }
         // Advance the cache only when the write was accepted. A transiently-rejected move must
         // stay uncached so the next render re-issues it — otherwise the <1px skip above would
         // pin the window to a frame it never actually took, with no self-heal until a manual
         // re-tile. Otherwise the cache is only reset by `invalidateFrameCache` below.
+        Perf.count("ax.frameWrite")
         if AX.setFrame(element, axRect) {
             lastSetFrame = axRect
             // Detect a min-size clamp: if the window came out wider/taller than we asked, that size

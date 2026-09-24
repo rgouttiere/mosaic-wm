@@ -172,6 +172,12 @@ final class WindowManager {
     var decorationsSuppressed = false   // a screenshot tool is up → overlays hidden until it leaves
     var coveredDisplayCache: Set<CGDirectDisplayID> = []   // displays a game has taken over
     var coveredDisplayCacheTime = Date.distantPast
+    /// One CGWindowList enumeration shared by everything in a render that needs it. Measured at
+    /// ~3ms each on a busy desktop, and a render was taking two: one for `coveredDisplays`
+    /// (which needs owners and bounds) and one for the ids the activate check and the focus halo
+    /// use. Same short TTL as the covered-display cache, for the same reason.
+    var windowSnapshot: [(id: CGWindowID, pid: pid_t, bounds: CGRect)] = []
+    var windowSnapshotTime = Date.distantPast
     var lastEmittedWorkspace: Int? = -1   // sentinel: forces the first emit through
 
     // MARK: - Emulated workspaces (v2 — replaces the CGS Space layer)

@@ -30,6 +30,15 @@ enum Perf {
         stats[label] = s
     }
 
+    /// Time a block inline: `Perf.span("render.arrange") { root.arrange(in: area) }`.
+    /// Compiles to a straight call when timing is off.
+    @inline(__always)
+    static func span<T>(_ label: String, _ body: () -> T) -> T {
+        guard enabled else { return body() }
+        let t = DispatchTime.now(); defer { record(label, since: t) }
+        return body()
+    }
+
     /// Count an event (e.g. number of AX calls) without timing it.
     static func count(_ label: String, _ n: Int = 1) {
         guard enabled else { return }

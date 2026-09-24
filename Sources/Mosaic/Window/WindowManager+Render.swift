@@ -130,6 +130,14 @@ extension WindowManager {
     ///
     /// Cached briefly because the paths that re-show the halo (focus sync, mouse, reconcile) each
     /// consult it without a full render; `maxAge: 0` forces the fresh read a render wants.
+    /// The on-screen, layer-0 windows, at most `maxAge` old. Shared so a render enumerates once.
+    func onScreenSnapshot(maxAge: TimeInterval = 0.4) -> [(id: CGWindowID, pid: pid_t, bounds: CGRect)] {
+        if Date().timeIntervalSince(windowSnapshotTime) < maxAge { return windowSnapshot }
+        windowSnapshot = AX.onScreenWindows()
+        windowSnapshotTime = Date()
+        return windowSnapshot
+    }
+
     func coveredDisplays(maxAge: TimeInterval = 0.4) -> Set<CGDirectDisplayID> {
         guard Config.shared.yieldToFullscreenWindows else { return [] }
         if Date().timeIntervalSince(coveredDisplayCacheTime) < maxAge { return coveredDisplayCache }
@@ -154,7 +162,7 @@ extension WindowManager {
             }
         }
         let mine = ProcessInfo.processInfo.processIdentifier
-        let windows = AX.onScreenWindows().filter { $0.pid != mine && !managed.contains($0.id) }
+        let windows = onScreenSnapshot(maxAge: maxAge).filter { $0.pid != mine && !managed.contains($0.id) }
         var covered = Set<CGDirectDisplayID>()
         for screen in NSScreen.screens {
             let did = displayID(of: screen)
@@ -182,18 +190,20 @@ extension WindowManager {
     }
 
     func render(activate: Bool = true) {
-        guard let root, let screen = activeScreen else { return }
         let __perf = DispatchTime.now(); defer { Perf.record("render", since: __perf) }
+        let __pro = DispatchTime.now()
+        guard let root, let screen = activeScreen else { return }
+        Perf.record("render.activeScreen", since: __pro)
 
         // A screenshot tool is grabbing the screen → hide every overlay so it isn't buried under
         // (or captured with) our decorations. They come back on the next render when it dismisses.
-        if screenshotToolFrontmost() {
+        if Perf.span("render.screenshotCheck", { screenshotToolFrontmost() }) {
             letterbox.hideAll(); windowBorders.hideAll(); focusIndicator.hide(); zoomBadge.hide()
             return
         }
 
         // Recomputed once per render so everything below agrees on which displays to leave alone.
-        let covered = coveredDisplays(maxAge: 0)
+        let covered = Perf.span("render.coveredDisplays") { coveredDisplays(maxAge: 0) }
         let hidden = covered.contains(displayID(of: screen))   // this screen belongs to a game
 
         // Monocle: the focused tile fills the screen; every overlay is hidden so nothing
@@ -257,13 +267,13 @@ extension WindowManager {
         }
         zoomBadge.hide()   // not (or no longer) zoomed → drop the badge
 
-        if let f = focused { selectTabsOnPath(to: f) }
-        root.arrange(in: area)
-        if !hidden { root.raiseVisibleWindows() }   // never lift a tile over the game
+        Perf.span("render.selectTabs") { if let f = focused { selectTabsOnPath(to: f) } }
+        Perf.span("render.arrange") { root.arrange(in: area) }
+        if !hidden { Perf.span("render.raiseWindows") { root.raiseVisibleWindows() } }   // never lift a tile over the game
 
-        // One enumeration reused by the activate check and updateFocusIndicator below, instead
-        // of two identical CGWindowList calls per render.
-        let onScreen = AX.onScreenWindowIDs()
+        // The same enumeration `coveredDisplays` just took, reused by the activate check and
+        // updateFocusIndicator below rather than taken a second time.
+        let onScreen = Perf.span("render.onScreenIDs") { Set(onScreenSnapshot().map { $0.id }) }
         // Never raise a managed window onto a display a game owns — that is what puts the tiles
         // you left behind in front of the game.
         if activate, let w = focused?.window,
@@ -271,34 +281,36 @@ extension WindowManager {
            !(w.frame.map { isCovered(cocoaRect: Geometry.flip($0)) } ?? false) {
             // makeMain BEFORE activating: else activating the app first surfaces its old
             // main window (another tab of the same app) for a frame before we raise ours.
-            AX.makeMain(w.element)
-            w.activateApp()
-            AX.raise(w.element)
+            Perf.span("render.makeMain") { AX.makeMain(w.element) }
+            Perf.span("render.activateApp") { w.activateApp() }
+            Perf.span("render.axRaise") { AX.raise(w.element) }
         }
-        root.raiseVisibleStrips()
-        parkHiddenCrossAppTabs(on: screen)
+        Perf.span("render.raiseStrips") { root.raiseVisibleStrips() }
+        Perf.span("render.parkCrossApp") { parkHiddenCrossAppTabs(on: screen) }
 
         // Heal the OTHER shown monitors' window POSITIONS on every render, so drift on a non-active
         // screen (an app nudged its window, a late wake, a new window) doesn't wait for a manual
         // visit. Position only — no raise/activate — so it never touches focus or cross-app z-order.
         // setCocoaFrame skips unchanged frames, so a settled monitor re-writes nothing.
-        for (did, n) in shownOnDisplay where n != activeSpaceID {
-            if let ws = spaces[n], let scr = self.screen(forDisplayID: did) { ws.root?.arrange(in: layoutRect(scr)) }
+        Perf.span("render.arrangeOthers") {
+            for (did, n) in shownOnDisplay where n != activeSpaceID {
+                if let ws = spaces[n], let scr = self.screen(forDisplayID: did) { ws.root?.arrange(in: layoutRect(scr)) }
+            }
         }
 
-        sweepOrphanStrips()   // hide strips not on any desktop's visible path
-        layoutResizeHandles()
+        Perf.span("render.sweepStrips") { sweepOrphanStrips() }   // hide strips not on any desktop's visible path
+        Perf.span("render.handles") { layoutResizeHandles() }
         // Tab strips and resize handles are floating windows too: pull them off a covered display
         // AFTER the passes above have placed them.
         for (did, wsNum) in shownOnDisplay where covered.contains(did) {
             spaces[wsNum]?.root?.forEachTabbed { $0.hideStrip() }
         }
         if hidden { hideAllHandles() }
-        applyOpacity()
-        refreshAspectRatios()   // fit + centre aspect-locked windows (IINA) before the letterbox reads them
-        decorateTiles()   // permanent borders + letterbox gap fill, one AX read per window
-        dimInactiveMonitorTabBars()   // fade tab strips off the focused monitor (opt-in)
-        updateFocusIndicator(onScreen: onScreen)   // halo LAST → sits on top of the borders + fill
+        Perf.span("render.opacity") { applyOpacity() }
+        Perf.span("render.aspectFit") { refreshAspectRatios() }   // fit + centre aspect-locked windows (IINA)
+        Perf.span("render.decorate") { decorateTiles() }   // permanent borders + letterbox gap fill
+        Perf.span("render.dimBars") { dimInactiveMonitorTabBars() }   // fade strips off the focused monitor
+        Perf.span("render.focusHalo") { updateFocusIndicator(onScreen: onScreen) }   // halo LAST, on top
 
         // While the scratchpad is up, keep the tiles' overlays hidden so nothing floats
         // over it (a reconcile-triggered render would otherwise re-show them).
@@ -306,7 +318,7 @@ extension WindowManager {
             root.forEachTabbed { $0.hideStrip() }
             hideAllHandles()
         }
-        scheduleSave()
+        Perf.span("render.scheduleSave") { scheduleSave() }
     }
 
     /// Cross-app tab groups can't rely on z-order: macOS stacks by app LAYER, so a hidden tab from
