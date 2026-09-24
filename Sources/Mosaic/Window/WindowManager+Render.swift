@@ -117,6 +117,46 @@ extension WindowManager {
         return false
     }
 
+    /// Raise only what is actually out of order — the per-render stacking pass.
+    ///
+    /// Tiles are disjoint, so the stacking BETWEEN them is invisible. Managed windows overlap in
+    /// exactly one place: inside a tab group, where the selected tab must stay above its hidden
+    /// siblings. And the cross-app siblings are parked off-screen, so they can't cover anything
+    /// either — what's left is the same-app tabs still sitting in the tile.
+    ///
+    /// The tree walk this replaces issued one cross-process raise per visible window on EVERY
+    /// render, which after the other fixes was the most expensive thing left in it. The shared
+    /// snapshot is ordered front to back, so a group already stacked right now costs a lookup.
+    /// When a window's position in that order is unknown, it is raised rather than assumed fine.
+    ///
+    /// The event-driven callers of `Container.raiseVisibleWindows` keep the unconditional walk:
+    /// they run once per user action, where being thorough is worth more than the microseconds.
+    func raiseOutOfOrderTabs(_ root: Container) {
+        var rank: [CGWindowID: Int] = [:]
+        for (i, entry) in onScreenSnapshot().enumerated() where rank[entry.id] == nil {
+            rank[entry.id] = i
+        }
+        root.forEachTabbed { group in
+            let kids = group.children
+            guard kids.count > 1 else { return }
+            let sel = min(max(group.selected, 0), kids.count - 1)
+            guard kids.indices.contains(sel),
+                  let front = kids[sel].firstLeaf().window, !front.isFullscreen,
+                  let frontID = front.lastKnownID ?? AX.windowID(front.element) else { return }
+            let frontRank = rank[frontID] ?? Int.max   // not in the list → can't prove it's on top
+            var covered = false
+            for (i, child) in kids.enumerated() where i != sel {
+                child.forEachLeaf { leaf in
+                    guard !leaf.parkedOffScreen, let w = leaf.window,
+                          let id = w.lastKnownID ?? AX.windowID(w.element),
+                          let r = rank[id], r < frontRank else { return }
+                    covered = true
+                }
+            }
+            if covered { front.raiseWindowOnly() }
+        }
+    }
+
     /// Displays wholly covered by a window Mosaic does not manage — a game in borderless full
     /// screen, typically. Such a window is ordinary and screen-sized, with a subrole we never
     /// tile (WoW reports AXUnknown), so nothing in the layout knows the monitor is taken: our
@@ -283,7 +323,7 @@ extension WindowManager {
 
         Perf.span("render.selectTabs") { if let f = focused { selectTabsOnPath(to: f) } }
         Perf.span("render.arrange") { root.arrange(in: area) }
-        if !hidden { Perf.span("render.raiseWindows") { root.raiseVisibleWindows() } }   // never lift a tile over the game
+        if !hidden { Perf.span("render.raiseWindows") { raiseOutOfOrderTabs(root) } }   // never lift a tile over the game
 
         // The same enumeration `coveredDisplays` just took, reused by the activate check and
         // updateFocusIndicator below rather than taken a second time.
