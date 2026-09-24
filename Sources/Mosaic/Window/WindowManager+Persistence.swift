@@ -299,18 +299,14 @@ extension WindowManager {
         return false
     }
 
-    /// Terminal bundle ids that mis-report as dialog-like (no full-screen button) but should
-    /// still tile — the AeroSpace exception. Extend via a `float:false` rule for others.
-    static let terminalBundles: Set<String> = [
-        "org.alacritty", "io.alacritty", "com.github.wez.wezterm", "com.googlecode.iterm2",
-        "com.apple.terminal", "net.kovidgoyal.kitty", "dev.warp.warp-stable", "com.mitchellh.ghostty",
-    ]
-
     /// Heuristic (AeroSpace): a standard-subrole window with no native full-screen button is
-    /// almost always a dialog / palette / settings panel — float it. Terminals are excepted
-    /// (they lack the button but should tile). Only consulted when `autoFloatDialogs` is on.
+    /// almost always a dialog / palette / settings panel — float it. Apps listed in
+    /// `alwaysTileApps` are excepted: they lack the button but are windows you work in
+    /// (terminals, by default). Only consulted when `autoFloatDialogs` is on.
     func isDialogLike(_ window: ManagedWindow) -> Bool {
-        if let b = window.app.bundleIdentifier?.lowercased(), WindowManager.terminalBundles.contains(b) { return false }
+        let always = Config.shared.alwaysTileApps
+        if always.contains(window.appName.lowercased()) { return false }
+        if let b = window.app.bundleIdentifier?.lowercased(), always.contains(b) { return false }
         return !AX.hasFullscreenButton(window.element)
     }
 

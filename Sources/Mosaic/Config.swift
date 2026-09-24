@@ -48,7 +48,19 @@ final class Config {
     var yieldToFullscreenWindows: Bool = true
     static let defaultFloatingApps: Set<String> = [
         "skitch", "shottr", "cleanshot", "cleanshot x", "monosnap", "snagit",
+        // Control surfaces: a panel you poke at, never a window you work in.
+        "elgato stream deck", "com.elgato.streamdeck", "elgato wave link", "com.elgato.wavelink",
     ]
+    /// Apps that must tile even though they look dialog-like to `autoFloatDialogs` — no native
+    /// full-screen button, yet a window you work in. Terminals are the known population (the
+    /// AeroSpace exception); this is a config key rather than a hardcoded set so an app that
+    /// mis-declares itself can be named for what it is, instead of through a `float:false` rule
+    /// whose name says nothing about why. Matched on app name OR bundle id, like `floatingApps`.
+    static let defaultAlwaysTileApps: Set<String> = [
+        "org.alacritty", "io.alacritty", "com.github.wez.wezterm", "com.googlecode.iterm2",
+        "com.apple.terminal", "net.kovidgoyal.kitty", "dev.warp.warp-stable", "com.mitchellh.ghostty",
+    ]
+    var alwaysTileApps: Set<String> = Config.defaultAlwaysTileApps
     var floatingApps: Set<String> = Config.defaultFloatingApps
     /// Apps whose windows lock to a fixed video aspect (IINA, mpv…). Rather than let such a window
     /// overshoot its tile (freezing the column, since it refuses to shrink one axis), Mosaic sizes it
@@ -218,6 +230,7 @@ final class Config {
         var defaultMode: String?
         var floatingApps: [String]?
         var aspectFitApps: [String]?
+        var alwaysTileApps: [String]?
         var rules: [AppRule]?
         var showWorkspaceHUD: Bool?
         var notchHud: Bool?
@@ -255,7 +268,7 @@ final class Config {
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
-            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, dragModifier, ejectNativeFullscreen, autoFloatDialogs, yieldToFullscreenWindows, defaultMode, floatingApps, aspectFitApps, rules, showWorkspaceHUD, notchHud, hudPosition
+            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, dragModifier, ejectNativeFullscreen, autoFloatDialogs, yieldToFullscreenWindows, defaultMode, floatingApps, aspectFitApps, alwaysTileApps, rules, showWorkspaceHUD, notchHud, hudPosition
             case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius, inactiveBorderOpacity, inactiveMonitorDim
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
@@ -303,6 +316,7 @@ final class Config {
             defaultMode = v(.defaultMode)
             floatingApps = v(.floatingApps)
             aspectFitApps = v(.aspectFitApps)
+            alwaysTileApps = v(.alwaysTileApps)
             rules = v(.rules)
             showWorkspaceHUD = v(.showWorkspaceHUD)
             notchHud = v(.notchHud)
@@ -415,6 +429,7 @@ final class Config {
         yieldToFullscreenWindows = true
         floatingApps = Config.defaultFloatingApps
         aspectFitApps = Config.defaultAspectFitApps
+        alwaysTileApps = Config.defaultAlwaysTileApps
         rules = []
         showWorkspaceHUD = true
         notchHud = false
@@ -461,7 +476,7 @@ final class Config {
             "focusGlowRadius", "focusGlowFade",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
             "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "dragModifier", "ejectNativeFullscreen", "autoFloatDialogs", "yieldToFullscreenWindows", "defaultMode",
-            "floatingApps", "aspectFitApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
+            "floatingApps", "aspectFitApps", "alwaysTileApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
             "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "inactiveBorderOpacity", "inactiveMonitorDim", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
             "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
@@ -521,6 +536,7 @@ final class Config {
         if let m = file.defaultMode { defaultMode = m }
         if let f = file.floatingApps { floatingApps = Set(f.map { $0.lowercased() }) }
         if let f = file.aspectFitApps { aspectFitApps = Set(f.map { $0.lowercased() }) }
+        if let f = file.alwaysTileApps { alwaysTileApps = Set(f.map { $0.lowercased() }) }
         if let r = file.rules { rules = r }
         if let h = file.showWorkspaceHUD { showWorkspaceHUD = h }
         if let b = file.notchHud { notchHud = b }
@@ -617,6 +633,7 @@ final class Config {
             "defaultMode": defaultMode,
             "floatingApps": Array(floatingApps).sorted(),
             "aspectFitApps": Array(aspectFitApps).sorted(),
+            "alwaysTileApps": Array(alwaysTileApps).sorted(),
             "rules": [["app": "skitch", "float": true]],   // example; see README for fields
             "showWorkspaceHUD": showWorkspaceHUD,
             "hudPosition": hudPosition,

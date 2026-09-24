@@ -150,7 +150,8 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `exposeAllScreens` | `false` | Mirror the exposé / ⌘Tab switcher on **every** screen at once (same selection on all). |
 | `exposeThumbnails` | `true` | Live window previews in the exposé (ScreenCaptureKit; needs Screen Recording). `false` = schematic tiles, no capture, no permission prompt. |
 | `onWorkspaceChange` | `""` | Shell command run on every workspace change (env `MOSAIC_WORKSPACE` = focused number). Point it at a sketchybar trigger; see [CHEATSHEET.md](CHEATSHEET.md#status-bar-sketchybar). `""` = off. |
-| `floatingApps` | *(screenshot tools)* | App names or bundle ids (lowercased) that never tile — they always float. |
+| `floatingApps` | *(screenshot tools, Stream Deck, Wave Link)* | App names or bundle ids (lowercased) that never tile — they always float. |
+| `alwaysTileApps` | *(terminals)* | The other way round: app names or bundle ids that must tile even though `autoFloatDialogs` would read them as dialogs. Some apps ship no native full-screen button on windows you very much work in. |
 | `aspectFitApps` | `["iina", "mpv"]` | App names or bundle ids whose windows lock to a fixed video aspect. Mosaic fits such a window to the largest aspect-correct box inside its tile, centres it, and letterboxes the rest — so it can't overshoot and freeze its column, even as the visible tab. |
 | `keybindings` | *(see below)* | Map an action to a shortcut, e.g. `"tile": "cmd alt t"`. Only the entries you list override the defaults. |
 
