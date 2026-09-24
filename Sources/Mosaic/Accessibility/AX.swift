@@ -175,11 +175,16 @@ enum AX {
     // MARK: Enumeration
 
     /// All standard, on-screen windows of regular (Dock-visible) applications.
-    static func managedWindows() -> [WindowRef] {
+    /// `limitedTo` skips whole applications. Each one costs a cross-process round trip for its
+    /// window list plus one per window for the subrole, and an app with nothing in the caller's
+    /// on-screen set cannot contribute a window that survives its filter — so enumerating it buys
+    /// a result already known to be empty.
+    static func managedWindows(limitedTo pids: Set<pid_t>? = nil) -> [WindowRef] {
         var result: [WindowRef] = []
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
             if app.isHidden { continue }
             let pid = app.processIdentifier
+            if let pids, !pids.contains(pid) { continue }
             let axApp = AXUIElementCreateApplication(pid)
             guard let windows: [AXUIElement] = copy(axApp, kAXWindowsAttribute as String) else { continue }
             for window in windows {
