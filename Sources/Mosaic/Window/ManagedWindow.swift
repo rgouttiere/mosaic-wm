@@ -49,12 +49,22 @@ final class ManagedWindow {
     /// monocle path and the min-size clamp both depend on.
     private var frameCache: CGRect?
     private var frameCacheTime = Date.distantPast
+    private var frameCacheEpoch: UInt64 = 0
     private static let frameCacheTTL: TimeInterval = 0.05
 
+    /// Bumped at both ends of a render, so an entry filled DURING one stays valid for the rest of
+    /// it however long it takes, and no entry can match between renders. The plain 50ms window
+    /// wasn't enough where it mattered most: a workspace switch moves every window first, so by
+    /// the time the decorations read back, the frames seeded at the start of the arrange had
+    /// expired — and each re-read blocked on an app that was still re-laying-out. `decorate` alone
+    /// was 125ms of a 237ms switch.
+    static var renderEpoch: UInt64 = 0
+
     var frame: CGRect? {
-        if let cached = frameCache, Date().timeIntervalSince(frameCacheTime) < Self.frameCacheTTL {
+        if frameCache != nil,
+           frameCacheEpoch == Self.renderEpoch || Date().timeIntervalSince(frameCacheTime) < Self.frameCacheTTL {
             Perf.count("ax.frameCacheHit")
-            return cached
+            return frameCache
         }
         Perf.count("ax.frameRead")
         return cacheFrame(AX.frame(element))
@@ -65,6 +75,7 @@ final class ManagedWindow {
     private func cacheFrame(_ frame: CGRect?) -> CGRect? {
         frameCache = frame
         frameCacheTime = frame == nil ? .distantPast : Date()
+        frameCacheEpoch = frame == nil ? 0 : Self.renderEpoch
         return frame
     }
 

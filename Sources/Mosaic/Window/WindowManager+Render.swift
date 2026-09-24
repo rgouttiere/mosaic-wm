@@ -242,6 +242,10 @@ extension WindowManager {
 
     func render(activate: Bool = true) {
         let __perf = DispatchTime.now(); defer { Perf.record("render", since: __perf) }
+        // Open a frame-cache epoch and close it on the way out, so every pass of THIS render shares
+        // one read per window and nothing carries over to the next one. See `ManagedWindow.frame`.
+        ManagedWindow.renderEpoch &+= 1
+        defer { ManagedWindow.renderEpoch &+= 1 }
         let __pro = DispatchTime.now()
         guard let root, let screen = activeScreen else { return }
         Perf.record("render.activeScreen", since: __pro)
