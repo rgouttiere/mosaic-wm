@@ -31,6 +31,7 @@ enum SelfTest {
         windowManagerTests(h)
         resizeLimitTests(h)
         coverTests(h)
+        titleRuleTests(h)
         print("MosaicSelfTest: \(h.passed) passed, \(h.failed) failed")
         return h.failed == 0 ? 0 : 1
     }
@@ -149,6 +150,21 @@ enum SelfTest {
             h.check(map.isEmpty, "wsMonitors: non-positive index dropped")
             h.eq(issues.count, 1, "wsMonitors: non-positive index reported")
         }
+    }
+
+    // MARK: - Config: rule title patterns (RULE-TITLE-REGEX)
+
+    private static func titleRuleTests(_ h: Harness) {
+        h.check(Config.titleMatches(".*YouTube.*", "Rick Astley - Never Gonna Give You Up - YouTube"),
+                "a pattern matches somewhere in the title")
+        h.check(Config.titleMatches("youtube", "A video — YouTube"), "matching is case-insensitive")
+        h.check(Config.titleMatches("^Inbox", "Inbox (12) — Mail"), "anchors work")
+        h.check(!Config.titleMatches("^Inbox", "Mail — Inbox"), "an anchor that doesn't hold fails")
+        h.check(!Config.titleMatches(".*YouTube.*", "Some other page"), "a non-match is a non-match")
+        // The safety property: a typo must capture nothing rather than every window of the app.
+        h.check(!Config.titleMatches("[unclosed", "anything at all"), "an invalid pattern matches nothing")
+        h.check(!Config.titleMatches(".+", ""), "an empty title doesn't match a pattern needing one")
+        h.check(Config.titleMatches(".*", ""), "but an empty title still matches an empty pattern")
     }
 
     // MARK: - Geometry: a window that owns a whole display (GAME-COVERS-SCREEN)

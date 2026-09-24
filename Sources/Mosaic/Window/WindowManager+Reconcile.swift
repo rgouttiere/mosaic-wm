@@ -606,9 +606,15 @@ extension WindowManager {
     func ruleFor(_ window: ManagedWindow) -> AppRule? {
         let name = window.appName.lowercased()
         let bundle = window.app.bundleIdentifier?.lowercased() ?? ""
+        // The title is an AX round trip and this runs for every window a reconcile captures, so
+        // it is read only if a rule that already matched the app actually asks for it — and once.
+        var title: String?
         return Config.shared.rules.first { rule in
             let key = rule.app.lowercased()
-            return name.contains(key) || bundle.contains(key)
+            guard name.contains(key) || bundle.contains(key) else { return false }
+            guard let pattern = rule.title, !pattern.isEmpty else { return true }
+            if title == nil { title = window.title }
+            return Config.titleMatches(pattern, title ?? "")
         }
     }
 

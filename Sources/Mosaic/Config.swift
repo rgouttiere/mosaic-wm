@@ -56,6 +56,24 @@ final class Config {
     /// AeroSpace exception); this is a config key rather than a hardcoded set so an app that
     /// mis-declares itself can be named for what it is, instead of through a `float:false` rule
     /// whose name says nothing about why. Matched on app name OR bundle id, like `floatingApps`.
+    /// Compiled title patterns, keyed by their source. `ruleFor` runs for every window a
+    /// reconcile captures, so compiling on each call would put a regex build in a hot loop.
+    /// Cleared whenever the config is re-read.
+    private static var titleRegexCache: [String: NSRegularExpression?] = [:]
+
+    static func titleMatches(_ pattern: String, _ title: String) -> Bool {
+        let regex: NSRegularExpression?
+        if let cached = titleRegexCache[pattern] {
+            regex = cached
+        } else {
+            regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+            titleRegexCache[pattern] = regex
+            if regex == nil { NSLog("Mosaic: rule title is not a valid regex — \(pattern)") }
+        }
+        guard let regex else { return false }
+        return regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) != nil
+    }
+
     static let defaultAlwaysTileApps: Set<String> = [
         "org.alacritty", "io.alacritty", "com.github.wez.wezterm", "com.googlecode.iterm2",
         "com.apple.terminal", "net.kovidgoyal.kitty", "dev.warp.warp-stable", "com.mitchellh.ghostty",
@@ -400,6 +418,7 @@ final class Config {
     func load() {
         // Reset to defaults first so a reload also reflects keys/bindings removed from
         // the file (not just overrides).
+        Config.titleRegexCache.removeAll()   // patterns may have been edited or dropped
         gap = 0
         outerGap = 0
         externalBarTop = 0

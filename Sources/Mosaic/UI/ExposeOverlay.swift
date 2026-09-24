@@ -124,31 +124,63 @@ final class ExposeOverlay {
 
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             guard let self else { return e }
+            // Arrows, ⇥, ⏎ and esc always mean the same thing. The LETTERS don't: they are
+            // jump-hints normally and filter text once `/` has opened the filter, which is why
+            // filtering is a mode you enter rather than something that steals every keystroke.
             switch e.keyCode {
-            case 123, 4:  self.moveCol(-1); return nil       // ← / h
-            case 124, 37: self.moveCol(1);  return nil       // → / l
-            case 126, 40: self.moveRow(-1); return nil       // ↑ / k
-            case 125, 38: self.moveRow(1);  return nil       // ↓ / j
+            case 123: self.moveCol(-1); return nil           // ←
+            case 124: self.moveCol(1);  return nil           // →
+            case 126: self.moveRow(-1); return nil           // ↑
+            case 125: self.moveRow(1);  return nil           // ↓
             case 48: self.move(e.modifierFlags.contains(.shift) ? -1 : 1); return nil   // ⇥
             case 36, 76: self.commitSelection(); return nil  // ⏎
-            case 53:                                         // esc: clear a partial hint first, else close
-                if self.typedHint.isEmpty { self.dismiss() } else { self.typedHint = ""; self.refreshHints() }
+            case 53:                                         // esc: unwind one layer at a time
+                if self.filtering { self.setFilter(nil) }
+                else if self.typedHint.isEmpty { self.dismiss() }
+                else { self.typedHint = ""; self.refreshHints() }
                 return nil
-            case 51:                                         // ⌫: back one hint char
-                if !self.typedHint.isEmpty { self.typedHint.removeLast(); self.refreshHints() }
-                return nil
-            default:
-                // A hint letter (h/j/k/l are captured above as navigation) → type it.
-                if let ch = e.charactersIgnoringModifiers?.lowercased().first,
-                   ExposeOverlay.hintAlphabet.contains(ch) {
-                    self.typeHint(String(ch)); return nil
+            case 51:                                         // ⌫
+                if self.filtering {
+                    if self.filter.isEmpty { self.setFilter(nil) }
+                    else { self.setFilter(String(self.filter.dropLast())) }
+                } else if !self.typedHint.isEmpty {
+                    self.typedHint.removeLast(); self.refreshHints()
                 }
-                return e
+                return nil
+            default: break
             }
+            let typed = e.charactersIgnoringModifiers?.lowercased() ?? ""
+            if self.filtering {
+                guard typed.count == 1, let c = typed.first, !c.isNewline else { return nil }
+                self.setFilter(self.filter + typed); return nil
+            }
+            if typed == "/" { self.setFilter(""); return nil }
+            switch e.keyCode {
+            case 4:  self.moveCol(-1); return nil            // h
+            case 37: self.moveCol(1);  return nil            // l
+            case 40: self.moveRow(-1); return nil            // k
+            case 38: self.moveRow(1);  return nil            // j
+            default: break
+            }
+            if let c = typed.first, ExposeOverlay.hintAlphabet.contains(c) {
+                self.typeHint(String(c)); return nil
+            }
+            return e
         }
     }
 
     // MARK: - Window hints (vimium-style jump to any window across workspaces)
+
+    /// Live filter over the overlay. `nil` closes it; the empty string means "open but nothing
+    /// typed yet", which is why this isn't just a String.
+    private var filtering = false
+    private var filter = ""
+
+    private func setFilter(_ value: String?) {
+        filtering = value != nil
+        filter = value ?? ""
+        for v in views { v.filter = filter; v.filtering = filtering; v.needsDisplay = true }
+    }
 
     static let hintAlphabet = Array("asdfgqwertyuiopzxcvbnm")   // no h/j/k/l — those navigate
     private var hintActions: [String: () -> Void] = [:]
@@ -270,6 +302,14 @@ private final class ExposeView: NSView {
     var thumbs: ThumbnailStore?   // live previews, shared with the overlay; nil until captured
     var hintByWindowID: [CGWindowID: String] = [:]   // window → its jump-hint key
     var typedHint = ""            // hint prefix typed so far (dims matched keys, filters the rest)
+    var filter = ""               // live filter text ( `/` in the overlay )
+    var filtering = false
+
+    /// A tile survives the filter if any of its tabs' labels contains it. Labels are what the user
+    /// reads on screen, so they are what they will type at.
+    private func matchesFilter(_ tile: ExposeTile) -> Bool {
+        filter.isEmpty || tile.tabs.contains { $0.label.localizedCaseInsensitiveContains(filter) }
+    }
     private var thumbAlpha: CGFloat = 1   // ramps 0→1 as previews land, for an in-place fade-in
     private var fadeTimer: Timer?
 
@@ -295,6 +335,7 @@ private final class ExposeView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.withAlphaComponent(CGFloat(Config.shared.exposeDim)).setFill(); bounds.fill()
+        drawFilterChip()
 
         let margin: CGFloat = 60, colGap: CGFloat = 34, rowGap: CGFloat = 22
         let cols = columns.count
@@ -465,6 +506,12 @@ private final class ExposeView: NSView {
             if let id = tile.displayedWindowID, let hint = hintByWindowID[id], hint.hasPrefix(typedHint) {
                 drawHint(hint, in: wr)
             }
+            // Filtered out: veil it rather than hide it, so the layout you know stays recognisable
+            // and you can see what you're narrowing away from.
+            if !matchesFilter(tile) {
+                NSColor.black.withAlphaComponent(0.62).setFill()
+                NSBezierPath(roundedRect: wr, xRadius: 3, yRadius: 3).fill()
+            }
         }
 
         if selected {
@@ -473,6 +520,24 @@ private final class ExposeView: NSView {
             p.lineWidth = 2.5
             p.stroke()
         }
+    }
+
+    /// The filter field, bottom-left in the margin the grid leaves free. Drawn whenever the mode
+    /// is open, empty included — otherwise pressing `/` looks like nothing happened.
+    private func drawFilterChip() {
+        guard filtering else { return }
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .medium)
+        let shown = "/" + filter
+        let size = (shown as NSString).size(withAttributes: [.font: font])
+        let box = NSRect(x: 60, y: 22, width: size.width + 22, height: size.height + 12)
+        surface.withAlphaComponent(0.92).setFill()
+        NSBezierPath(roundedRect: box, xRadius: 8, yRadius: 8).fill()
+        accent.withAlphaComponent(0.55).setStroke()
+        let border = NSBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        border.lineWidth = 1
+        border.stroke()
+        (shown as NSString).draw(at: NSPoint(x: box.minX + 11, y: box.minY + 6),
+                                 withAttributes: [.font: font, .foregroundColor: accent])
     }
 
     /// A vimium-style jump-hint chip centered on a tile: dark frosted chip + accent border/text,

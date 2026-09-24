@@ -45,6 +45,11 @@ struct SavedState: Codable {
 /// substring) against the app name or bundle id when a window opens.
 struct AppRule: Codable {
     var app: String
+    /// Optional regex (case-insensitive) the window TITLE must also match for this rule to apply,
+    /// so one app can be routed several ways: `{"app": "safari", "title": ".*YouTube.*",
+    /// "workspace": 5}`. Absent = the rule applies to every window of the app. An unparseable
+    /// pattern matches nothing rather than everything, so a typo can't silently capture an app.
+    var title: String?
     var float: Bool?
     var groupWith: String?       // app name to auto-tab this window with, if present
     var place: String?           // "column" | "tab" | (default: next to focused)
