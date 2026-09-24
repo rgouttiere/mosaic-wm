@@ -186,6 +186,8 @@ final class WindowManager {
     var wakeGraceUntil = Date.distantPast
     /// The ghost janitor runs on its own slower cadence — see `purgeVisibleGhosts`.
     var lastGhostPurge = Date.distantPast
+    /// Last bytes written to status.json, so an unchanged republish costs nothing downstream.
+    var lastStatusData: Data?
     /// Where a window that just vanished was living, so it returns there instead of landing in
     /// whatever workspace happens to be active. Keyed by bundle id, with an expiry.
     var returnHints: [String: (ws: Int, until: Date)] = [:]
@@ -504,7 +506,9 @@ final class WindowManager {
             guard now == before else { self.handleDisplayChange(); return }   // still settling
             self.suspendReasons.remove(.displayChange)   // never the sleep's hold, only ours
             // Re-derive BEFORE anything reads the map — checkSpaceChange bootstraps from it.
-            self.ensureAllPresentMonitorsShown()   // dock: show/home ALL monitors, not just the mouse's
+            // Forced: the set has been stable for 1.5s, so however many monitors are here is the
+            // truth, even if it is fewer than we have seen before (an undock).
+            self.ensureAllPresentMonitorsShown(force: true)
             self.activeSpaceID = nil
             self.checkSpaceChange()
             self.invalidateAllFrameCaches()   // docking scattered windows out from under us → force re-placement
@@ -604,8 +608,19 @@ final class WindowManager {
         for (i, did) in ids.enumerated() { if let n = shownOnDisplay[did] { shownByMonitorIndex[i] = n } }
     }
 
-    func ensureAllPresentMonitorsShown() {
+    func ensureAllPresentMonitorsShown(force: Bool = false) {
         let displays = orderedDisplays()
+        // A wake brings the monitors back ONE AT A TIME, and `assignedDisplay` maps a workspace to
+        // a monitor by left-to-right INDEX: with one screen present every workspace resolves onto
+        // it, with two they all shuffle again, and so on. Every derivation made mid-return is
+        // therefore wrong and will be redone — but this function replaces the map outright, so
+        // each one was published, and the desktop redealt itself several times a second for
+        // twenty seconds while an external bar reloaded on every change.
+        //
+        // So wait for the set to be complete. A genuine undock doesn't get stuck behind this:
+        // `handleDisplayChange` forces it once the display set has held still for 1.5s, which is
+        // what tells us the smaller set is real rather than transient.
+        guard force || displays.count >= maxMonitorCount else { return }
         var fresh: [CGDirectDisplayID: UInt64] = [:]
         for (i, did) in displays.enumerated() {
             guard let screen = screen(forDisplayID: did) else { continue }

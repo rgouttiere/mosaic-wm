@@ -568,6 +568,10 @@ extension WindowManager {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict,
                                                      options: [.prettyPrinted, .sortedKeys]) else { return }
+        // Don't republish an identical file: every write wakes whatever watches it, and an external
+        // bar that redraws its workspace pills on each one flickers for as long as we churn.
+        guard data != lastStatusData else { return }
+        lastStatusData = data
         try? FileManager.default.createDirectory(at: statusURL.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         try? data.write(to: statusURL, options: .atomic)
