@@ -334,18 +334,27 @@ extension WindowManager {
         let dx = pr.minX - lr.minX, dy = pr.minY - lr.minY
         root.forEachTabbed { group in
             let kids = group.children
-            guard kids.count > 1 else { return }
             let sel = min(max(group.selected, 0), kids.count - 1)
-            guard let selPid = kids[sel].firstLeaf().window?.app.processIdentifier else { return }
+            // A group that no longer qualifies must release its leaves, or `arrange` would go on
+            // skipping their placement for good.
+            func release() { kids.forEach { $0.forEachLeaf { $0.parkedOffScreen = false } } }
+            guard kids.count > 1 else { return release() }
+            guard let selPid = kids[sel].firstLeaf().window?.app.processIdentifier else { return release() }
             // Only mixed-app groups need this; a same-app group's z-order (AX.raise) already works.
-            guard Set(kids.compactMap { $0.firstLeaf().window?.app.processIdentifier }).count > 1 else { return }
+            guard Set(kids.compactMap { $0.firstLeaf().window?.app.processIdentifier }).count > 1 else {
+                return release()
+            }
             for (i, child) in kids.enumerated() where i != sel {
                 child.forEachLeaf { leaf in
-                    // Drive off lastFrame (the Cocoa rect arrange just wrote), NOT the live AX frame,
+                    // Drive off lastFrame (the Cocoa rect arrange RECORDED), NOT the live AX frame,
                     // so a re-park each render can't compound the window further off-screen.
                     guard let w = leaf.window, !w.isFullscreen,
                           w.app.processIdentifier != selPid, leaf.lastFrame.width > 0 else { return }
                     w.setCocoaFrame(leaf.lastFrame.offsetBy(dx: dx, dy: dy))
+                    // From here on `arrange` records this leaf's geometry without writing it, so the
+                    // park above is the only writer — and its target is stable, so setCocoaFrame's
+                    // cache skips it on every subsequent render.
+                    leaf.parkedOffScreen = true
                 }
             }
         }

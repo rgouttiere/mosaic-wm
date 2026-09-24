@@ -264,13 +264,21 @@ final class Container {
     /// hidden windows on-screen each frame, and only a subsequent full render's parkHiddenCrossAppTabs
     /// pushes them back. During a 90fps drag there's no such pass, so they'd flash "behind" the tiling.
     /// The WM parks the hidden ones off-screen once at gesture start instead.
+    /// Set when `WindowManager.parkHiddenCrossAppTabs` has moved this leaf off-screen: a hidden
+    /// tab of a mixed-app group, which z-order can't keep behind the selected one because macOS
+    /// stacks by app. `arrange` then records its geometry but issues no AX write, because the park
+    /// would immediately undo it — and since each write undid the other, `setCocoaFrame`'s cache
+    /// never skipped either, so every render paid two synchronous cross-process writes per hidden
+    /// tab. Cleared for whichever tab becomes selected, in `arrangeTabbed`.
+    var parkedOffScreen = false
+
     func arrange(in rect: NSRect, visibleOnly: Bool = false) {
         lastFrame = rect
         guard !isLeaf else {
             tabBar?.orderOut(nil)
             // Don't reposition a full-screen window (it's on its own Space); it keeps
             // its slot in the tree and reclaims it when it leaves full screen.
-            if let w = window, w.isFullscreen != true {
+            if let w = window, w.isFullscreen != true, !parkedOffScreen {
                 let slot = rect.insetBy(dx: gap / 2, dy: gap / 2)
                 // Aspect-locked window with a learned ratio → size it to the largest box of that ratio
                 // that fits the slot and centre it, so it never overshoots and freezes the column. The
@@ -381,6 +389,12 @@ final class Container {
             let sel = min(max(selected, 0), children.count - 1)
             if children.indices.contains(sel) { children[sel].arrange(in: content, visibleOnly: true) }
         } else {
+            // Whatever becomes selected is on screen again: drop the park flag first, or this
+            // render would record its geometry and skip the very write that brings it back.
+            let sel = min(max(selected, 0), children.count - 1)
+            if children.indices.contains(sel) {
+                children[sel].forEachLeaf { $0.parkedOffScreen = false }
+            }
             for child in children { child.arrange(in: content) }
         }
     }
