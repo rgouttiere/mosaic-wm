@@ -300,7 +300,7 @@ extension WindowManager {
             Perf.span("render.axRaise") { AX.raise(w.element) }
         }
         Perf.span("render.raiseStrips") { root.raiseVisibleStrips() }
-        Perf.span("render.parkCrossApp") { parkHiddenCrossAppTabs(on: screen) }
+        Perf.span("render.parkCrossApp") { parkHiddenCrossAppTabs() }
 
         // Heal the OTHER shown monitors' window POSITIONS on every render, so drift on a non-active
         // screen (an app nudged its window, a late wake, a new window) doesn't wait for a manual
@@ -349,8 +349,20 @@ extension WindowManager {
     /// (the same shift a workspace park uses, driven off the leaf's arranged rect so it keeps its
     /// size — no relayout), so nothing from another app can ever cover the selected tab. arrange()
     /// brings a tab straight back to its slot the instant it's selected.
-    func parkHiddenCrossAppTabs(on screen: NSScreen) {
-        guard let root else { return }
+    /// Every SHOWN workspace, not just the active one. The problem this solves — macOS stacks by
+    /// app, so a hidden tab from another app floats over the selected one the moment its app's
+    /// layer rises — has nothing to do with which monitor holds keyboard focus, and doing only the
+    /// active workspace left the others exposed: KeePassXC sat behind Ferdium on the laptop for
+    /// as long as that monitor wasn't the active one. Parked workspaces are already off-screen
+    /// wholesale, so they need nothing here.
+    func parkHiddenCrossAppTabs() {
+        for (did, workspace) in shownOnDisplay {
+            guard let screen = screen(forDisplayID: did), let root = spaces[workspace]?.root else { continue }
+            parkHiddenCrossAppTabs(root, on: screen)
+        }
+    }
+
+    func parkHiddenCrossAppTabs(_ root: Container, on screen: NSScreen) {
         let lr = layoutRect(screen), pr = parkRect(for: screen)
         let dx = pr.minX - lr.minX, dy = pr.minY - lr.minY
         root.forEachTabbed { group in
