@@ -475,10 +475,10 @@ final class WindowManager {
             let now = Set(NSScreen.screens.map(self.displayID(of:)))
             guard now == before else { self.handleDisplayChange(); return }   // still settling
             self.suspended = false
-            self.rehomeToPresentMonitors()
+            // Re-derive BEFORE anything reads the map — checkSpaceChange bootstraps from it.
+            self.ensureAllPresentMonitorsShown()   // dock: show/home ALL monitors, not just the mouse's
             self.activeSpaceID = nil
             self.checkSpaceChange()
-            self.ensureAllPresentMonitorsShown()   // dock: show/home ALL monitors, not just the mouse's
             self.invalidateAllFrameCaches()   // docking scattered windows out from under us → force re-placement
             self.reassertAllWorkspaces()
             self.emitWorkspaceState(self.activeSpaceID.map(Int.init))   // re-publish status.json (sketchybar)
@@ -495,9 +495,10 @@ final class WindowManager {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             guard let self else { return }
             self.suspended = false
+            // Re-derive BEFORE detecting the active workspace: checkSpaceChange reads this map.
+            self.ensureAllPresentMonitorsShown()   // guard against wake re-assigning display ids
             self.activeSpaceID = nil   // force a fresh detect of the current workspace
             self.checkSpaceChange()
-            self.ensureAllPresentMonitorsShown()   // guard against wake re-assigning display ids
             self.invalidateAllFrameCaches()   // macOS scattered windows while asleep → force the re-tile writes
             self.reassertAllWorkspaces()
             self.emitWorkspaceState(self.activeSpaceID.map(Int.init))   // re-publish status.json (sketchybar)
@@ -520,21 +521,23 @@ final class WindowManager {
     /// Drop placements that point at a monitor that's no longer attached, so a workspace homed
     /// on a removed display can be re-shown on a present one at its next visit (its windows
     /// were migrated by macOS anyway). Keeps `shownOnDisplay` consistent with reality.
-    func rehomeToPresentMonitors() {
-        let present = Set(NSScreen.screens.map(displayID(of:)))
-        for (did, _) in shownOnDisplay where !present.contains(did) { shownOnDisplay[did] = nil }
-        for (_, ws) in spaces where ws.displayID != 0 && !present.contains(ws.displayID) {
-            ws.displayID = 0   // parked, no home monitor until re-shown
-        }
-    }
-
-    /// Make sure EVERY present monitor has a workspace assigned AND homed on it — not just the one
-    /// under the mouse (all `checkSpaceChange` bootstraps). After docking, newly-attached monitors
-    /// have no `shownOnDisplay` entry and workspaces whose home display was just re-added still have
-    /// `displayID == 0` (cleared on the prior undock), so `screen(forWorkspace:)` returns nil for
-    /// them and `reassertAllWorkspaces` PARKS them → those screens stay blank until the user
-    /// manually ⌘⌥-switches each. Assign every present monitor its shown-or-default workspace and
-    /// re-home it via `workspace(_:on:)` (which sets `displayID`), so reassert can tile them all.
+    /// Re-derive, from scratch, which workspace each present monitor shows — the same way a fresh
+    /// launch does, from the assignment and the remembered per-index view, NEVER from the live map.
+    ///
+    /// It used to take `shownOnDisplay[did]` as authoritative whenever it had an entry. That is
+    /// right while the display set is stable and wrong the moment it isn't: on a long sleep the
+    /// external monitors come back after the 1.5s settle, the degraded pass has already dropped
+    /// their entries and re-homed their workspaces onto whatever was present, and trusting the map
+    /// then preserved that churn as if the user had chosen it. Restarting was the only cure —
+    /// because a restart derives exactly the way this now does.
+    ///
+    /// `shownByMonitorIndex` is what makes re-deriving safe: `rememberShown` only records at the
+    /// full monitor count, so a degraded phase cannot poison the memory it reads back here.
+    ///
+    /// Also the dock path: newly-attached monitors have no entry and workspaces whose home display
+    /// was just re-added still have `displayID == 0` (cleared on the prior undock), so without this
+    /// `screen(forWorkspace:)` returns nil, `reassertAllWorkspaces` PARKS them, and those screens
+    /// stay blank until the user manually ⌘⌥-switches each.
     /// Snapshot which workspace is shown on each monitor, by left-to-right index. Only records at the
     /// full monitor count so a degraded (collapsed) wake can't clobber the good mapping.
     func rememberShown() {
@@ -545,21 +548,29 @@ final class WindowManager {
     }
 
     func ensureAllPresentMonitorsShown() {
-        for (i, did) in orderedDisplays().enumerated() {
+        let displays = orderedDisplays()
+        var fresh: [CGDirectDisplayID: UInt64] = [:]
+        for (i, did) in displays.enumerated() {
             guard let screen = screen(forDisplayID: did) else { continue }
+            let owned = (1...9).filter { assignedDisplay(forWorkspace: $0) == did }
+            // The view this monitor last held at full strength, else the one last session saved.
+            let remembered = shownByMonitorIndex[i].map(Int.init)
+                ?? (savedShownByMonitor.indices.contains(i) ? savedShownByMonitor[i] : 0)
             let n: Int
-            if let existing = shownOnDisplay[did] {
-                n = Int(existing)                       // already has a shown workspace → re-home it
-            } else if let remembered = shownByMonitorIndex[i],
-                      assignedDisplay(forWorkspace: Int(remembered)) == did {   // restore the last-shown one
-                n = Int(remembered)
-                shownOnDisplay[did] = remembered
+            if remembered >= 1, remembered <= 9, assignedDisplay(forWorkspace: remembered) == did {
+                n = remembered
             } else {
-                let owned = (1...9).filter { assignedDisplay(forWorkspace: $0) == did }
                 n = owned.first { spaces[UInt64($0)]?.root != nil } ?? defaultWorkspaceNumber(for: screen)
-                shownOnDisplay[did] = UInt64(n)
             }
+            fresh[did] = UInt64(n)
             workspace(n, on: screen)   // ensure it exists AND is homed on this monitor (sets displayID)
+        }
+        // REPLACE the map, never patch it: a display that has gone drops out by construction,
+        // instead of being cleared by a separate destructive pass that ran before this one.
+        shownOnDisplay = fresh
+        let present = Set(displays)
+        for (_, ws) in spaces where ws.displayID != 0 && !present.contains(ws.displayID) {
+            ws.displayID = 0   // parked, no home monitor until re-shown
         }
     }
 
