@@ -9,8 +9,11 @@ Tiling/tabbing window manager pour macOS, en Swift (SwiftPM), **SIP activé → 
 - Config live de l'utilisateur : `~/.config/mosaic/config.json` (hot-reload via file-watch) ; état : `~/.config/mosaic/state.json` ; diag : action `dump-layout` → `/tmp/mosaic-dump.txt`.
 
 ## Branches
-- `main` = v0.5.x **stable** (Spaces macOS réels), daily-driver — **ne pas casser**.
-- `v2-emulated` = travail courant : **workspaces émulés** (voir `docs/V2-EMULATED-WORKSPACES.md`).
+- `main` = **workspaces émulés** (v2), daily-driver — **ne pas casser**. La décision, ce qu'elle
+  supprime et ce qu'elle coûte : `docs/V2-EMULATED-WORKSPACES.md`.
+- **`v0.5.2-alpha`** = dernier état en **Spaces macOS réels**, point de repli si v2 s'avère
+  intenable (`git checkout v0.5.2-alpha`).
+- `v2-emulated` = fusionnée dans `main` ; le travail continue sur `main`.
 
 ## Architecture (v2 émulé)
 Un **seul** Space macOS. Un « workspace » = ensemble logique de fenêtres. Switch = **park** (déplacer hors écran) / **unpark** (à l'écran) via `Container.arrange(in:)`. `shownOnDisplay: [displayID: workspace]` est **possédé par nous** (jamais lu du window-server). **Model A** : workspaces 1-9 globales, chacune épinglée à un moniteur (`assignedDisplay` / `WindowManager.monitorBlock`, pures + testées). Cœur = arbre `Container` (splits / tabbed / stacked), intact depuis v1.
