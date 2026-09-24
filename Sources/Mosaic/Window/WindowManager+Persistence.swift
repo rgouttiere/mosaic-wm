@@ -324,8 +324,22 @@ extension WindowManager {
     /// which already keeps 32px clear — gets little or no extra strip, while external
     /// monitors that reserve nothing get the full bar height. This keeps the gap uniform
     /// across a mixed multi-monitor setup instead of double-counting the notch.
+    /// Does this screen show exactly one window? Cheap in-memory walk, and only ever asked when
+    /// `smartGaps` is on.
+    private func showsSingleWindow(_ screen: NSScreen) -> Bool {
+        guard let n = shownOnDisplay[displayID(of: screen)], let root = spaces[n]?.root else { return false }
+        var count = 0
+        root.forEachVisibleLeaf { _ in count += 1 }
+        return count == 1
+    }
+
     func layoutRect(_ screen: NSScreen) -> NSRect {
-        var r = screen.visibleFrame.insetBy(dx: Config.shared.outerGap, dy: Config.shared.outerGap)
+        // smartGaps is decided here because every path that arranges a screen asks for its layout
+        // rect first — this is the one point guaranteed to run just before the gaps are used.
+        let single = Config.shared.smartGaps && showsSingleWindow(screen)
+        Container.gapOverride = single ? 0 : nil
+        var r = screen.visibleFrame.insetBy(dx: single ? 0 : Config.shared.outerGap,
+                                            dy: single ? 0 : Config.shared.outerGap)
         let bar = Config.shared.externalBarTop
         if bar > 0 {
             let alreadyReserved = screen.frame.maxY - screen.visibleFrame.maxY  // menu bar / notch

@@ -42,6 +42,9 @@ final class Config {
     var trackpadGestures: Bool = false   // opt-in: 3-finger horizontal swipe → workspace prev/next (raw MultitouchSupport)
     var dragModifier: String = "ctrl alt cmd"   // hold this chord + left-drag anywhere to move ANY window (tab=center, split=edge); "" = off
     var ejectNativeFullscreen: Bool = false  // v2: send a managed window that enters native full screen back to windowed (strict emulated)
+    /// A screen showing a single window gets no gaps at all — margins exist to separate tiles,
+    /// and there is nothing to separate. See `WindowManager.layoutRect`.
+    var smartGaps: Bool = false
     var autoFloatDialogs: Bool = false       // v2: auto-float standard windows with no full-screen button (dialogs/palettes), except terminals
     /// Stand down on a monitor a window we don't manage has taken over — a game in borderless
     /// full screen. Geometric, so it needs no per-app list; see `coveredDisplays`.
@@ -243,6 +246,7 @@ final class Config {
         var trackpadGestures: Bool?
         var dragModifier: String?
         var ejectNativeFullscreen: Bool?
+        var smartGaps: Bool?
         var autoFloatDialogs: Bool?
         var yieldToFullscreenWindows: Bool?
         var defaultMode: String?
@@ -286,7 +290,7 @@ final class Config {
         private enum CodingKeys: String, CodingKey {
             case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
             case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
-            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, dragModifier, ejectNativeFullscreen, autoFloatDialogs, yieldToFullscreenWindows, defaultMode, floatingApps, aspectFitApps, alwaysTileApps, rules, showWorkspaceHUD, notchHud, hudPosition
+            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, dragModifier, ejectNativeFullscreen, smartGaps, autoFloatDialogs, yieldToFullscreenWindows, defaultMode, floatingApps, aspectFitApps, alwaysTileApps, rules, showWorkspaceHUD, notchHud, hudPosition
             case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius, inactiveBorderOpacity, inactiveMonitorDim
             case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
             case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
@@ -329,6 +333,7 @@ final class Config {
             trackpadGestures = v(.trackpadGestures)
             dragModifier = v(.dragModifier)
             ejectNativeFullscreen = v(.ejectNativeFullscreen)
+            smartGaps = v(.smartGaps)
             autoFloatDialogs = v(.autoFloatDialogs)
             yieldToFullscreenWindows = v(.yieldToFullscreenWindows)
             defaultMode = v(.defaultMode)
@@ -444,6 +449,7 @@ final class Config {
         trackpadGestures = false
         dragModifier = "ctrl alt cmd"
         ejectNativeFullscreen = false
+        smartGaps = false
         autoFloatDialogs = false
         yieldToFullscreenWindows = true
         floatingApps = Config.defaultFloatingApps
@@ -494,7 +500,7 @@ final class Config {
             "gap", "outerGap", "externalBarTop", "notchBarOffset", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
             "focusGlowRadius", "focusGlowFade",
             "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
-            "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "dragModifier", "ejectNativeFullscreen", "autoFloatDialogs", "yieldToFullscreenWindows", "defaultMode",
+            "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "dragModifier", "ejectNativeFullscreen", "smartGaps", "autoFloatDialogs", "yieldToFullscreenWindows", "defaultMode",
             "floatingApps", "aspectFitApps", "alwaysTileApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
             "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "inactiveBorderOpacity", "inactiveMonitorDim", "activeOpacity",
             "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
@@ -551,7 +557,9 @@ final class Config {
         if let g = file.trackpadGestures { trackpadGestures = g }
         if let s = file.dragModifier { dragModifier = s }
         if let b = file.ejectNativeFullscreen { ejectNativeFullscreen = b }
+        if let b = file.smartGaps { smartGaps = b }
         if let b = file.autoFloatDialogs { autoFloatDialogs = b }
+        if let b = file.yieldToFullscreenWindows { yieldToFullscreenWindows = b }
         if let m = file.defaultMode { defaultMode = m }
         if let f = file.floatingApps { floatingApps = Set(f.map { $0.lowercased() }) }
         if let f = file.aspectFitApps { aspectFitApps = Set(f.map { $0.lowercased() }) }

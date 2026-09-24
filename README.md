@@ -80,6 +80,7 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 |---|---|---|
 | `gap` | `0` | Space between tiles. |
 | `outerGap` | `0` | Margin between the tiling area and the screen edges. |
+| `smartGaps` | `false` | Drop `gap` and `outerGap` entirely on a screen showing a single window — the margins exist to separate tiles, and there is nothing to separate. They come back with the second window. No effect if both gaps are already `0`. |
 | `defaultMode` | `"columns"` | How new windows are auto-placed: `columns`, `grouped` (by app), `tabbed`, or `master-stack`. |
 | `workspaceWrap` | `true` | Cycling workspaces (Ctrl+←/→, 3-finger swipe) wraps around; `false` stops at the first/last. |
 | `trackpadGestures` | `false` | Native 3-finger swipes → workspaces + exposé (MultitouchSupport). Disable macOS's own 3/4-finger gestures first. |

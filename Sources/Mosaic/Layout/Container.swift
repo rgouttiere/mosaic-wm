@@ -54,7 +54,11 @@ final class Container {
 
     private var tabBar: TabBarWindow?
     private var tabBarHeight: CGFloat { Config.shared.tabBarHeight }
-    private var gap: CGFloat { Config.shared.gap }
+    /// Set by `WindowManager.layoutRect` for the screen about to be arranged: `smartGaps` zeroes
+    /// the gap where a single window has nothing to be separated from. A global because the gap is
+    /// read deep in the recursion, on leaves that know nothing about which screen they are on.
+    static var gapOverride: CGFloat?
+    private var gap: CGFloat { Container.gapOverride ?? Config.shared.gap }
 
     var isLeaf: Bool { window != nil }
 
