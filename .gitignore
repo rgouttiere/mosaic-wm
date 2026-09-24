@@ -3,6 +3,7 @@
 *.xcodeproj
 .DS_Store
 .build/
+.claude/
 .swiftpm/
 Mosaic.zip
 Package.resolved
