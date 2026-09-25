@@ -125,9 +125,32 @@ extension WindowManager {
         guard fm.fileExists(atPath: stateURL.path) else { return }
         if let attrs = try? fm.attributesOfItem(atPath: prev.path),
            let modified = attrs[.modificationDate] as? Date,
-           Date().timeIntervalSince(modified) < 300 { return }   // still recent enough
+           Date().timeIntervalSince(modified) < 1800 { return }   // half an hour
+        // And never let a SHRINKING layout overwrite the copy. Losing windows is the event this
+        // exists to survive, so the backup holds until the live layout is at least as full as the
+        // one it already has — otherwise the good version is gone before anyone notices the damage,
+        // which is exactly what happened the one time it was needed.
+        guard liveWindowCount() >= savedWindowCount(in: prev) else { return }
         try? fm.removeItem(at: prev)
         try? fm.copyItem(at: stateURL, to: prev)
+    }
+
+    private func liveWindowCount() -> Int {
+        var n = 0
+        for state in spaces.values { state.root?.forEachLeaf { if $0.window != nil { n += 1 } } }
+        return n
+    }
+
+    private func savedWindowCount(in url: URL) -> Int {
+        guard let data = try? Data(contentsOf: url),
+              let saved = try? JSONDecoder().decode(SavedState.self, from: data) else { return 0 }
+        var n = 0
+        func walk(_ node: SavedNode) {
+            if node.window != nil { n += 1 }
+            (node.children ?? []).forEach(walk)
+        }
+        for space in saved.spaces.values { if let tree = space.tree { walk(tree) } }
+        return n
     }
 
     func saveNow() {

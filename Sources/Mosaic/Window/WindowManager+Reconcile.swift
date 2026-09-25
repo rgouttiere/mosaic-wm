@@ -38,9 +38,58 @@ extension WindowManager {
         // frame cache is stale — drop it, else reassert recomputes the same rect and setCocoaFrame
         // skips the corrective write (the heal would no-op on exactly the windows it's meant to save).
         invalidateAllFrameCaches()
+        let rescued = rescueStrandedWindows()
         reassertAllWorkspaces()
+        // Force a FULL reconcile: the fast path only reacts to the on-screen id set CHANGING, so a
+        // window that lost its leaf while staying on screen is invisible to it — no restart, no
+        // re-assert and no manual move brought such a window back, only opening some unrelated
+        // window did, by moving the set. The one key meant for "my window is lost" must not
+        // depend on that.
+        lastReconcileOnScreen = []
+        reconcile()
         updateFocusIndicator()
-        NSLog("Mosaic: recover — un-minimized stuck windows + re-asserted all workspaces + dropped resize minimums")
+        NSLog("Mosaic: recover — un-minimized stuck windows, rescued \(rescued) stranded, re-asserted all workspaces, forced a full reconcile")
+    }
+
+    /// Bring home any window that has ended up outside every screen with no leaf to its name.
+    ///
+    /// A window can lose its place in the tree while its app keeps it alive: an app that restarts
+    /// during a long sleep, or a leaf aged out while the window was briefly unresolvable. If it is
+    /// ALSO off the visible desktop, nothing can bring it back on its own — `captureWindows`
+    /// rejects a window whose centre sits on no screen, so every later pass ignores it. The only
+    /// recourse was to drag it back by hand, which is hard to do with a window you cannot see.
+    ///
+    /// Placed at the centre of the active screen and deliberately smaller than it, so macOS can't
+    /// clamp it straight back off the edge; the reconcile that follows tiles it properly.
+    @discardableResult
+    func rescueStrandedWindows() -> Int {
+        var managed = Set<CGWindowID>()
+        for state in spaces.values {
+            state.root?.forEachLeaf { leaf in
+                guard let w = leaf.window else { return }
+                if let id = w.lastKnownID ?? AX.windowID(w.element) { managed.insert(id) }
+            }
+        }
+        guard let home = screenUnderMouse() ?? NSScreen.main else { return 0 }
+        let area = layoutRect(home)
+        var rescued = 0
+        for window in AX.managedWindows().compactMap(ManagedWindow.init) {
+            guard !isFloating(window), !window.isFullscreen,
+                  let id = AX.windowID(window.element), !managed.contains(id),
+                  let axFrame = window.frame else { continue }
+            let cocoa = Geometry.flip(axFrame)
+            let centre = CGPoint(x: cocoa.midX, y: cocoa.midY)
+            guard !NSScreen.screens.contains(where: { $0.frame.contains(centre) }) else { continue }
+            let size = CGSize(width: min(max(cocoa.width, 400), area.width * 0.6),
+                              height: min(max(cocoa.height, 300), area.height * 0.6))
+            window.invalidateFrameCache()   // we don't know where it really is; force the write
+            window.setCocoaFrame(NSRect(x: area.midX - size.width / 2,
+                                        y: area.midY - size.height / 2,
+                                        width: size.width, height: size.height))
+            rescued += 1
+            NSLog("Mosaic: rescued stranded window — \(window.appName) \(window.title)")
+        }
+        return rescued
     }
 
     /// Cycle the build strategy for the current desktop and rebuild it.
