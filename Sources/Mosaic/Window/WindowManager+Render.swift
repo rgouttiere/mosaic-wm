@@ -342,6 +342,9 @@ extension WindowManager {
             Perf.span("render.makeMain") { AX.makeMain(w.element) }
             Perf.span("render.activateApp") { w.activateApp() }
             Perf.span("render.axRaise") { AX.raise(w.element) }
+            focusAssertedAt = Date()   // what follows in the next moments is our own echo
+            focusAssertedID = id
+            focusAssertedPID = w.app.processIdentifier
         }
         Perf.span("render.raiseStrips") { root.raiseVisibleStrips() }
         Perf.span("render.parkCrossApp") { parkHiddenCrossAppTabs() }

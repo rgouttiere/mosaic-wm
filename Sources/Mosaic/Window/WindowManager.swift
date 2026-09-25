@@ -135,6 +135,16 @@ final class WindowManager {
     /// On-screen window IDs at the last reconcile that ran the full enumeration. If the
     /// set is unchanged and nothing closed, a reconcile can't have anything to do — used
     /// to skip the costly captureWindows() on pure focus/app switches.
+    /// When Mosaic last activated a window itself, and which one it meant.
+    ///
+    /// Activating an app surfaces ITS last-focused window, which for a browser with windows on two
+    /// workspaces is very often NOT the tab we just selected. macOS then reports that as a focus
+    /// change, `syncFocusToSystem` adopts it as if the user had reached for it, and the focus walks
+    /// off to another monitor — then the next navigation does it again, until it settles on a
+    /// parked window with an empty tile behind it. Mosaic must not take its own action for input.
+    var focusAssertedAt = Date.distantPast
+    var focusAssertedID: CGWindowID?
+    var focusAssertedPID: pid_t?
     var lastReconcileOnScreen: Set<CGWindowID> = []
     var lastReconcileSpaceID: UInt64?   // active space the on-screen snapshot above was taken on
     /// Recently-focused workspace numbers, most-recent first. Powers the switcher's recency
@@ -715,6 +725,18 @@ final class WindowManager {
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
         guard let win: AXUIElement = AX.copy(axApp, kAXFocusedWindowAttribute as String),
               let id = AX.windowID(win) else { return }
+        // An echo of our own activation, naming a window we did NOT ask for — ignore it. A report
+        // that agrees with what we asked for is harmless and passes through.
+        let sinceAsserted = Date().timeIntervalSince(focusAssertedAt)
+        if sinceAsserted < 0.4, id != focusAssertedID { return }
+        // Same app, different window, shortly after we asked: this is the APPLICATION surfacing its
+        // own last-focused window — activating Firefox for its tab here brings its window on another
+        // monitor forward too — and that report is indistinguishable from intent except by this.
+        // A longer reprieve than the general one because the culprits are heavy apps: this machine's
+        // Chrome announces a gigabyte in its own title, and its echo can easily miss 400ms.
+        if sinceAsserted < 1.5, app.processIdentifier == focusAssertedPID, id != focusAssertedID {
+            return
+        }
 
         // Search EVERY workspace, not just the active one.
         //
@@ -742,17 +764,22 @@ final class WindowManager {
             switchToWorkspace(n)
             return
         }
-        // Here, but behind a tab: the old code moved the halo onto a window you still couldn't see.
-        if !isOnVisiblePath(leaf) {
-            focused = leaf
-            selectTabsOnPath(to: leaf)
-            render(activate: false)
-            return
-        }
+        // A window hidden behind a tab is not somewhere focus may land. Two things had to go wrong
+        // together: an app's AXFocusedWindow is not a statement of intent — activating Chrome on one
+        // monitor happily reports its window on ANOTHER as focused — and adopting that put Mosaic's
+        // focus on a PARKED window. Every later move then started from a window nobody could see,
+        // which is the "bazar" this kept producing. Surfacing it instead was worse: it swapped the
+        // tab of a group being watched, replacing a video with a browser at each activation.
+        //
+        // So: ignore it outright. Something of that workspace is already on screen, nobody is
+        // stranded, and the timing guard above can expire on a slow app without this leaking
+        // through — the rule holds whatever the delay.
+        guard isOnVisiblePath(leaf) else { return }
         guard leaf !== focused else { return }
         focused = leaf
         refreshFocusAndDim()     // move the halo (+ follow the monitor dim if on). no re-tile/raise
     }
+
 
     /// Is this leaf actually on screen, or hidden behind a tab somewhere up its path?
     func isOnVisiblePath(_ leaf: Container) -> Bool {
