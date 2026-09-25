@@ -710,20 +710,61 @@ final class WindowManager {
     /// window — so it can't fight the user or loop with our own raises. This is what keeps
     /// the tabs in sync without needing a click.
     func syncFocusToSystem() {
-        guard Config.shared.focusSync, !suspended, !tabDragging, let root else { return }
+        guard Config.shared.focusSync, !suspended, !tabDragging else { return }
         guard let app = NSWorkspace.shared.frontmostApplication else { return }
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
         guard let win: AXUIElement = AX.copy(axApp, kAXFocusedWindowAttribute as String),
               let id = AX.windowID(win) else { return }
-        var target: Container?
-        root.forEachLeaf { leaf in
-            guard target == nil, let w = leaf.window else { return }
-            if w.resolvedID() == id || w.lastKnownID == id { target = leaf }
+
+        // Search EVERY workspace, not just the active one.
+        //
+        // An activation from outside — a notification banner, ⌘Tab, a Dock click — is someone
+        // asking for a specific window, and in the emulated model that window is very often parked.
+        // Real Spaces make macOS switch desktop on activation; we removed that and put nothing in
+        // its place, so clicking a WhatsApp banner brought the app forward with nothing to look at.
+        // `lastKnownID` is checked before `resolvedID()` because the latter is a cross-process call
+        // and this now walks every tree, not one.
+        var found: (sid: UInt64, leaf: Container)?
+        for (sid, state) in spaces {
+            state.root?.forEachLeaf { leaf in
+                guard found == nil, let w = leaf.window else { return }
+                if w.lastKnownID == id || w.resolvedID() == id { found = (sid, leaf) }
+            }
+            if found != nil { break }
         }
-        guard let leaf = target, leaf !== focused else { return }
-        focused = leaf
+        guard let (sid, leaf) = found else { return }
         preselect = nil          // focus moved → disarm any pending preselect
+
+        // Parked elsewhere → go there. switchToWorkspace renders, and render selects the tabs on
+        // the focused leaf's path, so setting focus first is what surfaces it on arrival.
+        if screen(forWorkspace: sid) == nil, let n = workspaceNumber(for: sid) {
+            focused = leaf
+            switchToWorkspace(n)
+            return
+        }
+        // Here, but behind a tab: the old code moved the halo onto a window you still couldn't see.
+        if !isOnVisiblePath(leaf) {
+            focused = leaf
+            selectTabsOnPath(to: leaf)
+            render(activate: false)
+            return
+        }
+        guard leaf !== focused else { return }
+        focused = leaf
         refreshFocusAndDim()     // move the halo (+ follow the monitor dim if on). no re-tile/raise
+    }
+
+    /// Is this leaf actually on screen, or hidden behind a tab somewhere up its path?
+    func isOnVisiblePath(_ leaf: Container) -> Bool {
+        var node = leaf
+        while let parent = node.parent {
+            if parent.layout == .tabbed {
+                let sel = min(max(parent.selected, 0), parent.children.count - 1)
+                guard parent.children.indices.contains(sel), parent.children[sel] === node else { return false }
+            }
+            node = parent
+        }
+        return true
     }
 
     /// The visible window under `point`: in a tabbed container only the selected child
