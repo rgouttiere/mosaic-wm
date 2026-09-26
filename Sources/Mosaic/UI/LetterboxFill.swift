@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 
 /// Opaque bars that fill the gap between a tile and a window that doesn't fill it (e.g. IINA
 /// keeping its video aspect). macOS refuses to move a parked window fully off-screen — it keeps a
@@ -47,11 +48,46 @@ final class LetterboxFill {
 
 /// A static "digital rain" of runic glyphs on black, drawn once per size (deterministic, so no
 /// flicker and no animation). Falls back to plain black when `letterboxStyle` isn't "matrix".
+///
+/// Drawn with Core Text, batched by shade — NOT one `NSString.draw` per cell. That earlier form
+/// cost **32 ms for a single 1720x205 bar** (~2000 cells, each rebuilding the whole text-layout
+/// stack) and IINA's tile carries two of them, so every letterboxed tile that changed size paid
+/// ~64 ms of main-thread drawing before the next frame — felt as a stall when tabbing to IINA.
+/// Same pattern, same pixels, ~15x cheaper.
 private final class MatrixView: NSView {
     override var isFlipped: Bool { true }   // row 0 at top, streaks brighten downward toward their head
 
     // Elder-Futhark-ish runes, to match the Matrix-rune look.
     private static let glyphs = Array("ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟᛝᚻᚼᚽᛘᛦ")
+
+    private static let font = NSFont.monospacedSystemFont(ofSize: 16, weight: .bold)
+
+    /// The covering font and glyph id of each rune, resolved ONCE. The monospaced system font has
+    /// no runes: `NSString.draw` falls back to AppleSymbols silently, `CTFontDrawGlyphs` does not —
+    /// it would draw glyph 0, i.e. nothing at all. Resolving up front also lets `draw` group its
+    /// batches by font, since a cascade could in principle answer with more than one.
+    private static let runes: (fonts: [CTFont], cells: [(font: Int, glyph: CGGlyph)]) = {
+        let base = font as CTFont
+        var fonts: [CTFont] = []
+        var cells: [(font: Int, glyph: CGGlyph)] = []
+        for g in glyphs {
+            let s = String(g) as CFString
+            let f = CTFontCreateForString(base, s, CFRange(location: 0, length: CFStringGetLength(s)))
+            let idx: Int
+            if let i = fonts.firstIndex(where: { CFEqual($0, f) }) { idx = i }
+            else { fonts.append(f); idx = fonts.count - 1 }
+            var chars = Array(String(g).utf16)
+            var ids = [CGGlyph](repeating: 0, count: chars.count)
+            CTFontGetGlyphsForCharacters(f, &chars, &ids, chars.count)
+            cells.append((idx, ids[0]))
+        }
+        return (fonts, cells)
+    }()
+
+    /// Alpha steps the rain is quantized to. The brightness is continuous, but colour is context
+    /// state: one glyph per fill colour means one draw call per cell. 16 steps collapses a whole
+    /// bar to ~17 batched calls and is indistinguishable on a dim rune rain.
+    private static let shades = 16
 
     /// SplitMix64 — a stable hash so the pattern is fixed (a frozen frame of rain), never random per draw.
     private func rnd(_ s: UInt64) -> UInt64 {
@@ -64,14 +100,25 @@ private final class MatrixView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.setFill(); bounds.fill()
         guard Config.shared.letterboxStyle.lowercased() == "matrix",
-              bounds.width > 4, bounds.height > 4 else { return }
+              bounds.width > 4, bounds.height > 4,
+              let ctx = NSGraphicsContext.current?.cgContext else { return }
 
         let cellW: CGFloat = 12, cellH: CGFloat = 15   // tight cells → dense columns
         let cols = Int(bounds.width / cellW) + 1
         let rows = max(1, Int(bounds.height / cellH) + 1)
-        let font = NSFont.monospacedSystemFont(ofSize: 16, weight: .bold)
         let green = Palette.accent
         let head0 = (green.blended(withFraction: 0.55, of: .white) ?? green).withAlphaComponent(0.85)
+
+        let (fonts, runes) = MatrixView.runes
+        let shades = MatrixView.shades
+        // Glyph positions are expressed in the un-flipped space installed just before the draw
+        // below, so row r's baseline sits at height − (r·cellH + ascent).
+        let ascent = CTFontGetAscent(MatrixView.font as CTFont)
+        let height = bounds.height
+        // [font][shade] → the cells to draw in one call; shade == `shades` is the streak head.
+        var batch = [[[(glyph: CGGlyph, at: CGPoint)]]](
+            repeating: [[(glyph: CGGlyph, at: CGPoint)]](repeating: [], count: shades + 1),
+            count: fonts.count)
 
         // Every cell gets a glyph — a faint, textured base fills the black; brighter along each
         // column's streaks. Texture comes from: 1–3 streaks per column, coarse block-level
@@ -97,17 +144,32 @@ private final class MatrixView: NSView {
                 var base = (0.05 + CGFloat(cellSeed % 100) / 100 * 0.10) * region
                 if cellSeed % 37 == 0 { base = max(base, 0.30) }   // sparse flares (rarer, dimmer)
                 let onHead = heads.contains { $0.row == r }
-                let bright = max(base, streak)
-                guard bright > 0.05 else { continue }
+                guard max(base, streak) > 0.05 else { continue }
                 let gi = Int((cellSeed >> 20) % UInt64(MatrixView.glyphs.count))
-                let color = onHead ? head0
-                    : green.withAlphaComponent(streak > base ? min(0.85, streak * 0.85)   // bright comet tail
-                                                             : min(0.35, base))            // faint base
-                (String(MatrixView.glyphs[gi]) as NSString).draw(
-                    at: CGPoint(x: CGFloat(c) * cellW + 1, y: CGFloat(r) * cellH),
-                    withAttributes: [.font: font, .foregroundColor: color])
+                let alpha = streak > base ? min(0.85, streak * 0.85)   // bright comet tail
+                                          : min(0.35, base)            // faint base
+                let shade = onHead ? shades : max(0, min(shades - 1, Int(alpha * CGFloat(shades))))
+                let rune = runes[gi]
+                batch[rune.font][shade].append(
+                    (rune.glyph, CGPoint(x: CGFloat(c) * cellW + 1,
+                                         y: height - (CGFloat(r) * cellH + ascent))))
             }
         }
+
+        ctx.saveGState()
+        ctx.textMatrix = .identity
+        ctx.translateBy(x: 0, y: height); ctx.scaleBy(x: 1, y: -1)   // undo the view's flip for text
+        for (fi, perShade) in batch.enumerated() {
+            for (shade, cells) in perShade.enumerated() where !cells.isEmpty {
+                let color = shade == shades ? head0
+                    : green.withAlphaComponent((CGFloat(shade) + 0.5) / CGFloat(shades))
+                ctx.setFillColor(color.cgColor)
+                var glyphs = cells.map(\.glyph)
+                var points = cells.map(\.at)
+                CTFontDrawGlyphs(fonts[fi], &glyphs, &points, glyphs.count, ctx)
+            }
+        }
+        ctx.restoreGState()
 
         // Neon Apple logo centered — the  glyph (U+F8FF) as a glowing green OUTLINE.
         let logoSize = min(bounds.width, bounds.height) * 0.5
