@@ -119,7 +119,15 @@ extension WindowManager {
     /// over. A copy that is only refreshed once it is older than the interval below always spans
     /// an event like that: restore it with `cp state.json.prev state.json` while Mosaic is NOT
     /// running, then relaunch.
-    func rollStateBackup() {
+    /// `windowCount` is the window count of the state ABOUT TO BE WRITTEN — the caller's, not one
+    /// derived here. The two counts must be built the same way or the guard below never opens: it
+    /// used to compare the live tree (workspaces whose apps are running) against the saved file
+    /// (which also carries the workspaces not yet restored this session). With Voicemod and System
+    /// Settings closed, that was 10 against 13 — permanently — so the backup froze on 2026-09-25
+    /// at 14:56 and was still holding that day-old copy 27 hours later. Worse, the copy it froze on
+    /// was the damaged layout from that afternoon: the safety net was not merely stale, it had
+    /// latched onto the exact state you would never want restored.
+    func rollStateBackup(windowCount: Int) {
         let fm = FileManager.default
         let prev = stateURL.deletingLastPathComponent().appendingPathComponent("state.json.prev")
         guard fm.fileExists(atPath: stateURL.path) else { return }
@@ -130,15 +138,10 @@ extension WindowManager {
         // exists to survive, so the backup holds until the live layout is at least as full as the
         // one it already has — otherwise the good version is gone before anyone notices the damage,
         // which is exactly what happened the one time it was needed.
-        guard liveWindowCount() >= savedWindowCount(in: prev) else { return }
+        guard windowCount >= savedWindowCount(in: prev) else { return }
         try? fm.removeItem(at: prev)
         try? fm.copyItem(at: stateURL, to: prev)
-    }
-
-    private func liveWindowCount() -> Int {
-        var n = 0
-        for state in spaces.values { state.root?.forEachLeaf { if $0.window != nil { n += 1 } } }
-        return n
+        Log.event("state backup rolled (\(windowCount) windows)")
     }
 
     private func savedWindowCount(in url: URL) -> Int {
@@ -174,7 +177,16 @@ extension WindowManager {
         let state = SavedState(spaces: out, assignments: nil,
                                assignmentApps: nil, scratchpadBundle: scratchpadBundleID,
                                shownByMonitor: shown)
-        rollStateBackup()
+        // Counted off `out`, the very thing being written, so the backup guard compares like with
+        // like — `out` already merges the workspaces not restored this session, which is precisely
+        // what a count taken from the live tree misses.
+        var windowCount = 0
+        func countWindows(_ node: SavedNode) {
+            if node.window != nil { windowCount += 1 }
+            (node.children ?? []).forEach(countWindows)
+        }
+        for space in out.values { if let tree = space.tree { countWindows(tree) } }
+        rollStateBackup(windowCount: windowCount)
         do {
             try FileManager.default.createDirectory(
                 at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
