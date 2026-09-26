@@ -39,7 +39,7 @@ final class WindowObserver {
         // Catches windows dragged in from another Space: activating their app makes
         // them appear on the current Space, and reconcile() will absorb them.
         workspace.notificationCenter.addObserver(
-            self, selector: #selector(somethingChanged),
+            self, selector: #selector(appActivated),
             name: NSWorkspace.didActivateApplicationNotification, object: nil)
         workspace.notificationCenter.addObserver(
             self, selector: #selector(somethingChanged),
@@ -47,6 +47,16 @@ final class WindowObserver {
     }
 
     @objc private func somethingChanged() { scheduleChange() }
+
+    /// An app came forward. Besides the reconcile above, this is the ONLY signal for an app that
+    /// activates without changing which of its windows is focused — and an app with a single
+    /// window (WhatsApp, a notification banner's target) never changes it, so activating it emits
+    /// `AXApplicationActivated` and nothing else. Measured: registering all four of
+    /// focused/main-window-changed, activated and moved on WhatsApp, then activating it, fires
+    /// `AXApplicationActivated` alone. Without this, `syncFocusToSystem` — which owns the rule
+    /// "the requested window is parked elsewhere, go to its workspace" — was simply never called
+    /// on that path: clicking the banner brought the app forward with nothing to look at.
+    @objc private func appActivated() { scheduleChange(); scheduleFocusSync() }
 
     /// Called (debounced) when only a window TITLE changed — a light refresh (update the
     /// tab strips) without re-tiling windows.
