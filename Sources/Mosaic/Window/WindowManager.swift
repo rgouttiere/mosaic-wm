@@ -196,6 +196,9 @@ final class WindowManager {
     var wakeGraceUntil = Date.distantPast
     /// The ghost janitor runs on its own slower cadence — see `purgeVisibleGhosts`.
     var lastGhostPurge = Date.distantPast
+    /// Rate-limit for the bulk-stale note in `reconcile` — the hold re-checks every 0.1s, and the
+    /// interesting thing is that an episode happened, not each of its twenty-five passes.
+    var lastBulkStaleLog = Date.distantPast
     /// Last bytes written to status.json, so an unchanged republish costs nothing downstream.
     var lastStatusData: Data?
     /// Where a window that just vanished was living, so it returns there instead of landing in
@@ -536,6 +539,7 @@ final class WindowManager {
         suspendReasons.insert(.sleep)
         cancelWakeWork()   // both wake notifications fire for one wake — the last one wins, once
         let generation = sleepGeneration
+        Log.event("wake — gen \(generation), \(NSScreen.screens.count) screen(s) present")
         // Settle, then correct twice more: a slow wake can re-hide the overlays AND nudge windows
         // again after the first pass, so external monitors that come back late (and any window
         // macOS scatters afterwards) still get fixed without a manual visit to each workspace.
@@ -569,6 +573,7 @@ final class WindowManager {
         sleepGeneration &+= 1
         cancelWakeWork()
         suspendReasons.insert(.sleep)
+        Log.event("sleep — gen \(sleepGeneration)")
     }
 
     func cancelWakeWork() {

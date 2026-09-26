@@ -48,7 +48,7 @@ extension WindowManager {
         lastReconcileOnScreen = []
         reconcile()
         updateFocusIndicator()
-        NSLog("Mosaic: recover — un-minimized stuck windows, rescued \(rescued) stranded, re-asserted all workspaces, forced a full reconcile")
+        Log.event("recover — un-minimized stuck windows, rescued \(rescued) stranded, re-asserted all workspaces, forced a full reconcile")
     }
 
     /// Bring home any window that has ended up outside every screen with no leaf to its name.
@@ -425,11 +425,32 @@ extension WindowManager {
         // nothing: macOS hides windows from the AX enumeration for seconds while it puts the
         // session back, and calling them closed is what detached half a layout and let the
         // windows re-enter as new ones in the active workspace.
-        let missesToConfirm = Date() < wakeGraceUntil ? 25 : 2
+        //
+        // The wake flag is not enough on its own: the same damage lands well outside its 30s, after
+        // a display sleep, a maintenance darkwake, or an app's AX server stalling. What all of those
+        // share is their SHAPE. Closing windows is something a human does one at a time, so three
+        // leaves going unresolvable in the SAME pass is never three simultaneous closes — it is the
+        // system hiding things from us. Treat that shape like a wake and demand the same proof.
+        //
+        // This is what flattened a desktop: every leaf of a workspace went stale at once, all were
+        // detached, and `routeByReturnHint` then put each window back — in the right workspace, but
+        // as a fresh sibling of its root, because a return hint remembers the workspace and nothing
+        // else. Same windows, right screen, every tab group gone.
+        let bulkStale = staleLeaves.count >= 3
+        let missesToConfirm = (Date() < wakeGraceUntil || bulkStale) ? 25 : 2
+        if bulkStale, Date().timeIntervalSince(lastBulkStaleLog) > 5 {
+            lastBulkStaleLog = Date()
+            let who = staleLeaves.compactMap { $0.window?.appName }.joined(separator: ", ")
+            Log.event("holding \(staleLeaves.count) unresolvable leaves — bulk, not closes: \(who)")
+        }
         for leaf in staleLeaves {
             guard let w = leaf.window, w.resolvedID() == nil, !w.app.isHidden else { continue }
             w.missCount += 1
             if w.missCount >= missesToConfirm { deadLeaves.append(leaf) } else { gracePending = true }
+        }
+        if !deadLeaves.isEmpty {
+            let who = deadLeaves.compactMap { $0.window?.appName }.joined(separator: ", ")
+            Log.event("detaching \(deadLeaves.count) leaf/leaves after \(missesToConfirm) misses: \(who)")
         }
         if gracePending {
             graceRecheck?.cancel()
