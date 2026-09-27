@@ -617,6 +617,22 @@ extension WindowManager {
                 if let c = w.lastKnownID { aliveIDs.insert(c) }   // keep during grace
             }
             guard !stale.isEmpty else { continue }
+            // Same shape rule as `reconcile`, because this path has the same failure and the wake
+            // flag does not cover it: the grace runs 30s from the wake step, and macOS was still
+            // putting a three-monitor session back well after that — the damage landed in the
+            // seconds right after it expired. Closing windows is one-at-a-time work, so several at
+            // once, or a workspace losing EVERY leaf it has, is the system hiding things from us.
+            // The all-of-them clause matters as much as the count: a two-window workspace loses
+            // everything at two, which no threshold of three would ever catch.
+            var leafCount = 0
+            r.forEachLeaf { _ in leafCount += 1 }
+            let bulk = stale.count >= 3 || (stale.count >= 2 && stale.count == leafCount)
+            let missesToConfirm = (Date() < wakeGraceUntil || bulk) ? 25 : 2
+            if bulk, Date().timeIntervalSince(lastBulkStaleLog) > 5 {
+                lastBulkStaleLog = Date()
+                let who = stale.compactMap { $0.window?.appName }.joined(separator: ", ")
+                Log.event("ghost purge holding \(stale.count)/\(leafCount) leaves on a visible monitor — bulk, not closes: \(who)")
+            }
 
             // A window vanished here → look for same-app newcomers to adopt into the exact
             // slot (IINA's launcher→video swap on a background monitor), else age the leaf
@@ -640,7 +656,8 @@ extension WindowManager {
                     // means macOS hasn't finished putting the session back, not that the window
                     // closed. This is the path that actually redealt a layout across workspaces —
                     // it owns the VISIBLE, non-active monitors, which is where the damage showed.
-                    if w.missCount >= (Date() < wakeGraceUntil ? 25 : 2) {
+                    if w.missCount >= missesToConfirm {
+                        Log.event("ghost purge removing \(w.appName) after \(missesToConfirm) misses")
                         rememberReturn(leaf)   // so it comes back HERE, not to whatever is focused
                         observer.unwatch([w])
                         removeLeaf(leaf, from: st)
