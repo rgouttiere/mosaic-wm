@@ -286,7 +286,14 @@ extension WindowManager {
                     owner = sid
                 }
             }
-            for entry in occ where entry.sid != owner {
+            // Keep exactly ONE leaf. Duplicates inside the SAME Space are just as broken as
+            // cross-Space ones — three leaves pointing at one window make arrange write that window
+            // three times, last write wins, so it lands on whichever tile came last (off its own
+            // monitor, if the bogus split is wider than the screen). Filtering on `sid != owner`
+            // silently kept every copy whenever they all sat in one Space.
+            var kept = false
+            for entry in occ {
+                if entry.sid == owner, !kept { kept = true; continue }
                 if let state = spaces[entry.sid] { removeLeaf(entry.leaf, from: state) }
             }
         }
