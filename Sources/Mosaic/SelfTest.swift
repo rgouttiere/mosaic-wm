@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import CoreGraphics
 
 /// In-module self-test for Mosaic's pure logic (layout tree + config parsing). Run it with
 /// `.build/debug/Mosaic --self-test` or `make test`.
@@ -74,6 +75,54 @@ enum SelfTest {
         let parkedLeft = Geometry.parkRect(layoutRect: leftLayout, screenFrame: leftScreen, desktop: desktop)
         h.check(parkedLeft.maxX <= leftScreen.minX + 1, "parkRect: leftmost monitor parks off its own left edge")
         h.eq(parkedLeft.minY, leftLayout.minY, "parkRect: leftmost monitor keeps Y (no resize)")
+
+        // Layout invariants, on hand-built snapshots — the impossible states that reached the user
+        // as "my windows are a mess". Each case below is a bug that actually happened.
+        func leaf(_ ws: UInt64, _ wid: CGWindowID?, tile: CGRect = CGRect(x: 0, y: 0, width: 100, height: 100),
+                  frame: CGRect? = CGRect(x: 0, y: 0, width: 100, height: 100), visible: Bool = true,
+                  parked: Bool = false, hasWindow: Bool = true, fullscreen: Bool = false,
+                  pip: Bool = false) -> LayoutSnapshot.Leaf {
+            .init(workspace: ws, windowID: wid, appName: "App", hasWindow: hasWindow, tile: tile,
+                  frame: frame, visible: visible, parkedOffScreen: parked, isFullscreen: fullscreen,
+                  isPiPSource: pip)
+        }
+        func codes(_ workspaces: [LayoutSnapshot.Workspace], _ ls: [LayoutSnapshot.Leaf]) -> [String] {
+            LayoutSnapshot(workspaces: workspaces, leaves: ls).violations().map(\.code)
+        }
+        let homed = LayoutSnapshot.Workspace(id: 1, displayID: 7, leafCount: 1)
+
+        h.check(codes([homed], [leaf(1, 10)]).isEmpty, "invariants: a well-placed leaf is clean")
+        // The WhatsApp-times-three bug: one window held by several leaves.
+        h.check(codes([homed], [leaf(1, 10), leaf(1, 10)]) == ["duplicate-leaf"],
+                "invariants: one window on two leaves → duplicate-leaf")
+        h.check(codes([homed], [leaf(1, 10), leaf(2, 10)]) == ["duplicate-leaf"],
+                "invariants: duplicate across workspaces too")
+        h.check(codes([homed], [leaf(1, nil), leaf(1, nil)]).isEmpty,
+                "invariants: unresolved ids are never paired off as duplicates")
+        // The stranded-workspace bug: windows in a workspace with no home display.
+        h.check(codes([.init(id: 2, displayID: 0, leafCount: 1)], [leaf(2, 11)]) == ["workspace-without-display"],
+                "invariants: windows in a display-less workspace → unreachable")
+        h.check(codes([.init(id: 2, displayID: 0, leafCount: 0)], []).isEmpty,
+                "invariants: an EMPTY display-less workspace is not a violation")
+        // The Firefox bug: a visible leaf still flagged parked is never placed again.
+        h.check(codes([homed], [leaf(1, 12, parked: true)]) == ["parked-but-visible"],
+                "invariants: visible + parkedOffScreen → stranded")
+        h.check(codes([homed], [leaf(1, 12, visible: false, parked: true)]).isEmpty,
+                "invariants: a hidden tab is legitimately parked")
+        // The check we used to run by eye, comparing border@ against tile=.
+        let far = CGRect(x: 900, y: 0, width: 100, height: 100)
+        h.check(codes([homed], [leaf(1, 13, frame: far)]) == ["window-off-tile"],
+                "invariants: window outside its tile → off-tile")
+        h.check(codes([homed], [leaf(1, 13, frame: CGRect(x: 20, y: 20, width: 60, height: 60))]).isEmpty,
+                "invariants: a letterboxed window inside its tile is fine")
+        h.check(codes([homed], [leaf(1, 13, frame: far, fullscreen: true)]).isEmpty,
+                "invariants: a full-screen window owns its own Space, not its tile")
+        h.check(codes([homed], [leaf(1, 13, frame: far, pip: true)]).isEmpty,
+                "invariants: the PiP source's tile is deliberately covered")
+        h.check(codes([homed], [leaf(1, nil, hasWindow: false)]) == ["dead-leaf"],
+                "invariants: a leaf with no window at all")
+        h.check(codes([homed], [leaf(1, 14, parked: true, hasWindow: true), leaf(1, 14)]).contains("duplicate-leaf"),
+                "invariants: several violations are reported together")
 
         // escapesTile: a window may be smaller than its tile, never outside it.
         let tile = CGRect(x: 100, y: 100, width: 800, height: 600)
