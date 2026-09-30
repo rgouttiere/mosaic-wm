@@ -46,6 +46,22 @@ enum SelfTest {
         let layout = CGRect(x: 10, y: 40, width: 1490, height: 900)   // an on-screen tiling rect
         let main = CGRect(x: 0, y: 0, width: 1512, height: 982)
         // Single monitor: void on both sides → push off the right edge, size preserved.
+        // flip: Cocoa (bottom-left) <-> AX (top-left). Its own inverse, size-preserving, and the y
+        // mapping is exactly primaryHeight - y - h. Every frame read and write crosses it, so a
+        // regression here would offset every window on screen at once.
+        let r0 = CGRect(x: 120, y: 340, width: 800, height: 600)
+        let r1 = Geometry.flip(r0)
+        h.eq(r1.width, 800, "flip: width preserved"); h.eq(r1.height, 600, "flip: height preserved")
+        h.eq(r1.minX, 120, "flip: x untouched")
+        h.check(abs(r1.minY - (Geometry.primaryHeight - 340 - 600)) < 0.001, "flip: y = primaryHeight - y - h")
+        h.check(Geometry.flip(r1) == r0, "flip: flip(flip(r)) == r")
+        // equalRatios: n equal shares that sum to 1 — the split used whenever none is saved.
+        let eq = Container.equalRatios(4)
+        h.eq(eq.count, 4, "equalRatios: one share per child")
+        h.check(abs(eq.reduce(0, +) - 1) < 0.0001, "equalRatios: shares sum to 1")
+        h.check(eq.allSatisfy { abs($0 - 0.25) < 0.0001 }, "equalRatios: shares are equal")
+        h.check(Container.equalRatios(0).isEmpty, "equalRatios: zero children → empty")
+
         let parked = Geometry.parkRect(layoutRect: layout, screenFrame: main, desktop: main)
         h.eq(parked.width, layout.width, "parkRect: width preserved (pure translation)")
         h.eq(parked.height, layout.height, "parkRect: height preserved (no vertical clamp)")

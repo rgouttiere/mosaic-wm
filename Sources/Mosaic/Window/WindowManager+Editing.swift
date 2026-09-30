@@ -262,12 +262,6 @@ extension WindowManager {
         return nil
     }
 
-    func collectLeaves(_ node: Container) -> [Container] {
-        var result: [Container] = []
-        node.forEachLeaf { result.append($0) }
-        return result
-    }
-
     func nextTab() { cycleTab(+1) }
     func prevTab() { cycleTab(-1) }
 
@@ -367,7 +361,13 @@ extension WindowManager {
         render()   // refresh overlays of the active desktop
         // A lazily-resizing app (IINA) may not have applied its new tile yet when render() read it
         // back, so re-settle once shortly after — this is what a manual resize was doing by hand.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in self?.render() }
+        // Deferred → capture the sleep generation, like every other deferred step: a render landing
+        // after a sleep began would wake a machine that just went under.
+        let generation = sleepGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
+            guard let self, !self.suspended, self.sleepGeneration == generation else { return }
+            self.render()
+        }
         saveNow()
     }
 
@@ -406,13 +406,6 @@ extension WindowManager {
         grabbedLeaf = nil
         interactionReasons.remove(.windowGrab)
         dropLeaf(leaf, at: point)   // center = tab, edge = split (identical to a tab drop)
-    }
-
-    func cancelWindowGrab() {
-        TabDragGhost.shared.hide()
-        dropHighlight.hide()
-        grabbedLeaf = nil
-        interactionReasons.remove(.windowGrab)
     }
 
     /// Highlight the region the drop will land in — the full tile (center = tab) or the half it
@@ -724,13 +717,6 @@ extension WindowManager {
         checkSpaceChange()
         guard let current = activeSpaceID else { return }
         let n = Int(current) + (next ? 1 : -1)
-        guard n >= 1, n <= 9 else { return }
-        moveToWorkspace(n)
-    }
-
-    /// Send the focused window to workspace `index + 1` (0-based index → 1-based number).
-    func moveToDesktopIndex(_ index: Int) {
-        let n = index + 1
         guard n >= 1, n <= 9 else { return }
         moveToWorkspace(n)
     }

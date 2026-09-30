@@ -14,10 +14,6 @@ final class TabBarWindow: NSWindow {
     /// orphan strip on screen — only strips re-shown by `arrange` remain visible.
     static let registry = NSHashTable<TabBarWindow>.weakObjects()
 
-    static func hideAllStrips() {
-        for strip in registry.allObjects { strip.orderOut(nil) }
-    }
-
     init() {
         super.init(contentRect: .zero,
                    styleMask: .borderless,

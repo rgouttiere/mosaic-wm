@@ -405,34 +405,40 @@ final class Container {
         let content = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, rect.height - stripH))
         if apply {
             let bar = ensureTabBar()
-            var rows: [[String]] = []
-            var rowIcons: [[NSImage?]] = []
-            var rowPips: [[Bool]] = []
-            var selSeg: [Int] = []
-            for child in children {
-                if !child.isLeaf, child.layout == .tabbed, !child.stacked, child.children.count > 1 {
-                    rows.append(child.children.map { $0.title })
-                    rowIcons.append(child.children.map { $0.appIcon })
-                    rowPips.append(child.children.map { $0.containsPiPSource })
-                    selSeg.append(min(max(child.selected, 0), child.children.count - 1))
-                } else {
-                    rows.append([child.title]); rowIcons.append([child.appIcon])
-                    rowPips.append([child.containsPiPSource]); selSeg.append(0)
-                }
-            }
+            let r = stackedRows()
             let strip = NSRect(x: rect.minX, y: rect.maxY - stripH, width: rect.width, height: stripH)
             bar.tabView.vertical = true
             bar.tabView.titles = []
-            bar.tabView.rows = rows
-            bar.tabView.rowIcons = rowIcons
-            bar.tabView.rowPipFlags = rowPips
-            bar.tabView.selectedSeg = selSeg
+            bar.tabView.rows = r.titles
+            bar.tabView.rowIcons = r.icons
+            bar.tabView.rowPipFlags = r.pips
+            bar.tabView.selectedSeg = r.selected
             bar.tabView.selectedRow = selected
             bar.place(at: strip)
         }
         for (i, child) in children.enumerated() {
             child.layoutStackEntry(in: content, visible: i == selected, apply: apply, into: &out)
         }
+    }
+
+    /// The inline rows of a stacked strip: one row per entry, a tab-group entry spread into segments.
+    /// ONE builder for both the layout pass and a title refresh. They used to each carry a copy, and
+    /// the refresh copy had no PiP flags — so a browser navigating wiped the badge off the strip
+    /// until the next full render. Duplicated logic is exactly how that kind of bug is born.
+    private func stackedRows() -> (titles: [[String]], icons: [[NSImage?]], pips: [[Bool]], selected: [Int]) {
+        var rows: [[String]] = [], icons: [[NSImage?]] = [], pips: [[Bool]] = [], sel: [Int] = []
+        for child in children {
+            if !child.isLeaf, child.layout == .tabbed, !child.stacked, child.children.count > 1 {
+                rows.append(child.children.map { $0.title })
+                icons.append(child.children.map { $0.appIcon })
+                pips.append(child.children.map { $0.containsPiPSource })
+                sel.append(min(max(child.selected, 0), child.children.count - 1))
+            } else {
+                rows.append([child.title]); icons.append([child.appIcon])
+                pips.append([child.containsPiPSource]); sel.append(0)
+            }
+        }
+        return (rows, icons, pips, sel)
     }
 
     /// Place a stack entry's window(s) in `rect`. A tabbed entry's own bar is never shown
@@ -479,23 +485,16 @@ final class Container {
     func refreshBarTitles() {
         if layout == .tabbed, let bar = tabBar {
             if stacked {
-                var rows: [[String]] = [], icons: [[NSImage?]] = []; var sel: [Int] = []
-                for child in children {
-                    if !child.isLeaf, child.layout == .tabbed, !child.stacked, child.children.count > 1 {
-                        rows.append(child.children.map { $0.title })
-                        icons.append(child.children.map { $0.appIcon })
-                        sel.append(min(max(child.selected, 0), child.children.count - 1))
-                    } else {
-                        rows.append([child.title]); icons.append([child.appIcon]); sel.append(0)
-                    }
-                }
-                bar.tabView.rows = rows
-                bar.tabView.rowIcons = icons
-                bar.tabView.selectedSeg = sel
+                let r = stackedRows()
+                bar.tabView.rows = r.titles
+                bar.tabView.rowIcons = r.icons
+                bar.tabView.rowPipFlags = r.pips
+                bar.tabView.selectedSeg = r.selected
                 bar.tabView.selectedRow = selected
             } else {
                 bar.tabView.titles = children.map { $0.title }
                 bar.tabView.icons = children.map { $0.appIcon }
+                bar.tabView.pipFlags = children.map { $0.containsPiPSource }
                 bar.tabView.selectedIndex = selected
             }
         }
@@ -537,8 +536,6 @@ final class Container {
         guard let p = parent else { return false }
         return p.layout == .tabbed && p.stacked
     }
-
-    func raiseStrip() { tabBar?.orderFrontRegardless() }
 
     /// Raise only the strips on the VISIBLE path: a tabbed/stacked container shows its own
     /// bar (unless inline in a stack) and recurses into its SELECTED child only; a split

@@ -444,37 +444,6 @@ extension WindowManager {
         }
     }
 
-    /// Paint black bars over the gap of every SHOWN tile whose window doesn't fill it (e.g. IINA
-    /// keeping video aspect), across all monitors — so a parked window's ~40px residual strip (macOS
-    /// won't move a window fully off-screen) can't poke through, and the tile reads as a clean
-    /// letterbox. Runs on every render off the leaf's arranged rect vs the window's live AX frame.
-    func updateLetterboxFill() {
-        guard !scratchpadVisible else { letterbox.hideAll(); return }
-        letterbox.begin()
-        let t: CGFloat = 8   // ignore sub-8px mismatches — too small to be worth a bar
-        for (did, wsNum) in shownOnDisplay {
-            guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
-            root.forEachVisibleLeaf { leaf in
-                // The PiP source's whole tile is covered (it's shown here but mirrored in the PiP).
-                if leaf === pipSourceLeaf {
-                    let tile = leaf.lastFrame
-                    if tile.width > 0, tile.height > 0 { letterbox.fill(tile) }
-                    return
-                }
-                guard let w = leaf.window, !w.isFullscreen, let wf = w.frame else { return }
-                let tile = leaf.lastFrame
-                guard tile.width > 0, tile.height > 0 else { return }
-                let win = Geometry.flip(wf)
-                func bar(_ r: NSRect) { letterbox.fill(r.intersection(tile)) }
-                if win.minY > tile.minY + t { bar(NSRect(x: tile.minX, y: tile.minY, width: tile.width, height: win.minY - tile.minY)) }
-                if win.maxY < tile.maxY - t { bar(NSRect(x: tile.minX, y: win.maxY, width: tile.width, height: tile.maxY - win.maxY)) }
-                if win.minX > tile.minX + t { bar(NSRect(x: tile.minX, y: win.minY, width: win.minX - tile.minX, height: win.height)) }
-                if win.maxX < tile.maxX - t { bar(NSRect(x: win.maxX, y: win.minY, width: tile.maxX - win.maxX, height: win.height)) }
-            }
-        }
-        letterbox.end()
-    }
-
     /// Learn each visible aspect-fit window's true ratio (IINA & co) and re-centre it inside its tile.
     /// arrange() places a known-ratio window straight into its fit box; the FIRST time (ratio unknown)
     /// it placed the full slot, so the window snapped to its native aspect — we read that back here and

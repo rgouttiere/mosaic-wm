@@ -187,9 +187,9 @@ private let axObserverCallback: AXObserverCallback = { _, _, notification, refco
     guard let refcon else { return }
     let obs = Unmanaged<WindowObserver>.fromOpaque(refcon).takeUnretainedValue()
     switch notification as String {
-    case kAXTitleChangedNotification as String:
+    case kAXTitleChangedNotification:
         obs.scheduleTitleRefresh()   // light: just refresh tab labels
-    case kAXFocusedWindowChangedNotification as String:
+    case kAXFocusedWindowChangedNotification:
         obs.scheduleFocusSync()      // light: adopt system focus, no re-tile
     default:
         obs.scheduleChange()         // structural: re-tile
