@@ -412,17 +412,20 @@ extension WindowManager {
     func parkHiddenCrossAppTabs(_ root: Container, on screen: NSScreen) {
         let lr = layoutRect(screen), pr = parkRect(for: screen)
         let dx = pr.minX - lr.minX, dy = pr.minY - lr.minY
+        // Release EVERY leaf up front, then re-arm only the ones actually parked below. Releasing
+        // just inside the groups `forEachTabbed` still visits leaks the flag: a leaf that LEAVES its
+        // tab group (drag & drop, move, or the group collapsing to one child) is never visited again,
+        // so it kept parkedOffScreen forever — and `arrange` skips placing a parked leaf, stranding
+        // that window at its last park position, ~40px on screen, with no way back.
+        root.forEachLeaf { $0.parkedOffScreen = false }
         root.forEachTabbed { group in
             let kids = group.children
             let sel = min(max(group.selected, 0), kids.count - 1)
-            // A group that no longer qualifies must release its leaves, or `arrange` would go on
-            // skipping their placement for good.
-            func release() { kids.forEach { $0.forEachLeaf { $0.parkedOffScreen = false } } }
-            guard kids.count > 1 else { return release() }
-            guard let selPid = kids[sel].firstLeaf().window?.app.processIdentifier else { return release() }
+            guard kids.count > 1 else { return }
+            guard let selPid = kids[sel].firstLeaf().window?.app.processIdentifier else { return }
             // Only mixed-app groups need this; a same-app group's z-order (AX.raise) already works.
             guard Set(kids.compactMap { $0.firstLeaf().window?.app.processIdentifier }).count > 1 else {
-                return release()
+                return
             }
             for (i, child) in kids.enumerated() where i != sel {
                 child.forEachLeaf { leaf in
