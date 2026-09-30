@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var configReloadWork: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AX.installMessagingTimeout()   // before anything talks to another app over AX
         requestAccessibilityIfNeeded()
         setupStatusItem()
         windowManager.onWorkspaceChanged = { [weak self] number in

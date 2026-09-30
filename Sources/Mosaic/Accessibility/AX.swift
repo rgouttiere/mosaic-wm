@@ -12,6 +12,24 @@ private func _AXUIElementGetWindow(_ element: AXUIElement, _ wid: UnsafeMutableP
 /// without disabling SIP — the same foundation Amethyst is built on.
 enum AX {
 
+    /// Cap how long ANY Accessibility call may wait on another app.
+    ///
+    /// Every AX call is a synchronous round-trip into the target application. When that app stops
+    /// answering — beachball, heavy swap, still launching — the call doesn't fail fast: it waits out
+    /// the system default, which is measured in seconds, and Mosaic's main thread waits with it. A
+    /// render makes dozens of these calls across every tiled app, so one unresponsive app freezes
+    /// the whole window manager. (The 50ms frame cache only blunts ordinary slowness; it cannot help
+    /// when an app answers nothing at all.)
+    ///
+    /// Passing the SYSTEM-WIDE element sets the default for every other element, so this one call at
+    /// startup covers all of them. 1.5s is far above any healthy round-trip yet short enough that a
+    /// stuck app costs a hitch instead of a hang. A call cut short reads as a failed AX write, which
+    /// `setCocoaFrame` already handles by not advancing its cache — so the next render re-issues it.
+    static func installMessagingTimeout(_ seconds: Float = 1.5) {
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), seconds)
+    }
+
+
     /// A window belonging to some application, identified by its AX element.
     struct WindowRef {
         let element: AXUIElement
