@@ -35,6 +35,12 @@ final class TrackpadGestures {
     // native 3-finger gestures are off) so no app reacts to it — IINA seeking on horizontal, a page
     // scrolling under a swipe-up-to-exposé, etc. Normal 2-finger scroll never triggers it. It also
     // repurposes 2-finger horizontal scroll into column nav while the exposé is open.
+    /// True while the feature is MEANT to run (start called, stop not). The wake handler and the
+    /// startup retry both consult it, so neither can resurrect gestures the config has turned off.
+    private var wantsRunning = false
+    private var attempt = 0
+    private var wakeObserver: NSObjectProtocol?
+
     private var scrollTap: CFMachPort?
     private var scrollSource: CFRunLoopSource?
 
@@ -46,6 +52,8 @@ final class TrackpadGestures {
 
     @discardableResult
     func start() -> Bool {
+        wantsRunning = true
+        observeWake()
         guard !started else { return true }
         // @convention(c): no captures — routes through the singleton. Runs on MT's own thread.
         let cb: CMTFrameCallback = { xs, ys, count in
@@ -55,15 +63,58 @@ final class TrackpadGestures {
             DispatchQueue.main.async { TrackpadGestures.shared.process(avgX: ax, avgY: ay) }
         }
         started = cmt_start(cb)
-        if started { installScrollTap() }
-        NSLog("Mosaic: trackpad gestures \(started ? "active (MultitouchSupport)" : "unavailable")")
+        if started {
+            attempt = 0
+            installScrollTap()
+            NSLog("Mosaic: trackpad gestures active (MultitouchSupport)")
+        } else {
+            scheduleRetry()   // quiet: the log would repeat on every attempt
+        }
         return started
     }
 
     func stop() {
+        wantsRunning = false
+        attempt = 0
         cmt_stop()
         removeScrollTap()
         started = false
+    }
+
+    /// Re-register the devices. MultitouchSupport can invalidate its device list across a sleep and
+    /// nothing says so — the frame callbacks simply stop arriving, so the gestures die SILENTLY and
+    /// stay dead until Mosaic is relaunched (or config.json is saved, which re-arms them by
+    /// accident). Re-registering on wake is the only way to notice. cmt_stop unregisters the
+    /// callback, so this can't stack a second one on the same device.
+    private func restart() {
+        guard wantsRunning else { return }
+        cmt_stop()
+        removeScrollTap()
+        started = false
+        attempt = 0
+        start()
+    }
+
+    private func observeWake() {
+        guard wakeObserver == nil else { return }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.restart() }
+    }
+
+    /// The multitouch service isn't always ready when we are — `cmt_start` reports failure when it
+    /// finds no device at all, which also happens for a few moments after a wake. A handful of
+    /// spaced retries turns "no gestures for the rest of the session" into a short delay.
+    private func scheduleRetry() {
+        guard wantsRunning, attempt < 4 else {
+            if wantsRunning { NSLog("Mosaic: trackpad gestures unavailable (no multitouch device)") }
+            return
+        }
+        attempt += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(attempt) * 1.5) { [weak self] in
+            guard let self, self.wantsRunning, !self.started else { return }
+            self.start()
+        }
     }
 
     private func installScrollTap() {

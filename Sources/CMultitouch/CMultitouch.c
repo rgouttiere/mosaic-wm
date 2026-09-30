@@ -30,11 +30,13 @@ typedef CFMutableArrayRef (*MTDeviceCreateListFn)(void);
 typedef void (*MTRegisterFn)(MTDeviceRef, MTContactCallbackFunction);
 typedef void (*MTDeviceStartFn)(MTDeviceRef, int);
 typedef void (*MTDeviceStopFn)(MTDeviceRef);
+typedef void (*MTUnregisterFn)(MTDeviceRef, MTContactCallbackFunction);
 
 static CMTFrameCallback g_cb = NULL;
 static MTDeviceRef g_devices[16];
 static int g_deviceCount = 0;
 static MTDeviceStopFn g_stop = NULL;
+static MTUnregisterFn g_unreg = NULL;
 
 // Last time (mach ticks) at least 3 fingers were on the pad. Used to suppress the phantom scroll
 // that macOS emits from a 3-finger swipe when native 3-finger gestures are off (else IINA & co.
@@ -74,6 +76,7 @@ bool cmt_start(CMTFrameCallback cb) {
     MTRegisterFn reg = (MTRegisterFn)dlsym(h, "MTRegisterContactFrameCallback");
     MTDeviceStartFn start = (MTDeviceStartFn)dlsym(h, "MTDeviceStart");
     g_stop = (MTDeviceStopFn)dlsym(h, "MTDeviceStop");
+    g_unreg = (MTUnregisterFn)dlsym(h, "MTUnregisterContactFrameCallback");
     if (!createList || !reg || !start) return false;
 
     g_cb = cb;
@@ -92,8 +95,13 @@ bool cmt_start(CMTFrameCallback cb) {
 }
 
 void cmt_stop(void) {
-    if (g_stop)
-        for (int i = 0; i < g_deviceCount; i++) g_stop(g_devices[i]);
+    /* Stop the feed first, THEN drop the callback: cmt_start can be called again (a wake
+       re-registers the devices), and registering a second time without unregistering would
+       leave the frame callback installed twice on the same device. */
+    for (int i = 0; i < g_deviceCount; i++) {
+        if (g_stop) g_stop(g_devices[i]);
+        if (g_unreg) g_unreg(g_devices[i], contact_cb);
+    }
     g_deviceCount = 0;
     g_cb = NULL;
 }
