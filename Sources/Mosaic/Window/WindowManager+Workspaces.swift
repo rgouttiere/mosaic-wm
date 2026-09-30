@@ -30,7 +30,10 @@ extension WindowManager {
         // re-raises the OTHER monitors' workspaces (unchanged by this switch, already covering their
         // own slivers), while the incoming's own render below raises it above the sliver it leaves.
         focusIndicator.hide()
-        if let outgoing = shownOnDisplay[did], let ws = spaces[outgoing] { parkWorkspace(ws) }
+        let outgoing = shownOnDisplay[did]
+        if let outgoing, let ws = spaces[outgoing] { parkWorkspace(ws) }
+        Log.event("switch mon\(did): ws\(outgoing.map(String.init) ?? "-") → ws\(n)"
+                  + (spaces[target] == nil && savedState[target] != nil ? " (restoring saved)" : ""))
         scratchpadVisible = false
 
         // Place workspace n on its monitor: restore from disk on first load, else unpark.
@@ -431,7 +434,7 @@ extension WindowManager {
     /// Move a just-opened window to another workspace and tile it there, without touching the
     /// current tree (used by the `workspace` app rule). Shown → tiled on its monitor; parked →
     /// slides off-screen with it.
-    func placeOnWorkspace(_ window: ManagedWindow, n: Int) {
+    func placeOnWorkspace(_ window: ManagedWindow, n: Int, why: String) {
         let target = UInt64(n)
         let tst = workspaceOffscreen(n)
         appendLeaf(Container(window: window), to: tst)
@@ -439,10 +442,11 @@ extension WindowManager {
         if let scr = screen(forWorkspace: target) {
             tst.root?.arrange(in: layoutRect(scr))
             tst.root?.raiseVisibleWindows()   // skips fullscreen (Space yank) + hidden tabs (wrong tab surfacing)
+            Log.event("insert \(window.logLabel) → ws\(n) tiled (\(why))")
         } else {
             parkWorkspace(tst)
+            Log.event("insert \(window.logLabel) → ws\(n) parked (\(why))")
         }
-        NSLog("Mosaic: rule placed \(window.appName) on workspace \(n)")
         scheduleSave()
     }
 
@@ -624,6 +628,7 @@ extension WindowManager {
         }
         scratchpadBundleID = bundle
         scratchpadVisible = false
+        Log.event("scratchpad ← \(w.logLabel) (whole app floats)")
         detach(leaf)
         AX.setMinimized(w.element, true)
         if focused == nil || !treeContainsLeaf(focused!) { focused = root?.firstLeaf() }
@@ -699,6 +704,7 @@ extension WindowManager {
         guard let f = focused, let w = f.window else { return }
         let key = w.appName.lowercased()
         if floatingApps.contains(key) { floatingApps.remove(key) } else { floatingApps.insert(key) }
+        Log.event("float \(w.appName): \(floatingApps.contains(key) ? "on — leaves tiling" : "off — back to tiling")")
         reconcile()
     }
 

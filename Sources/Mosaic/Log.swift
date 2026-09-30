@@ -12,10 +12,16 @@ import Foundation
 ///
 /// Unlike `Perf` (opt-in, sampled, about cost), this is always on and about *causes*. It stays
 /// cheap by only being called on real events — never per render, never per window.
+///
+/// The tail also lives in memory (`recent`) so `dump-layout` can print the decisions that led to
+/// the layout it shows: a dump taken *after* something went wrong is only useful next to the
+/// events that preceded it, and nobody thinks to open the log file at that moment.
 enum Log {
     private static let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/mosaic/mosaic.log")
     private static let maxBytes = 512 * 1024   // one rotation kept; a week of events fits easily
+    private static var ring = EventRing(capacity: 200)
+    private static let ringLock = NSLock()
 
     private static let stamp: DateFormatter = {
         let f = DateFormatter()
@@ -27,6 +33,7 @@ enum Log {
     static func event(_ message: String) {
         NSLog("Mosaic: %@", message)
         let line = "\(stamp.string(from: Date()))  \(message)\n"
+        ringLock.lock(); ring.append(String(line.dropLast())); ringLock.unlock()
         guard let data = line.data(using: .utf8) else { return }
         let fm = FileManager.default
         if let attrs = try? fm.attributesOfItem(atPath: url.path),
@@ -43,4 +50,25 @@ enum Log {
             try? data.write(to: url)
         }
     }
+
+    /// The last `n` events, oldest first, timestamps included.
+    static func recent(_ n: Int) -> [String] {
+        ringLock.lock(); defer { ringLock.unlock() }
+        return ring.tail(n)
+    }
+}
+
+/// Fixed-capacity FIFO of lines; pure so the trimming is testable without touching the log file.
+struct EventRing {
+    let capacity: Int
+    private(set) var lines: [String] = []
+
+    init(capacity: Int) { self.capacity = max(1, capacity) }
+
+    mutating func append(_ line: String) {
+        lines.append(line)
+        if lines.count > capacity { lines.removeFirst(lines.count - capacity) }
+    }
+
+    func tail(_ n: Int) -> [String] { Array(lines.suffix(max(0, n))) }
 }

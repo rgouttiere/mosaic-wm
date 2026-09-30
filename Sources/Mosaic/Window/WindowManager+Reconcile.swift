@@ -90,7 +90,7 @@ extension WindowManager {
                                         y: area.midY - size.height / 2,
                                         width: size.width, height: size.height))
             rescued += 1
-            NSLog("Mosaic: rescued stranded window — \(window.appName) \(window.title)")
+            Log.event("rescued stranded window \(window.logLabel) → centred on its monitor")
         }
         return rescued
     }
@@ -113,7 +113,7 @@ extension WindowManager {
     func toggleManageAll() {
         manageAll.toggle()
         if manageAll { activeSpaceID = nil; checkSpaceChange() }   // re-detect + build the current workspace
-        NSLog("Mosaic: manage-all = \(manageAll)")
+        Log.event("manage-all = \(manageAll)")
     }
 
     /// Stop managing the current desktop (others keep their layouts).
@@ -297,7 +297,9 @@ extension WindowManager {
             var kept = false
             for entry in occ {
                 if entry.sid == owner, !kept { kept = true; continue }
-                if let state = spaces[entry.sid] { removeLeaf(entry.leaf, from: state) }
+                guard let state = spaces[entry.sid] else { continue }
+                Log.event("dedup \(entry.leaf.window?.logLabel ?? "?"): dropped copy in ws\(entry.sid), kept ws\(owner)")
+                removeLeaf(entry.leaf, from: state)
             }
         }
     }
@@ -539,7 +541,7 @@ extension WindowManager {
         guard let bundle = window.app.bundleIdentifier, let hint = returnHints[bundle],
               UInt64(hint.ws) != activeSpaceID else { return false }
         returnHints[bundle] = nil
-        placeOnWorkspace(window, n: hint.ws)
+        placeOnWorkspace(window, n: hint.ws, why: "return hint")
         return true
     }
 
@@ -551,7 +553,7 @@ extension WindowManager {
         // Rule: send this app's new windows to a specific workspace (if it isn't the current
         // one). Places it there without disturbing this workspace.
         if let ws = rule?.workspace, ws >= 1, ws <= 9, UInt64(ws) != activeSpaceID {
-            placeOnWorkspace(window, n: ws)
+            placeOnWorkspace(window, n: ws, why: "rule")
             return
         }
 
@@ -563,32 +565,39 @@ extension WindowManager {
         if routeByReturnHint(window) { return }
 
         let leaf = Container(window: window)
-        guard root != nil else { self.root = leaf; focused = leaf; return }
+        let ws = activeSpaceID.map { "ws\($0)" } ?? "ws?"
+        guard root != nil else {
+            self.root = leaf; focused = leaf
+            Log.event("insert \(window.logLabel) → \(ws) as root")
+            return
+        }
 
-        // i3 preselect: if a split was armed on the focused window, nest this new window
-        // with it in a fresh split of the chosen orientation.
+        // Which branch decided the placement — the one question a dump can't answer afterwards.
+        let how: String
         if let ps = preselect, ps.leaf === focused, treeContainsLeaf(ps.leaf) {
+            // i3 preselect: a split was armed on the focused window → nest this new window
+            // with it in a fresh split of the chosen orientation.
             applyPreselect(leaf, vertical: ps.vertical)
             preselect = nil
-            focused = leaf
-            return
-        }
-
-        // Auto-tab with another app's window if it's present (e.g. Discord + Slack).
-        if let other = rule?.groupWith, let target = findLeaf(matchingApp: other) {
+            how = "preselect \(ps.vertical ? "below" : "beside") focused"
+        } else if let other = rule?.groupWith, let target = findLeaf(matchingApp: other) {
+            // Auto-tab with another app's window if it's present (e.g. Discord + Slack).
             groupNewLeaf(leaf, with: target)
-            focused = leaf
-            return
-        }
-        switch rule?.place {
-        case "column":
-            insertAsColumn(leaf)
-        case "tab":
-            if let f = focused { groupNewLeaf(leaf, with: f) } else { insertAfterFocused(leaf) }
-        default:
-            if mode == .masterStack { insertMasterStack(leaf) } else { insertAfterFocused(leaf) }
+            how = "tabbed with \(other) (rule groupWith)"
+        } else {
+            switch rule?.place {
+            case "column":
+                insertAsColumn(leaf); how = "new column (rule place)"
+            case "tab":
+                if let f = focused { groupNewLeaf(leaf, with: f); how = "tabbed with focused (rule place)" }
+                else { insertAfterFocused(leaf); how = "after focused (rule place, nothing focused)" }
+            default:
+                if mode == .masterStack { insertMasterStack(leaf); how = "master-stack" }
+                else { insertAfterFocused(leaf); how = "after focused" }
+            }
         }
         focused = leaf
+        Log.event("insert \(window.logLabel) → \(ws) \(how)")
     }
 
     /// Master-stack insert: a new window joins the tabbed stack on the right; if only the master

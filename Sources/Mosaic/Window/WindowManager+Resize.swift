@@ -319,6 +319,12 @@ extension WindowManager {
         out += "--- invariants (\(violations.isEmpty ? "OK" : "\(violations.count) VIOLATION(S)")) ---\n"
         for v in violations { out += "  [\(v.code)] \(v.detail)\n" }
         out += "--- private API ---\n" + PrivateAPI.report() + "\n"
+        // What led here. A dump is a photograph of the result; these are the decisions before it.
+        let recent = Log.recent(40)
+        out += "--- recent events (last \(recent.count)) ---\n"
+        for line in recent {   // a multi-line event (the private API report) keeps its continuation indented
+            out += "  \(line.replacingOccurrences(of: "\n", with: "\n      "))\n"
+        }
         try? out.write(to: URL(fileURLWithPath: "/tmp/mosaic-dump.txt"), atomically: true, encoding: .utf8)
         NSLog("Mosaic: layout dumped to /tmp/mosaic-dump.txt")
     }

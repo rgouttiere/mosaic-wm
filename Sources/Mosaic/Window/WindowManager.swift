@@ -693,9 +693,13 @@ final class WindowManager {
         }
         // REPLACE the map, never patch it: a display that has gone drops out by construction,
         // instead of being cleared by a separate destructive pass that ran before this one.
+        for (did, n) in fresh where shownOnDisplay[did] != n {
+            Log.event("monitors settled: mon\(did) shows ws\(n)" + (shownOnDisplay[did].map { " (was ws\($0))" } ?? ""))
+        }
         shownOnDisplay = fresh
         let present = Set(displays)
-        for (_, ws) in spaces where ws.displayID != 0 && !present.contains(ws.displayID) {
+        for (sid, ws) in spaces where ws.displayID != 0 && !present.contains(ws.displayID) {
+            Log.event("ws\(sid) lost mon\(ws.displayID) — parked until re-homed")
             ws.displayID = 0   // parked, no home monitor until re-shown
         }
         // Re-home the PARKED workspaces onto the monitor they're assigned to. Only the workspace each
@@ -708,6 +712,7 @@ final class WindowManager {
             guard let ws = spaces[UInt64(n)], ws.displayID == 0,
                   let did = assignedDisplay(forWorkspace: n) else { continue }
             ws.displayID = did
+            Log.event("re-home ws\(n) → mon\(did)")
         }
     }
 

@@ -36,6 +36,14 @@ final class ManagedWindow {
 
     var appName: String { app.localizedName ?? "App" }
 
+    /// Compact identity for event lines: app, a slice of the title, and the window id if known.
+    var logLabel: String {
+        let t = title
+        let short = t.count > 28 ? String(t.prefix(27)) + "…" : t
+        let id = lastKnownID.map { " #\($0)" } ?? ""
+        return "\(appName) ‹\(short)›\(id)"
+    }
+
     /// The window's AX frame, reused briefly.
     ///
     /// One render makes several passes over the same windows — the letterbox fill, the inactive

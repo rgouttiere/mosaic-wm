@@ -51,6 +51,7 @@ extension WindowManager {
         let along = (direction.isHorizontal == horizAxis)
         let n = direction.isForward ? idx + 1 : idx - 1
 
+        let label = f.window?.logLabel ?? "?"
         if along, parent.children.indices.contains(n) {
             // Reorder within the group: swap positions. A neighbouring sub-group moves as
             // ONE unit (we don't silently pull the window *into* it — that was confusing;
@@ -59,9 +60,11 @@ extension WindowManager {
             if parent.ratios.indices.contains(idx), parent.ratios.indices.contains(n) {
                 parent.ratios.swapAt(idx, n)   // keep each pane's size when swapping
             }
+            Log.event("move \(label) \(direction): slot \(idx) → \(n) in \(parent.layout)")
         } else {
             // Along-axis edge OR perpendicular direction → pop the window OUT of the group.
             moveOutward(f, from: parent, idx: idx, direction: direction)
+            Log.event("move \(label) \(direction): out of \(parent.layout)")
         }
         if let r = root { wireTabCallbacks(r) }
         render()
@@ -292,6 +295,9 @@ extension WindowManager {
         guard targetLeaf !== dragged, !contains(dragged, targetLeaf),
               let sourceState = stateContaining(dragged),
               let targetState = stateContaining(targetLeaf) else { return }
+        Log.event("drop \(dragged.window?.logLabel ?? "?") \(zone) onto \(targetLeaf.window?.logLabel ?? "?")"
+                  + (sourceState !== targetState
+                     ? " (ws\(workspaceID(of: sourceState) ?? 0) → ws\(workspaceID(of: targetState) ?? 0))" : ""))
 
         // Detach from the source tree and collapse what it leaves behind.
         if let parent = dragged.parent, let i = parent.index(of: dragged) {
@@ -442,6 +448,10 @@ extension WindowManager {
         case .left:   return NSRect(x: f.minX, y: f.minY, width: f.width / 2, height: f.height)
         case .right:  return NSRect(x: f.midX, y: f.minY, width: f.width / 2, height: f.height)
         }
+    }
+
+    func workspaceID(of state: SpaceState) -> UInt64? {
+        spaces.first { $0.value === state }?.key
     }
 
     func stateContaining(_ node: Container) -> SpaceState? {

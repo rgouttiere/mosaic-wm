@@ -13,7 +13,7 @@ extension WindowManager {
         }
         scratchpadBundleID = state.scratchpadBundle
         savedShownByMonitor = state.shownByMonitor ?? []
-        NSLog("Mosaic: loaded \(savedState.count) saved workspace layout(s)")
+        Log.event("state loaded — \(savedState.count) saved workspace(s)")
     }
 
     /// Restore EVERY saved workspace at once, at launch. In the emulated model all windows share
@@ -41,7 +41,15 @@ extension WindowManager {
             !isFloating($0) && !$0.isFullscreen && $0.app.bundleIdentifier != scratchpadBundleID
         }
         for (id, saved) in savedState.sorted(by: { $0.key < $1.key }) {
-            guard let tree = saved.tree, let root = rebuild(tree, pool: &pool) else { continue }
+            guard let tree = saved.tree else { continue }
+            let wanted = savedLeafCount(tree)
+            guard let root = rebuild(tree, pool: &pool) else {
+                Log.event("restore ws\(id): 0/\(wanted) window(s) matched — kept for a later visit")
+                continue
+            }
+            var matched = 0
+            root.forEachLeaf { _ in matched += 1 }
+            Log.event("restore ws\(id): \(matched)/\(wanted) window(s) matched")
             let st = SpaceState(displayID: assignedDisplay(forWorkspace: Int(id)) ?? 0)
             st.mode = mode(named: saved.mode)
             st.root = root
@@ -76,7 +84,12 @@ extension WindowManager {
         reassertAllWorkspaces()
         updateFocusIndicator()
         if let scr = screenUnderMouse() { showWorkspaceIndicator(for: scr) }
-        NSLog("Mosaic: restored \(spaces.count) workspace(s) at launch")
+        Log.event("restore — \(spaces.count) workspace(s) live, \(pool.count) window(s) unmatched")
+    }
+
+    /// Windows a saved tree expects — the denominator of a restore's "matched" count.
+    func savedLeafCount(_ node: SavedNode) -> Int {
+        node.window != nil ? 1 : (node.children ?? []).reduce(0) { $0 + savedLeafCount($1) }
     }
 
     /// Collect every leaf window of a saved tree (depth-first) — used to build launch hints.
@@ -100,7 +113,7 @@ extension WindowManager {
         guard let n = restoreHints[key], n >= 1, n <= 9,
               UInt64(n) != activeSpaceID else { return false }
         restoreHints[key] = nil
-        placeOnWorkspace(window, n: n)
+        placeOnWorkspace(window, n: n, why: "launch hint")
         return true
     }
 
@@ -192,7 +205,7 @@ extension WindowManager {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(state).write(to: stateURL, options: .atomic)   // crash-safe
         } catch {
-            NSLog("Mosaic: could not save state: \(error)")
+            Log.event("could not save state: \(error)")
         }
     }
 
@@ -218,6 +231,9 @@ extension WindowManager {
         guard !pool.isEmpty else { return false }
 
         guard let root = rebuild(savedTree, pool: &pool) else { return false }
+        var matched = 0
+        root.forEachLeaf { _ in matched += 1 }
+        Log.event("restore ws\(id) on visit: \(matched)/\(savedLeafCount(savedTree)) matched, \(pool.count) newer window(s) appended")
 
         let st = SpaceState(displayID: displayID(of: screen))   // place it on the current monitor
         st.mode = mode(named: saved.mode)
@@ -233,7 +249,6 @@ extension WindowManager {
         if let r = self.root { wireTabCallbacks(r) }
         observer.watchForClose(captureWindows(on: screen))
         render()
-        NSLog("Mosaic: restored workspace \(id)")
         return true
     }
 

@@ -33,6 +33,7 @@ enum SelfTest {
         resizeLimitTests(h)
         coverTests(h)
         titleRuleTests(h)
+        eventRingTests(h)
         print("MosaicSelfTest: \(h.passed) passed, \(h.failed) failed")
         return h.failed == 0 ? 0 : 1
     }
@@ -610,6 +611,18 @@ enum SelfTest {
             h.eq(names, [2: "ok"], "wsNames: non-numeric skipped")
             h.check(issues.isEmpty, "wsNames: non-numeric is not an issue")
         }
+    }
+
+    // MARK: - Event ring (the tail `dump-layout` prints)
+    static func eventRingTests(_ h: Harness) {
+        var ring = EventRing(capacity: 3)
+        h.eq(ring.tail(5), [], "ring: empty tail")
+        for i in 1...5 { ring.append("e\(i)") }
+        h.eq(ring.lines, ["e3", "e4", "e5"], "ring: keeps only the newest `capacity` lines")
+        h.eq(ring.tail(2), ["e4", "e5"], "ring: tail is oldest→newest")
+        h.eq(ring.tail(10), ["e3", "e4", "e5"], "ring: tail larger than content returns everything")
+        h.eq(ring.tail(0), [], "ring: zero tail")
+        h.eq(EventRing(capacity: 0).capacity, 1, "ring: capacity floors at 1")
     }
 }
 #endif
