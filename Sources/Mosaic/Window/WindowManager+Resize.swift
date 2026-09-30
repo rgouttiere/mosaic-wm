@@ -191,6 +191,7 @@ extension WindowManager {
     /// visible path is arranged (visibleOnly); hidden tabs are parked off-screen once so they can't
     /// flash "behind" the tiling as arrange would otherwise drag them on-screen every frame.
     func renderLive() {
+        ManagedWindow.RenderEpoch.begin()
         guard let root, let screen = activeScreen else { return }
         root.arrange(in: layoutRect(screen), visibleOnly: true)
         parkHiddenTabsLive(on: screen)

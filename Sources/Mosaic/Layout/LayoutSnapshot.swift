@@ -17,6 +17,8 @@ struct LayoutSnapshot {
         let parkedOffScreen: Bool
         let isFullscreen: Bool
         let isPiPSource: Bool
+        let maxFrameWrites: Int      // worst placement writes taken in a single render
+        let doubleWriteRenders: Int  // how many renders wrote it more than once
     }
 
     struct Workspace {
@@ -62,6 +64,20 @@ struct LayoutSnapshot {
             if !leaf.hasWindow {
                 out.append(.init(code: "dead-leaf", detail: "ws\(leaf.workspace) has a leaf with no window"))
                 continue
+            }
+            // Two placement writes to one window in a single render means two passes disagree about
+            // where it goes — each undoing the other, so setCocoaFrame's cache never settles and the
+            // AX traffic never stops. Probe writes are excluded at the source and never land here.
+            //
+            // But ONE such render per window is the normal cost of learning, measured not guessed:
+            // `arrange` puts a hidden cross-app tab on its tile, the park pushes it off and arms
+            // `parkedOffScreen` so arrange leaves it alone from then on; an aspect-locked window is
+            // placed, then re-fitted once its ratio is known. Both settle after a single render.
+            // Only a RECURRING double write is two passes fighting — flag that, or this fires on
+            // every window at first placement and gets ignored like any alarm that always rings.
+            if leaf.maxFrameWrites > 1 && leaf.doubleWriteRenders > 1 {
+                out.append(.init(code: "double-frame-write",
+                                 detail: "ws\(leaf.workspace) \(leaf.appName) took \(leaf.maxFrameWrites) placement writes in a render, repeatedly — \(leaf.doubleWriteRenders) renders"))
             }
             guard leaf.visible else { continue }
             // `arrange` skips placing a parked leaf, so a visible one carrying the flag is never

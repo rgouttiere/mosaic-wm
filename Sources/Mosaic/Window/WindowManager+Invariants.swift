@@ -31,7 +31,9 @@ extension WindowManager {
                     visible: visible.contains(ObjectIdentifier(leaf)),
                     parkedOffScreen: leaf.parkedOffScreen,
                     isFullscreen: w?.isFullscreen ?? false,
-                    isPiPSource: leaf === pipSourceLeaf
+                    isPiPSource: leaf === pipSourceLeaf,
+                    maxFrameWrites: w?.maxFrameWrites ?? 0,
+                    doubleWriteRenders: w?.doubleWriteRenders ?? 0
                 ))
             }
             workspaces.append(.init(id: sid, displayID: ws.displayID, leafCount: count))

@@ -241,6 +241,7 @@ extension WindowManager {
     }
 
     func render(activate: Bool = true) {
+        ManagedWindow.RenderEpoch.begin()   // a window written twice from here on is two passes fighting
         let __perf = DispatchTime.now(); defer { Perf.record("render", since: __perf) }
         // Open a frame-cache epoch and close it on the way out, so every pass of THIS render shares
         // one read per window and nothing carries over to the next one. See `ManagedWindow.frame`.
@@ -294,7 +295,7 @@ extension WindowManager {
             } else if centeredAlready {
                 frameForBorder = cur; box = cur             // already centred → just maintain
             } else {
-                w.setCocoaFrame(area)                       // blow up; read the constrained result now
+                w.setCocoaFrame(area, probe: true)          // blow up; read the constrained result now
                 let win = w.frame.map { Geometry.flip($0) } ?? area
                 if win.width < area.width - 8 || win.height < area.height - 8 {
                     let centered = NSRect(x: area.midX - win.width / 2, y: area.midY - win.height / 2,

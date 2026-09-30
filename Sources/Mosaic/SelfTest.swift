@@ -104,10 +104,10 @@ enum SelfTest {
         func leaf(_ ws: UInt64, _ wid: CGWindowID?, tile: CGRect = CGRect(x: 0, y: 0, width: 100, height: 100),
                   frame: CGRect? = CGRect(x: 0, y: 0, width: 100, height: 100), visible: Bool = true,
                   parked: Bool = false, hasWindow: Bool = true, fullscreen: Bool = false,
-                  pip: Bool = false) -> LayoutSnapshot.Leaf {
+                  pip: Bool = false, writes: Int = 1, repeats: Int = 0) -> LayoutSnapshot.Leaf {
             .init(workspace: ws, windowID: wid, appName: "App", hasWindow: hasWindow, tile: tile,
                   frame: frame, visible: visible, parkedOffScreen: parked, isFullscreen: fullscreen,
-                  isPiPSource: pip)
+                  isPiPSource: pip, maxFrameWrites: writes, doubleWriteRenders: repeats)
         }
         func codes(_ workspaces: [LayoutSnapshot.Workspace], _ ls: [LayoutSnapshot.Leaf]) -> [String] {
             LayoutSnapshot(workspaces: workspaces, leaves: ls).violations().map(\.code)
@@ -142,6 +142,18 @@ enum SelfTest {
                 "invariants: a full-screen window owns its own Space, not its tile")
         h.check(codes([homed], [leaf(1, 13, frame: far, pip: true)]).isEmpty,
                 "invariants: the PiP source's tile is deliberately covered")
+        // Two passes fighting over one window: each undoes the other and the frame cache never settles.
+        h.check(codes([homed], [leaf(1, 15, writes: 2, repeats: 1)]).isEmpty,
+                "invariants: ONE double-write render is the measured cost of learning, not a bug")
+        h.check(codes([homed], [leaf(1, 15, writes: 2, repeats: 6)]) == ["double-frame-write"],
+                "invariants: a RECURRING double write is two passes fighting")
+        h.check(codes([homed], [leaf(1, 15, writes: 1)]).isEmpty,
+                "invariants: a single write per render is the norm")
+        h.check(codes([homed], [leaf(1, 15, visible: false, writes: 2, repeats: 6)]) == ["double-frame-write"],
+                "invariants: a hidden tab is audited too — the park writes those")
+        h.check(codes([homed], [leaf(1, 15, frame: far, fullscreen: true, writes: 2, repeats: 6)]) == ["double-frame-write"],
+                "invariants: full-screen is exempt from the tile check, not from this one")
+
         h.check(codes([homed], [leaf(1, nil, hasWindow: false)]) == ["dead-leaf"],
                 "invariants: a leaf with no window at all")
         h.check(codes([homed], [leaf(1, 14, parked: true, hasWindow: true), leaf(1, 14)]).contains("duplicate-leaf"),

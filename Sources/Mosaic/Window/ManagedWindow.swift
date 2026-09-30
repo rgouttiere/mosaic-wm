@@ -104,7 +104,10 @@ final class ManagedWindow {
     private var lastSetFrame: CGRect?
 
     /// Position/size the window in Cocoa coordinates (converted to AX internally).
-    func setCocoaFrame(_ cocoaRect: CGRect) {
+    /// `probe`: a write that exists only to make the app reveal a constraint we cannot compute (the
+    /// monocle blowing a window up to read back its aspect-locked size). It is deliberately followed
+    /// by a second, real placement write, so it must not read as two passes fighting.
+    func setCocoaFrame(_ cocoaRect: CGRect, probe: Bool = false) {
         let axRect = Geometry.flip(cocoaRect)
         if let last = lastSetFrame,
            abs(last.origin.x - axRect.origin.x) < 1, abs(last.origin.y - axRect.origin.y) < 1,
@@ -117,6 +120,16 @@ final class ManagedWindow {
         // pin the window to a frame it never actually took, with no self-heal until a manual
         // re-tile. Otherwise the cache is only reset by `invalidateFrameCache` below.
         Perf.count("ax.frameWrite")
+        if !probe {
+            if lastWriteEpoch == RenderEpoch.current {
+                writesThisEpoch += 1
+                if writesThisEpoch == 2 { doubleWriteRenders += 1 }
+            } else {
+                lastWriteEpoch = RenderEpoch.current
+                writesThisEpoch = 1
+            }
+            maxFrameWrites = max(maxFrameWrites, writesThisEpoch)
+        }
         // Our last accepted write is the best free estimate of where the window is now; fall back to
         // the (50ms-cached) live read when we have none, e.g. right after invalidateFrameCache.
         if AX.setFrame(element, axRect, current: lastSetFrame ?? frame) {
@@ -129,6 +142,23 @@ final class ManagedWindow {
             }
         }
     }
+
+    /// Which render pass we're in. Two frame writes to ONE window inside a single pass mean two
+    /// passes are fighting over it: `arrange` placing a tile while a park pushed it away again was
+    /// exactly that, and it kept `lastSetFrame` from ever settling (see the load-bearing invariant).
+    /// Bumped by render/renderLive; windows compare against it to notice they were written twice.
+    enum RenderEpoch {
+        private(set) static var current: UInt64 = 0
+        static func begin() { current &+= 1 }
+    }
+
+    private var lastWriteEpoch: UInt64 = 0
+    private var writesThisEpoch = 0
+    /// Worst number of placement writes this window ever took in one render, and how many renders
+    /// did it. Kept since launch: a conflict that only fires on a drop or a wake would be invisible
+    /// in a snapshot of the last (idle, fully cached) render.
+    private(set) var maxFrameWrites = 0
+    private(set) var doubleWriteRenders = 0
 
     /// Forget the last frame we wrote so the next `setCocoaFrame` re-issues the AX write even when
     /// the target is unchanged. macOS relocates windows out from under us during sleep/wake and
