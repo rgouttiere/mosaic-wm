@@ -31,6 +31,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 - **Trackpad gestures** (`config.json`): **`trackpadGestures: true`** enables native 3-finger swipes (raw MultitouchSupport) — ←/→ switch workspace, ↑ opens the exposé, ↓ commits, and in the exposé 3-finger moves the selection while 2-finger navigates the grid. Disable macOS's own 3/4-finger gestures first so they don't fight. Off by default.
 - **Picture-in-picture** (`pip` action): a live, floating, draggable mirror of the focused window (even one parked on another workspace) via ScreenCaptureKit — the source keeps playing, so audio continues. Right-click / Space = play-pause, scroll = the player's volume, ⤢ = return to the window. Needs Screen Recording. No default key for `pip` — bind it in `keybindings`. **⌘⌥⇧P** (`pip-here`) brings the PiP **centred under the mouse pointer** on whatever screen you're on (clamped so it can't hang off an edge) — so you never have to drag it across monitors. If the source window is one tab of a group, starting the PiP flips the tile to the **neighbouring tab** (the video already plays in the PiP, so the tile is better spent on the other tab) and the source's tab keeps a small **PiP badge** on its right so you can tell where the floating video comes from. A lone tile has no sibling to show, so it keeps the letterbox cover instead.
 - **Notch HUD** (`config.json`): **`notchHud: true`** shows the workspace indicator as a dynamic-island pill under the notch on switch (instead of the corner HUD).
+- **Recovery** (**⌘⌥⇧↩**, also in the menu): the panic key for "a window is lost". It un-minimizes every managed window (a window minimized while its workspace was parked can't be woken by a re-tile alone), drops the learned resize minimums (a poisoned one narrows or freezes a split), rescues windows stranded off every screen, then re-asserts every workspace — re-tiling the shown ones and re-parking the rest. **Nothing is ever destroyed, only re-placed.**
 - **Scratchpad**: a dedicated app shown/hidden as a floating panel (survives relaunch).
 - **Rules** (`config.json`): `float`, `groupWith`, `place` (`column`/`tab`), `workspace: N`, `fullscreen` (`false` = force windowed/tileable, `true` = force native full screen; add `fullscreenLock: true` to keep enforcing it).
 
@@ -44,6 +45,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 | Cycle mode (columns/grouped/tabbed) | ⌘⌥W |
 | Reset desktop | ⌘⌥⇧R |
 | Clear (stop managing) | ⌘⌥⇧C |
+| Recover windows (heal — un-minimize, re-place everything) | ⌘⌥⇧↩ |
 
 ### Focus
 | Action | Shortcut |
@@ -95,6 +97,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 |---|---|
 | Show / hide the scratchpad | ⌘⌥- |
 | Set the focused app as the scratchpad | ⌘⌥⇧- |
+| Release it (give the app back to tiling) | *menu / `mosaic scratchpad-release`* |
 
 ## CLI
 
@@ -106,10 +109,10 @@ mosaic focus-left        # same as the ⌘⌥← binding
 mosaic workspace-3       # jump to workspace 3
 mosaic swap-up           # swap with the window above
 mosaic toggle-stacked
-mosaic dump-layout       # write /tmp/mosaic-dump.txt
+mosaic dump-layout       # write /tmp/mosaic-dump.txt (ends with an invariant verdict)
 ```
 
-Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `unassign-N`, `unassign`, `switcher`, `hints`, `expose`, `pip`, `pip-here`, `grab`, `workspace-back`, …) plus `reload-config` and `dump-layout`.
+Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `unassign-N`, `unassign`, `switcher`, `hints`, `expose`, `pip`, `pip-here`, `grab`, `recover`, `scratchpad-release`, `workspace-back`, …) plus `reload-config` and `dump-layout`.
 
 A binding value may list **several combos**, comma-separated — e.g. `"resize-up": "ctrl alt k, ctrl alt up"` binds an action to both. An empty value (`""`) disables the binding.
 
@@ -149,5 +152,6 @@ The menu-bar icon opens a menu with clickable entries for most actions (each sho
 - **Navigation & overlays** — Overview (Exposé), Picture-in-picture, Quick-switcher / palette, Window hints, Back to previous workspace.
 - **Assign this desktop to…** (submenu, workspaces 1–9) · **Unassign this desktop**.
 - **Open config file…** · **Reload config** · **Clear layout**.
-- **Debug: dump layout → /tmp/mosaic-dump.txt** (attach this to bug reports).
+- **Recover windows (heal)** — the panic key above, when something looks lost.
+- **Debug: dump layout → /tmp/mosaic-dump.txt** (attach this to bug reports). The file ends with `--- invariants (OK) ---`, or one named line per impossible state found (a window held by two tiles, a workspace whose windows can't be reached, a window that escaped its tile…). Check that section first: it usually says what's wrong without having to read the layout by hand.
 - **Quit Mosaic**.

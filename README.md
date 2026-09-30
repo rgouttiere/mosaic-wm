@@ -22,6 +22,7 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 - **Live picture-in-picture** (`pip`) — a floating, draggable mirror of any window (even one parked on another workspace) via ScreenCaptureKit; the source keeps playing, so audio continues. `pip-here` (⌘⌥⇧P) summons it under the mouse pointer instead of dragging it between monitors.
 - **Master-stack layout** — a `master-stack` tiling mode (one master + a tabbed stack), alongside `columns` / `grouped` / `tabbed`.
 - **Survives dock/undock & reboot** — layouts persist keyed by a stable per-monitor fingerprint.
+- **Panic recovery** (`recover`, ⌘⌥⇧↩) — one key to heal a layout that looks lost: un-minimize, un-strand, re-place every workspace. Nothing is destroyed, only re-placed. `mosaic dump-layout` reports on itself too, ending with an invariant verdict rather than a wall of numbers to read by hand.
 - **Live JSON config** — modes, gaps, styling, per-app rules, keybindings; **auto-reloads on save** (no restart).
 - **CLI** — every action is scriptable via `mosaic <action>` (e.g. `mosaic workspace-3`), sketchybar/automation-friendly.
 - Keeps **SIP enabled**; runs as a menu-bar accessory app (**▦**).
@@ -105,6 +106,7 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `inactiveBorderOpacity` | `0.42` | Opacity of that inactive-window border. |
 | `dimInactiveMonitors` | `false` | Fade the borders + tab strips on the monitor(s) without keyboard focus. |
 | `inactiveMonitorDim` | `0.6` | Fraction of brightness the non-focused monitors keep when `dimInactiveMonitors` is on (`1` = no dim). |
+| `accentColor` | `"accent"` | The single accent for the whole UI. `"accent"`/`"system"` follows the macOS accent; a hex like `"#a6e3a1"` pins it. Every field left at `"accent"` resolves through this, so one value re-themes everything. |
 | `borderColor` | `"accent"` | Border color (`"accent"` or hex). |
 | `borderWidth` | `1` | Border thickness. |
 | `borderCornerRadius` | `18` | Border corner radius. |
