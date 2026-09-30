@@ -659,6 +659,17 @@ final class WindowManager {
         for (_, ws) in spaces where ws.displayID != 0 && !present.contains(ws.displayID) {
             ws.displayID = 0   // parked, no home monitor until re-shown
         }
+        // Re-home the PARKED workspaces onto the monitor they're assigned to. Only the workspace each
+        // monitor shows is homed above, so a parked one whose displayID went stale — display ids are
+        // reassigned across a reconfigure, so the clear just above fires even though its monitor is
+        // still there — would sit at 0 forever. `screen(forWorkspace:)` excludes displayID == 0 by
+        // construction, so such a workspace can never be shown on ANY screen again: its windows are
+        // stranded off-screen with no way back. assignedDisplay only ever returns a present display.
+        for n in 1...9 {
+            guard let ws = spaces[UInt64(n)], ws.displayID == 0,
+                  let did = assignedDisplay(forWorkspace: n) else { continue }
+            ws.displayID = did
+        }
     }
 
     /// Re-assert every workspace's placement: tile the ones shown on a present monitor, park
