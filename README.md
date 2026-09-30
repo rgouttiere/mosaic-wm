@@ -17,7 +17,7 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 - **Window hints** (`⌘⌥J`) — Vimium-style: a letter appears on every visible window; type it to focus (works across screens). Keyboard-only, no arrows.
 - **Exposé** (`⌘⌥O`) — a Mission-Control-style overview of every workspace of every screen at once, one column per screen, tiles laid to scale with tab strips and app icons. Tiles show **live window previews** (captured on open via ScreenCaptureKit, parked workspaces included; needs the Screen Recording permission, or set `exposeThumbnails: false` for schematic tiles); the active tab of a tabbed group reads by a faint accent tint + underline. Navigate with arrows (2D) or `⇥`, `⏎` to jump. Optionally **rebind it onto `⌘Tab`** (`exposeSwitch`): hold the modifier to browse, `⇥` to cycle, release to commit — a visual alt-tab. It opens highlighting the workspace you're on, and with `exposeAllScreens` it appears on every screen at once. Remappable and off by default.
 - **External-bar aware** — reserve a top strip for a bar like [sketchybar](https://github.com/FelixKratz/SketchyBar) (`externalBarTop`, notch-aware per screen) and publish workspace names + per-monitor placement for it to render.
-- **Emulated workspaces** (v2) — one macOS Space; a "workspace" is a logical window set that Mosaic parks off-screen / brings back, each pinned to a monitor. No CGS/Spaces private API, no drift on wake — the AX-only replacement for real Spaces.
+- **Emulated workspaces** (v2) — one macOS Space; a "workspace" is a logical window set that Mosaic parks off-screen / brings back, each pinned to a monitor. No CGS *Spaces* API, no drift on wake — the AX-only replacement for real Spaces.
 - **Native trackpad gestures** (opt-in `trackpadGestures`) — 3-finger swipes drive workspaces + the exposé (raw MultitouchSupport, works with SIP on).
 - **Live picture-in-picture** (`pip`) — a floating, draggable mirror of any window (even one parked on another workspace) via ScreenCaptureKit; the source keeps playing, so audio continues. `pip-here` (⌘⌥⇧P) summons it under the mouse pointer instead of dragging it between monitors.
 - **Master-stack layout** — a `master-stack` tiling mode (one master + a tabbed stack), alongside `columns` / `grouped` / `tabbed`.
@@ -199,7 +199,7 @@ Sources/Mosaic/
   Config.swift               JSON config load + validation + keybinding parsing
   Persistence.swift          On-disk layout model (state.json)
   Geometry.swift             Cocoa (bottom-left) <-> AX (top-left) coordinate flip
-  Spaces.swift               Private SkyLight/CGS SPI: current Space, move window to Space
+  Spaces.swift               The one private CGS call left: window alpha (dim unfocused tiles)
   Accessibility/AX.swift     Swift wrappers over the C AXUIElement API
   Hotkeys/HotkeyManager.swift  Global shortcuts via Carbon RegisterEventHotKey
   Window/
@@ -217,7 +217,7 @@ The menu bar has a **"Debug: dump layout"** item that writes the live tree + vis
 
 ## Caveats
 
-- **Private APIs.** v2 dropped the CGS/Spaces SPI entirely (emulated workspaces need only the Accessibility API). What remains is minimal and isolated: `_AXUIElementGetWindow` (map an AX element to a window id) and, only when `trackpadGestures` is on, the `MultitouchSupport` framework loaded at runtime via `dlopen` (raw trackpad touches — no SIP-off, no build dependency). Both are historically stable but **can break on a major macOS release**. (App Store distribution is impossible regardless; direct/notarized distribution is fine.)
+- **Private APIs.** v2 dropped the CGS ***Spaces*** SPI — emulated workspaces never read or switch a desktop — but not CGS altogether. Three private entry points remain, each isolated behind a façade: `_AXUIElementGetWindow` (map an AX element to a window id); `CGSSetWindowAlpha` (dim unfocused tiles — only ever called when `activeOpacity` or `inactiveOpacity` is below `1`); and, only when `trackpadGestures` is on, the `MultitouchSupport` framework loaded at runtime via `dlopen` (raw trackpad touches — no SIP-off, no build dependency). All are historically stable but **can break on a major macOS release**. (App Store distribution is impossible regardless; direct/notarized distribution is fine.)
 - **Not notarized** — see the Gatekeeper note above.
 - Apple's native Split View can't be extended — Mosaic recreates the experience on regions it owns.
 - A window's own title bar still shows inside a tab/stack region.
