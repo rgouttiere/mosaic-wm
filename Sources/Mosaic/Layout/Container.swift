@@ -276,9 +276,31 @@ final class Container {
     /// tab. Cleared for whichever tab becomes selected, in `arrangeTabbed`.
     var parkedOffScreen = false
 
+    /// Lay this subtree out in `rect`. ONE implementation, two modes: `apply` true moves the real
+    /// windows and places the strips; false only records the rect each node would occupy. Having the
+    /// preview share this code is the whole point — it used to be a SECOND, approximate copy of the
+    /// same geometry, free to drift from what `arrange` actually did (and it had: a stack holding a
+    /// split was laid out differently by each).
     func arrange(in rect: NSRect, visibleOnly: Bool = false) {
-        lastFrame = rect
+        var sink: [ObjectIdentifier: NSRect] = [:]
+        runLayout(in: rect, visibleOnly: visibleOnly, apply: true, into: &sink)
+    }
+
+    /// The rect each node WOULD occupy, without moving a window or touching a strip. The exposé
+    /// needs it for a PARKED workspace: macOS clamps a parked window to a ~1px corner, so reading
+    /// real frames has lost the layout entirely.
+    func previewFrames(in rect: NSRect) -> [ObjectIdentifier: NSRect] {
+        var out: [ObjectIdentifier: NSRect] = [:]
+        runLayout(in: rect, visibleOnly: false, apply: false, into: &out)
+        return out
+    }
+
+    private func runLayout(in rect: NSRect, visibleOnly: Bool, apply: Bool,
+                           into out: inout [ObjectIdentifier: NSRect]) {
+        out[ObjectIdentifier(self)] = rect
+        if apply { lastFrame = rect }
         guard !isLeaf else {
+            guard apply else { return }
             tabBar?.orderOut(nil)
             // Don't reposition a full-screen window (it's on its own Space); it keeps
             // its slot in the tree and reclaims it when it leaves full screen.
@@ -296,110 +318,80 @@ final class Container {
             return
         }
         guard !children.isEmpty else { return }
-        normalizeRatios()
+        if apply { normalizeRatios() }   // a preview must not mutate the tree it is measuring
+        let r = ratios.count == children.count ? ratios : Container.equalRatios(children.count)
 
         switch layout {
         case .splitH:
-            tabBar?.orderOut(nil)
-            let widths = Container.solveSplit(total: rect.width, ratios: ratios,
+            if apply { tabBar?.orderOut(nil) }
+            let widths = Container.solveSplit(total: rect.width, ratios: r,
                                               mins: children.map { $0.minAxisSize(horizontal: true) })
             var x = rect.minX
             for (i, child) in children.enumerated() {
-                child.arrange(in: NSRect(x: x, y: rect.minY, width: widths[i], height: rect.height), visibleOnly: visibleOnly)
+                child.runLayout(in: NSRect(x: x, y: rect.minY, width: widths[i], height: rect.height),
+                                visibleOnly: visibleOnly, apply: apply, into: &out)
                 x += widths[i]
             }
 
         case .splitV:
-            tabBar?.orderOut(nil)
+            if apply { tabBar?.orderOut(nil) }
             // Cocoa origin bottom-left: first child takes the top slice.
-            let heights = Container.solveSplit(total: rect.height, ratios: ratios,
+            let heights = Container.solveSplit(total: rect.height, ratios: r,
                                                mins: children.map { $0.minAxisSize(horizontal: false) })
             var y = rect.maxY
             for (i, child) in children.enumerated() {
-                child.arrange(in: NSRect(x: rect.minX, y: y - heights[i], width: rect.width, height: heights[i]), visibleOnly: visibleOnly)
+                child.runLayout(in: NSRect(x: rect.minX, y: y - heights[i], width: rect.width, height: heights[i]),
+                                visibleOnly: visibleOnly, apply: apply, into: &out)
                 y -= heights[i]
             }
 
         case .tabbed:
             // A tab group with a single window shows no bar (avoids a phantom top gap).
             if children.count == 1 {
-                tabBar?.orderOut(nil)
-                children[0].arrange(in: rect, visibleOnly: visibleOnly)
+                if apply { tabBar?.orderOut(nil) }
+                children[0].runLayout(in: rect, visibleOnly: visibleOnly, apply: apply, into: &out)
                 return
             }
-            selected = min(max(selected, 0), children.count - 1)
-            if stacked { arrangeStacked(in: rect) } else { arrangeTabbed(in: rect, visibleOnly: visibleOnly) }
-        }
-    }
-
-    /// Pure geometry: the on-screen rect each node WOULD occupy if arranged in `rect`, recorded
-    /// by object identity, WITHOUT moving any window. The exposé uses this to preview a workspace
-    /// whose windows are parked off-screen — macOS clamps a parked window to a ~1px corner, so
-    /// reading its real frame loses the layout entirely. Mirrors `arrange`'s split/tabbed/stacked
-    /// geometry; ignores the constant gap/strip insets where they'd only shift a schematic tile
-    /// by a couple of pixels.
-    func previewFrames(in rect: NSRect) -> [ObjectIdentifier: NSRect] {
-        var out: [ObjectIdentifier: NSRect] = [:]
-        collectPreview(in: rect, into: &out)
-        return out
-    }
-
-    private func collectPreview(in rect: NSRect, into out: inout [ObjectIdentifier: NSRect]) {
-        out[ObjectIdentifier(self)] = rect
-        guard !isLeaf, !children.isEmpty else { return }
-        let r = ratios.count == children.count ? ratios : Container.equalRatios(children.count)
-        switch layout {
-        case .splitH:
-            let widths = Container.solveSplit(total: rect.width, ratios: r,
-                                              mins: children.map { $0.minAxisSize(horizontal: true) })
-            var x = rect.minX
-            for (i, child) in children.enumerated() {
-                child.collectPreview(in: NSRect(x: x, y: rect.minY, width: widths[i], height: rect.height), into: &out)
-                x += widths[i]
-            }
-        case .splitV:
-            let heights = Container.solveSplit(total: rect.height, ratios: r,
-                                               mins: children.map { $0.minAxisSize(horizontal: false) })
-            var y = rect.maxY
-            for (i, child) in children.enumerated() {
-                child.collectPreview(in: NSRect(x: rect.minX, y: y - heights[i], width: rect.width, height: heights[i]), into: &out)
-                y -= heights[i]
-            }
-        case .tabbed:
-            if children.count == 1 { children[0].collectPreview(in: rect, into: &out); return }
-            let stripH = stacked ? min(tabBarHeight * CGFloat(children.count), rect.height) : tabBarHeight
-            let content = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, rect.height - stripH))
-            for child in children { child.collectPreview(in: content, into: &out) }
+            if apply { selected = min(max(selected, 0), children.count - 1) }
+            if stacked { layoutStacked(in: rect, apply: apply, into: &out) }
+            else { layoutTabbed(in: rect, visibleOnly: visibleOnly, apply: apply, into: &out) }
         }
     }
 
     /// Horizontal tabs: one strip row; children fill the content below.
-    private func arrangeTabbed(in rect: NSRect, visibleOnly: Bool = false) {
-        let bar = ensureTabBar()
-        let strip = NSRect(x: rect.minX, y: rect.maxY - tabBarHeight, width: rect.width, height: tabBarHeight)
-        // Clamp to 0 (as arrangeStacked already does) so a tab group in a pane shorter than the
+    private func layoutTabbed(in rect: NSRect, visibleOnly: Bool, apply: Bool,
+                              into out: inout [ObjectIdentifier: NSRect]) {
+        // Clamp to 0 (as the stacked path already does) so a tab group in a pane shorter than the
         // bar can't compute a negative height that flows into a negative kAXSize write.
-        let content = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, rect.height - tabBarHeight))
-        bar.tabView.vertical = false
-        bar.tabView.rows = []
-        bar.tabView.titles = children.map { $0.title }
-        bar.tabView.icons = children.map { $0.appIcon }
-        bar.tabView.pipFlags = children.map { $0.containsPiPSource }
-        bar.tabView.selectedIndex = selected
-        bar.place(at: strip)
+        let content = NSRect(x: rect.minX, y: rect.minY, width: rect.width,
+                             height: max(0, rect.height - tabBarHeight))
+        let sel = min(max(selected, 0), children.count - 1)
+        if apply {
+            let bar = ensureTabBar()
+            let strip = NSRect(x: rect.minX, y: rect.maxY - tabBarHeight, width: rect.width, height: tabBarHeight)
+            bar.tabView.vertical = false
+            bar.tabView.rows = []
+            bar.tabView.titles = children.map { $0.title }
+            bar.tabView.icons = children.map { $0.appIcon }
+            bar.tabView.pipFlags = children.map { $0.containsPiPSource }
+            bar.tabView.selectedIndex = selected
+            bar.place(at: strip)
+        }
         if visibleOnly {
-            // Live resize: only the shown tab is arranged; hidden tabs are left where they are (parked
+            // Live resize: only the shown tab is laid out; hidden tabs are left where they are (parked
             // off-screen by the WM) so they can't flash on-screen behind the tiling every frame.
-            let sel = min(max(selected, 0), children.count - 1)
-            if children.indices.contains(sel) { children[sel].arrange(in: content, visibleOnly: true) }
-        } else {
-            // Whatever becomes selected is on screen again: drop the park flag first, or this
-            // render would record its geometry and skip the very write that brings it back.
-            let sel = min(max(selected, 0), children.count - 1)
             if children.indices.contains(sel) {
-                children[sel].forEachLeaf { $0.parkedOffScreen = false }
+                children[sel].runLayout(in: content, visibleOnly: true, apply: apply, into: &out)
             }
-            for child in children { child.arrange(in: content) }
+            return
+        }
+        // Whatever becomes selected is on screen again: drop the park flag first, or this pass
+        // would record its geometry and skip the very write that brings it back.
+        if apply, children.indices.contains(sel) {
+            children[sel].forEachLeaf { $0.parkedOffScreen = false }
+        }
+        for child in children {
+            child.runLayout(in: content, visibleOnly: false, apply: apply, into: &out)
         }
     }
 
@@ -407,45 +399,50 @@ final class Container {
     /// tabs inline (a multi-segment row); leaf/split entries show a title row. Only the
     /// selected entry's content is arranged; nested groups never draw their own bar (this
     /// single strip draws everything — no overlapping overlays).
-    private func arrangeStacked(in rect: NSRect) {
-        let bar = ensureTabBar()
-        var rows: [[String]] = []
-        var rowIcons: [[NSImage?]] = []
-        var rowPips: [[Bool]] = []
-        var selSeg: [Int] = []
-        for child in children {
-            if !child.isLeaf, child.layout == .tabbed, !child.stacked, child.children.count > 1 {
-                rows.append(child.children.map { $0.title })
-                rowIcons.append(child.children.map { $0.appIcon })
-                rowPips.append(child.children.map { $0.containsPiPSource })
-                selSeg.append(min(max(child.selected, 0), child.children.count - 1))
-            } else {
-                rows.append([child.title]); rowIcons.append([child.appIcon])
-                rowPips.append([child.containsPiPSource]); selSeg.append(0)
-            }
-        }
+    private func layoutStacked(in rect: NSRect, apply: Bool, into out: inout [ObjectIdentifier: NSRect]) {
         // Clamp so a tall stack in a short pane can't produce a negative content height.
         let stripH = min(tabBarHeight * CGFloat(children.count), rect.height)
-        let strip = NSRect(x: rect.minX, y: rect.maxY - stripH, width: rect.width, height: stripH)
         let content = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, rect.height - stripH))
-        bar.tabView.vertical = true
-        bar.tabView.titles = []
-        bar.tabView.rows = rows
-        bar.tabView.rowIcons = rowIcons
-        bar.tabView.rowPipFlags = rowPips
-        bar.tabView.selectedSeg = selSeg
-        bar.tabView.selectedRow = selected
-        bar.place(at: strip)
+        if apply {
+            let bar = ensureTabBar()
+            var rows: [[String]] = []
+            var rowIcons: [[NSImage?]] = []
+            var rowPips: [[Bool]] = []
+            var selSeg: [Int] = []
+            for child in children {
+                if !child.isLeaf, child.layout == .tabbed, !child.stacked, child.children.count > 1 {
+                    rows.append(child.children.map { $0.title })
+                    rowIcons.append(child.children.map { $0.appIcon })
+                    rowPips.append(child.children.map { $0.containsPiPSource })
+                    selSeg.append(min(max(child.selected, 0), child.children.count - 1))
+                } else {
+                    rows.append([child.title]); rowIcons.append([child.appIcon])
+                    rowPips.append([child.containsPiPSource]); selSeg.append(0)
+                }
+            }
+            let strip = NSRect(x: rect.minX, y: rect.maxY - stripH, width: rect.width, height: stripH)
+            bar.tabView.vertical = true
+            bar.tabView.titles = []
+            bar.tabView.rows = rows
+            bar.tabView.rowIcons = rowIcons
+            bar.tabView.rowPipFlags = rowPips
+            bar.tabView.selectedSeg = selSeg
+            bar.tabView.selectedRow = selected
+            bar.place(at: strip)
+        }
         for (i, child) in children.enumerated() {
-            child.arrangeStackEntry(in: content, visible: i == selected)
+            child.layoutStackEntry(in: content, visible: i == selected, apply: apply, into: &out)
         }
     }
 
     /// Place a stack entry's window(s) in `rect`. A tabbed entry's own bar is never shown
     /// (drawn inline by the stack); a split entry tiles and shows its inner bars only when
     /// it's the visible entry; non-visible entries hide all their bars (placed behind).
-    func arrangeStackEntry(in rect: NSRect, visible: Bool) {
+    private func layoutStackEntry(in rect: NSRect, visible: Bool, apply: Bool,
+                                  into out: inout [ObjectIdentifier: NSRect]) {
+        out[ObjectIdentifier(self)] = rect
         if isLeaf {
+            guard apply else { return }
             tabBar?.orderOut(nil)
             lastFrame = rect   // record the content tile (below the strip) — else the letterbox fills
                                // the stale full-tile gap and paints over the stack strip
@@ -453,18 +450,22 @@ final class Container {
             return
         }
         if layout == .tabbed {
-            tabBar?.orderOut(nil)   // its tabs are inline in the ancestor stack
+            if apply { tabBar?.orderOut(nil) }   // its tabs are inline in the ancestor stack
             let sel = min(max(selected, 0), children.count - 1)
-            for (i, c) in children.enumerated() { c.arrangeStackEntry(in: rect, visible: visible && i == sel) }
+            for (i, c) in children.enumerated() {
+                c.layoutStackEntry(in: rect, visible: visible && i == sel, apply: apply, into: &out)
+            }
             return
         }
         // split
         if visible {
-            tabBar?.orderOut(nil)
-            arrange(in: rect)   // tiles and shows its own inner (standalone) bars
-        } else {
+            if apply { tabBar?.orderOut(nil) }
+            runLayout(in: rect, visibleOnly: false, apply: apply, into: &out)   // tiles + its own inner bars
+        } else if apply {
             hideBarsRecursively()
             forEachLeaf { if $0.window?.isFullscreen != true { $0.window?.setCocoaFrame(rect.insetBy(dx: gap / 2, dy: gap / 2)) } }
+        } else {
+            forEachLeaf { out[ObjectIdentifier($0)] = rect }   // stacked behind, all on the same tile
         }
     }
 

@@ -76,6 +76,29 @@ enum SelfTest {
         h.check(parkedLeft.maxX <= leftScreen.minX + 1, "parkRect: leftmost monitor parks off its own left edge")
         h.eq(parkedLeft.minY, leftLayout.minY, "parkRect: leftmost monitor keeps Y (no resize)")
 
+        // A stack holding a split: the case where the preview and arrange USED to disagree — the old
+        // preview handed every stack entry the same content rect, never subdividing the visible
+        // split. Now both run the same code, so the visible entry really is tiled. Assertions are
+        // relative so they hold whatever tabBarHeight the loaded config has.
+        do {
+            let i1 = Container(layout: .splitH, children: [])
+            let i2 = Container(layout: .splitH, children: [])
+            let split = Container(layout: .splitH, children: [i1, i2])
+            let other = Container(layout: .splitH, children: [])
+            let stack = Container(layout: .tabbed, children: [split, other])
+            stack.stacked = true
+            stack.selected = 0                       // the split is the visible entry
+            let f = stack.previewFrames(in: NSRect(x: 0, y: 0, width: 1000, height: 800))
+            h.eq(f[ObjectIdentifier(split)]?.width ?? -1, 1000, "stacked preview: visible entry spans the content width")
+            h.eq(f[ObjectIdentifier(i1)]?.width ?? -1, 500, "stacked preview: the visible split IS subdivided")
+            h.eq(f[ObjectIdentifier(i2)]?.minX ?? -1, 500, "stacked preview: its second child is offset right")
+            h.eq(f[ObjectIdentifier(other)]?.width ?? -1, 1000, "stacked preview: a hidden entry gets the whole content")
+            h.check((f[ObjectIdentifier(other)]?.height ?? -1) == (f[ObjectIdentifier(split)]?.height ?? -2),
+                    "stacked preview: hidden and visible entries share one content height")
+            h.check((f[ObjectIdentifier(split)]?.height ?? 999) < 800,
+                    "stacked preview: the strip is reserved above the content")
+        }
+
         // Layout invariants, on hand-built snapshots — the impossible states that reached the user
         // as "my windows are a mess". Each case below is a bug that actually happened.
         func leaf(_ ws: UInt64, _ wid: CGWindowID?, tile: CGRect = CGRect(x: 0, y: 0, width: 100, height: 100),
