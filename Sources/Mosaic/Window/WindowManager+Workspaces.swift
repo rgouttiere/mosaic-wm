@@ -229,11 +229,10 @@ extension WindowManager {
             focused = leaf
             refreshFocusAndDim()
         } else if warp != nil {                  // another screen → let the warp land, then adopt it
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-                guard let self else { return }
-                self.checkSpaceChange()
-                self.focused = leaf
-                self.refreshFocusAndDim()
+            later(in: 0.03) { wm in
+                wm.checkSpaceChange()
+                wm.focused = leaf
+                wm.refreshFocusAndDim()
             }
         }
     }

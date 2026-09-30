@@ -73,7 +73,6 @@ final class WindowManager {
     let resizeRatioHUD = ResizeRatioHUD()
     var liveRenderPending = false            // coalescing state for live-resize renders
     var lastLiveRenderTime = Date.distantPast
-    var resizeSettleWork: DispatchWorkItem?  // debounced finalize (save) after a keyboard-resize burst
     var lastResizePair: (c: Container, i: Int, horizontal: Bool)?  // for the end-of-gesture min learn
     let letterbox = LetterboxFill()
     /// While PiP mirrors a window, its on-screen tile is covered by the letterbox fill so the same
@@ -93,7 +92,6 @@ final class WindowManager {
 
     /// Persisted layouts for desktops not yet restored this session.
     var savedState: [UInt64: SavedSpace] = [:]
-    var saveWork: DispatchWorkItem?
     /// Which workspace number was shown on each monitor (left→right order) last session, so a
     /// restart restores the exact view instead of guessing the first non-empty one.
     var savedShownByMonitor: [Int] = []
@@ -125,10 +123,10 @@ final class WindowManager {
     var wakeWork: [DispatchWorkItem] = []
     /// Debounces display-config changes: we resume only once the set of displays has
     /// stopped changing (dock/undock fires many events and migrates windows mid-flight).
-    var displayChangeWork: DispatchWorkItem?
     /// Confirms a window kept "in grace" is really gone, so a closed window's tab is
     /// removed within ~0.25s instead of lingering until the next window event.
-    var graceRecheck: DispatchWorkItem?
+    /// Pending named deferred steps — see `later(_:in:whileSuspended:acrossSleep:_:)`.
+    var deferredByName: [String: DispatchWorkItem] = [:]
     /// Guards reconcile against re-entrancy (all triggers are on the main queue, but this
     /// makes it impossible for a nested call to corrupt the tree mid-pass).
     var isReconciling = false
@@ -436,15 +434,14 @@ final class WindowManager {
         restoreSavedWorkspaces()   // eager, BEFORE the timer can lazily restore just one
         // Stop routing late-launching apps to their saved workspace after a grace window, so
         // windows opened deliberately later go to the active workspace as normal.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
-            guard let self else { return }
-            self.restoreHints.removeAll()
+        later("bootSettle", in: 20, whileSuspended: true, acrossSleep: true) { wm in
+            wm.restoreHints.removeAll()
             // Boot is over. It places every window in SEVERAL rounds by design (the eager restore,
             // then the display-set settle re-asserting everything), and an aspect-fit window is
             // re-fitted in each — which the frame-write audit would read as a recurring conflict
             // ("2 renders" seven seconds after a clean launch, measured). Start the count from the
             // running state instead, exactly as `recover` does once its own heal is behind it.
-            for ws in self.spaces.values { ws.root?.forEachLeaf { $0.window?.resetFrameWriteAudit() } }
+            for ws in wm.spaces.values { ws.root?.forEachLeaf { $0.window?.resetFrameWriteAudit() } }
         }
         observer.onTitleChange = { [weak self] in self?.refreshVisibleTitles(); self?.scanAttention() }
         observer.onFocusChange = { [weak self] in self?.syncFocusToSystem() }
@@ -529,25 +526,23 @@ final class WindowManager {
     /// just geometry — no CGS moves, no per-window rehome heuristics.
     func handleDisplayChange() {
         suspendReasons.insert(.displayChange)
-        displayChangeWork?.cancel()
         let before = Set(NSScreen.screens.map(displayID(of:)))
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            let now = Set(NSScreen.screens.map(self.displayID(of:)))
-            guard now == before else { self.handleDisplayChange(); return }   // still settling
-            self.suspendReasons.remove(.displayChange)   // never the sleep's hold, only ours
+        // Runs while suspended (it lifts .displayChange itself) and across a sleep (dropping it
+        // would leave that reason armed forever); the wake sequence re-derives on top anyway.
+        later("displaySettle", in: 1.5, whileSuspended: true, acrossSleep: true) { wm in
+            let now = Set(NSScreen.screens.map(wm.displayID(of:)))
+            guard now == before else { wm.handleDisplayChange(); return }   // still settling
+            wm.suspendReasons.remove(.displayChange)   // never the sleep's hold, only ours
             // Re-derive BEFORE anything reads the map — checkSpaceChange bootstraps from it.
             // Forced: the set has been stable for 1.5s, so however many monitors are here is the
             // truth, even if it is fewer than we have seen before (an undock).
-            self.ensureAllPresentMonitorsShown(force: true)
-            self.activeSpaceID = nil
-            self.checkSpaceChange()
-            self.invalidateAllFrameCaches()   // docking scattered windows out from under us → force re-placement
-            self.reassertAllWorkspaces()
-            self.emitWorkspaceState(self.activeSpaceID.map(Int.init))   // re-publish status.json (sketchybar)
+            wm.ensureAllPresentMonitorsShown(force: true)
+            wm.activeSpaceID = nil
+            wm.checkSpaceChange()
+            wm.invalidateAllFrameCaches()   // docking scattered windows out from under us → force re-placement
+            wm.reassertAllWorkspaces()
+            wm.emitWorkspaceState(wm.activeSpaceID.map(Int.init))   // re-publish status.json (sketchybar)
         }
-        displayChangeWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
     }
 
     /// After wake, macOS scatters windows and hides our borderless overlays. Wait for it to
@@ -604,12 +599,11 @@ final class WindowManager {
     /// doesn't hold a cycle back through `wakeWork`.
     func scheduleWakeStep(in delay: TimeInterval, generation: UInt64,
                           _ body: @escaping (WindowManager) -> Void) {
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.sleepGeneration == generation else { return }
-            body(self)
-        }
-        wakeWork.append(work)
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        guard generation == sleepGeneration else { return }   // scheduled for a sleep already superseded
+        // `later` captures the generation; a wake step must also run while `.sleep` is still held,
+        // since these steps are what release it. Kept in `wakeWork` so a second didWake notification
+        // can cancel the first's pending steps outright (same generation → the guard wouldn't).
+        wakeWork.append(later(in: delay, whileSuspended: true, body))
     }
 
     /// Drop placements that point at a monitor that's no longer attached, so a workspace homed

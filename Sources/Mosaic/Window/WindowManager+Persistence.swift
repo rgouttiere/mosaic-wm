@@ -106,10 +106,8 @@ extension WindowManager {
 
     /// Debounced save of all known layouts (live + not-yet-restored).
     func scheduleSave() {
-        saveWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.saveNow() }
-        saveWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+        // State must reach disk whatever the machine is doing: not gated on suspension or sleep.
+        later("save", in: 1.0, whileSuspended: true, acrossSleep: true) { $0.saveNow() }
     }
 
     /// Keep a copy of the layout as it was a few minutes ago, next to the live one.
@@ -157,7 +155,7 @@ extension WindowManager {
     }
 
     func saveNow() {
-        saveWork?.cancel()   // disarm any pending debounced save so it can't overwrite this
+        cancelLater("save")   // disarm any pending debounced save so it can't overwrite this
         var out: [String: SavedSpace] = [:]
         // Keyed by workspace number — the stable identity in the emulated model (no CGS Space
         // id, no monitor fingerprint, no desktop ordinal needed).

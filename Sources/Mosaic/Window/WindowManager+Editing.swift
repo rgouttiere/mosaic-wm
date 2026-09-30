@@ -361,13 +361,7 @@ extension WindowManager {
         render()   // refresh overlays of the active desktop
         // A lazily-resizing app (IINA) may not have applied its new tile yet when render() read it
         // back, so re-settle once shortly after — this is what a manual resize was doing by hand.
-        // Deferred → capture the sleep generation, like every other deferred step: a render landing
-        // after a sleep began would wake a machine that just went under.
-        let generation = sleepGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
-            guard let self, !self.suspended, self.sleepGeneration == generation else { return }
-            self.render()
-        }
+        later(in: 0.09) { $0.render() }   // guarded against sleep/suspension by construction
         saveNow()
     }
 

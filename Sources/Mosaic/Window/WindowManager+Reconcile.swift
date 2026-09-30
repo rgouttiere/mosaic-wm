@@ -463,13 +463,10 @@ extension WindowManager {
             Log.event("detaching \(deadLeaves.count) leaf/leaves after \(missesToConfirm) misses: \(who)")
         }
         if gracePending {
-            graceRecheck?.cancel()
-            let work = DispatchWorkItem { [weak self] in self?.reconcile() }
-            graceRecheck = work
             // Faster re-check → a closed window's tile/tab is confirmed gone and removed in
             // ~0.2s (2 misses) instead of ~0.5s, without the flash of rendering inside the
             // AX destroy callback. Still two misses, so a transient AX glitch never removes.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
+            later("graceRecheck", in: 0.1) { $0.reconcile() }
         }
 
         // `adopted`: a same-app replacement swapped a leaf's window in place — no add/remove, but the

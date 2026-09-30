@@ -229,14 +229,11 @@ extension WindowManager {
     /// After a keyboard-resize burst (held/repeated key), persist the layout once things go quiet.
     /// The live path never saves per keypress; this coalesces to a single write when the burst ends.
     func scheduleResizeSettle() {
-        resizeSettleWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            self?.learnResizeMins()        // burst over, windows settled → learn real mins + re-clamp
-            self?.render(activate: false)  // full render: final positions + restore the parked hidden tabs
-            self?.saveNow()
+        later("resizeSettle", in: 0.15) { wm in
+            wm.learnResizeMins()        // burst over, windows settled → learn real mins + re-clamp
+            wm.render(activate: false)  // full render: final positions + restore the parked hidden tabs
+            wm.saveNow()
         }
-        resizeSettleWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
     /// Coalesce live-resize renders to ~90fps with a guaranteed trailing render, so a burst of
@@ -249,11 +246,12 @@ extension WindowManager {
             renderLive()
         } else if !liveRenderPending {
             liveRenderPending = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + (minInterval - since)) { [weak self] in
-                guard let self else { return }
-                self.liveRenderPending = false
-                self.lastLiveRenderTime = Date()
-                self.renderLive()
+            // Not gated: `liveRenderPending` must be cleared even if the frame is dropped, or the
+            // trailing render could never re-arm after a suspension that began mid-drag.
+            later(in: minInterval - since, whileSuspended: true, acrossSleep: true) { wm in
+                wm.liveRenderPending = false
+                wm.lastLiveRenderTime = Date()
+                if !wm.suspended { wm.renderLive() }
             }
         }
     }
