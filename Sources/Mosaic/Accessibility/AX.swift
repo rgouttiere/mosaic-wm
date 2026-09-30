@@ -1,12 +1,6 @@
 import AppKit
 import ApplicationServices
 
-/// Private AX SPI used by every serious macOS WM (yabai, Amethyst): maps an AX
-/// window element to its CoreGraphics window id, so we can cross-reference the
-/// on-screen window list and tell which Space a window lives on.
-@_silgen_name("_AXUIElementGetWindow")
-private func _AXUIElementGetWindow(_ element: AXUIElement, _ wid: UnsafeMutablePointer<CGWindowID>) -> AXError
-
 /// Thin Swift wrappers over the C Accessibility API (`AXUIElement`).
 /// This is the only sanctioned way on macOS to move/resize other apps' windows
 /// without disabling SIP — the same foundation Amethyst is built on.
@@ -126,9 +120,14 @@ enum AX {
 
     // MARK: Window identity & visibility
 
+    /// Private AX SPI used by every serious macOS WM (yabai, Amethyst): maps an AX window element
+    /// to its CoreGraphics window id. Resolved at runtime (`PrivateAPI`): if the symbol is ever gone,
+    /// this answers nil for every window and the launch alert says why, instead of dyld refusing
+    /// to start the app.
     static func windowID(_ element: AXUIElement) -> CGWindowID? {
+        guard let get = PrivateAPI.axGetWindow else { return nil }
         var wid = CGWindowID(0)
-        return _AXUIElementGetWindow(element, &wid) == .success ? wid : nil
+        return get(element, &wid) == .success ? wid : nil
     }
 
     /// A natively full-screened window lives on its own Space; managing it makes

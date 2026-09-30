@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AX.installMessagingTimeout()   // before anything talks to another app over AX
+        presentCapabilityIssues()      // a private symbol Apple removed → say so, don't fail silently
         requestAccessibilityIfNeeded()
         setupStatusItem()
         windowManager.onWorkspaceChanged = { [weak self] number in
@@ -44,6 +45,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let run = self.makeActions()[cmd] { run() }
             else { NSLog("Mosaic: unknown CLI action '\(cmd)'") }
         }
+    }
+
+    /// Private symbols are resolved at runtime (`PrivateAPI`). Losing a cosmetic one is logged;
+    /// losing the AX→window-id bridge means nothing can be managed, and the user must hear it from
+    /// us — the alternative was a dyld launch failure with no message at all.
+    private func presentCapabilityIssues() {
+        Log.event("private API —\n" + PrivateAPI.report())
+        let missing = PrivateAPI.missingEssential
+        guard !missing.isEmpty else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "This macOS removed something Mosaic depends on"
+        alert.informativeText = missing.map { "• \($0.symbol) — \($0.purpose)" }.joined(separator: "\n")
+            + "\n\nMosaic will run but cannot manage windows until this is addressed. See dump-layout for details."
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     private var lastConfigIssues = ""

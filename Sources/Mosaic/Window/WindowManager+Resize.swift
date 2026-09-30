@@ -320,6 +320,7 @@ extension WindowManager {
         let violations = checkInvariants()
         out += "--- invariants (\(violations.isEmpty ? "OK" : "\(violations.count) VIOLATION(S)")) ---\n"
         for v in violations { out += "  [\(v.code)] \(v.detail)\n" }
+        out += "--- private API ---\n" + PrivateAPI.report() + "\n"
         try? out.write(to: URL(fileURLWithPath: "/tmp/mosaic-dump.txt"), atomically: true, encoding: .utf8)
         NSLog("Mosaic: layout dumped to /tmp/mosaic-dump.txt")
     }
