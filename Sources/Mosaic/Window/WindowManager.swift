@@ -436,7 +436,16 @@ final class WindowManager {
         restoreSavedWorkspaces()   // eager, BEFORE the timer can lazily restore just one
         // Stop routing late-launching apps to their saved workspace after a grace window, so
         // windows opened deliberately later go to the active workspace as normal.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.restoreHints.removeAll() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+            guard let self else { return }
+            self.restoreHints.removeAll()
+            // Boot is over. It places every window in SEVERAL rounds by design (the eager restore,
+            // then the display-set settle re-asserting everything), and an aspect-fit window is
+            // re-fitted in each — which the frame-write audit would read as a recurring conflict
+            // ("2 renders" seven seconds after a clean launch, measured). Start the count from the
+            // running state instead, exactly as `recover` does once its own heal is behind it.
+            for ws in self.spaces.values { ws.root?.forEachLeaf { $0.window?.resetFrameWriteAudit() } }
+        }
         observer.onTitleChange = { [weak self] in self?.refreshVisibleTitles(); self?.scanAttention() }
         observer.onFocusChange = { [weak self] in self?.syncFocusToSystem() }
         observer.start()
