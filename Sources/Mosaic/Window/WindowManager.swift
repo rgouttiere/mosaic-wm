@@ -114,7 +114,7 @@ final class WindowManager {
     /// reconfigure settling during a sleep cleared the SLEEP's hold. Reconcile then ran against
     /// sleeping windows, and mistaking one for a closed window is what destroys a screen's layout.
     /// Each holder now releases only its own reason.
-    enum SuspendReason { case sleep, displayChange }
+    enum SuspendReason { case sleep, displayChange, locked }
     var suspendReasons: Set<SuspendReason> = []
     var suspended: Bool { !suspendReasons.isEmpty }
     /// Bumped on every sleep. Deferred wake steps capture it and bail if it moved, so a settle
@@ -503,6 +503,13 @@ final class WindowManager {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.handleDisplayChange() }
+        // Screen lock: loginwindow becomes the frontmost app and nothing the user does reaches
+        // the desktop. Hold a suspend reason of its own for the duration — focus-sync must not
+        // adopt loginwindow, and a reconcile has nothing true to read while the session is
+        // covered. Its own reason, so a sleep that overlaps a lock releases neither the other's.
+        let dnc = DistributedNotificationCenter.default()
+        dnc.addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in self?.handleLock() }
+        dnc.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in self?.handleUnlock() }
 
         // A screenshot tool's overlay is a floating window → it won't trigger a reconcile render, so
         // hide our decorations the instant it activates, and restore them (no focus steal) when a
@@ -582,6 +589,26 @@ final class WindowManager {
     /// Going under: invalidate every wake step still in flight and hold reconcile. Without the
     /// generation bump, a settle scheduled by the PREVIOUS wake could land a second into this
     /// sleep and resume a machine that is already asleep.
+    func handleLock() {
+        guard !suspendReasons.contains(.locked) else { return }
+        suspendReasons.insert(.locked)
+        Log.event("screen locked — suspended")
+    }
+
+    /// Release the lock's hold, then re-adopt the desktop: the frontmost app and the monitor under
+    /// the mouse may both differ from what we last saw. Deferred through `later`, so an unlock that
+    /// lands while a wake sequence still holds `.sleep` defers to that sequence's own re-derive.
+    func handleUnlock() {
+        guard suspendReasons.remove(.locked) != nil else { return }
+        Log.event("screen unlocked — resuming")
+        later("unlockResync", in: 0.3) { wm in
+            wm.checkSpaceChange()
+            wm.reconcile()
+            wm.syncFocusToSystem()
+            wm.refreshFocusAndDim()
+        }
+    }
+
     func noteSleep() {
         sleepGeneration &+= 1
         cancelWakeWork()
@@ -749,7 +776,8 @@ final class WindowManager {
     /// the tabs in sync without needing a click.
     func syncFocusToSystem() {
         guard Config.shared.focusSync, !suspended, !tabDragging else { return }
-        guard let app = NSWorkspace.shared.frontmostApplication else { return }
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.bundleIdentifier != "com.apple.loginwindow" else { return }   // the lock screen is never a focus to adopt
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
         guard let win: AXUIElement = AX.copy(axApp, kAXFocusedWindowAttribute as String),
               let id = AX.windowID(win) else { return }
