@@ -110,6 +110,8 @@ mosaic workspace-3       # jump to workspace 3
 mosaic swap-up           # swap with the window above
 mosaic toggle-stacked
 mosaic dump-layout       # write /tmp/mosaic-dump.txt (ends with an invariant verdict)
+mosaic --dump-config     # every effective config value, sorted — what is really in force
+MOSAIC_CONFIG=other.json mosaic --dump-config   # …for any file, without touching yours
 ```
 
 Action names match the `keybindings` keys in `config.json` (`focus-left`, `move-right`, `swap-up`, `group`, `group-stacked`, `preselect-vertical`, `toggle-tabbed`, `workspace-N`, `move-to-N`, `assign-N`, `unassign-N`, `unassign`, `switcher`, `hints`, `expose`, `pip`, `pip-here`, `grab`, `recover`, `scratchpad-release`, `workspace-back`, …) plus `reload-config` and `dump-layout`.

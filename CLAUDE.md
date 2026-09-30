@@ -7,6 +7,7 @@ Tiling/tabbing window manager pour macOS, en Swift (SwiftPM), **SIP activé → 
 - **Produire l'app** : `make bundle` → build release + `Mosaic.app` signé avec l'identité stable « Mosaic Self-Signed » (bundle id `fr.rgouttiere.mosaic` → conserve le grant Accessibilité entre rebuilds). `make run` = bundle + lance.
 - Itérer vite : `swift build` compile ; `swift run Mosaic --self-test` marche aussi.
 - Config live de l'utilisateur : `~/.config/mosaic/config.json` (hot-reload via file-watch) ; état : `~/.config/mosaic/state.json` ; diag : action `dump-layout` → `/tmp/mosaic-dump.txt`.
+- **Parseur de config = une table** (`Config.options`) : une option = sa propriété + une entrée (lecture, reset, sérialisation dérivés). Toute modification du parseur se **prouve** par équivalence : `MOSAIC_CONFIG=<fichier> .build/debug/Mosaic --dump-config` avant/après, sur la vraie config + une config qui pousse chaque clé hors défaut + des configs de torture (types faux, clés inconnues, hors plage) + le fichier écrit sur config absente — le diff doit être vide. C'est ce filet qui a révélé que « le dernier gagne » sur une collision `workspaceNames` tirait au sort selon l'ordre du `Dictionary` (corrigé : clés triées).
 
 ## Branches
 - `main` = **workspaces émulés** (v2), daily-driver — **ne pas casser**. La décision, ce qu'elle
