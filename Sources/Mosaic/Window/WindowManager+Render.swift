@@ -90,8 +90,8 @@ extension WindowManager {
             self?.dropTab(from: container, index: index, at: point)
         }
         node.onTabDragState = { [weak self] dragging in
-            self?.tabDragging = dragging
-            if !dragging { self?.dropHighlight.hide() }
+            if dragging { self?.interactionReasons.insert(.tabDrag) }
+            else { self?.interactionReasons.remove(.tabDrag); self?.dropHighlight.hide() }
         }
         node.onTabDragMove = { [weak self] point in self?.updateDropHighlight(at: point) }
         node.children.forEach { wireTabCallbacks($0) }

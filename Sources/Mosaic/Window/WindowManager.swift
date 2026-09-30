@@ -153,9 +153,15 @@ final class WindowManager {
     /// i3 "preselect": arm a split orientation on a window so the NEXT window nests into a
     /// new split with it. `vertical` = new window goes below; else to the right.
     var preselect: (vertical: Bool, leaf: Container)?
-    /// True while a tab is being dragged — freeze the active desktop so the drop
-    /// re-renders the source screen correctly (mouse crossing screens won't switch it).
-    var tabDragging = false
+    /// Why an interaction is currently freezing the active desktop (so a drop re-renders the source
+    /// screen correctly, and focus-sync doesn't pull focus away mid-gesture). A SET, not a flag, for
+    /// the same reason as `SuspendReason`: three gestures own this now, and with one shared boolean
+    /// whichever finishes first releases the other two — the mouse-up safety net below was written
+    /// for a tab drag and would happily unfreeze a keyboard grab that is still waiting for a key.
+    enum InteractionReason { case tabDrag, windowGrab, keyboardGrab }
+    var interactionReasons: Set<InteractionReason> = []
+    /// Kept as the read name: every consumer only ever asks "is a gesture in flight?".
+    var tabDragging: Bool { !interactionReasons.isEmpty }
     var grabbedLeaf: Container?   // the leaf being moved by a modifier-hold drag or keyboard grab
     var grabTarget: Container?    // keyboard grab: the tile the drop is currently aimed at
     var grabKeyWindow: NSWindow?  // keyboard grab: transparent key panel that captures hjkl/⏎/Esc
@@ -455,8 +461,11 @@ final class WindowManager {
         // would stay true — freezing desktop switching AND orphan-strip cleanup. A global
         // mouse-up always clears it.
         mouseUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] _ in
-            guard let self, self.tabDragging else { return }
-            self.tabDragging = false
+            // Only the MOUSE gestures: a keyboard grab is still waiting for hjkl/⏎/Esc and has no
+            // business being ended by a button coming up somewhere else.
+            guard let self, !self.interactionReasons.isDisjoint(with: [.tabDrag, .windowGrab]) else { return }
+            self.interactionReasons.remove(.tabDrag)
+            self.interactionReasons.remove(.windowGrab)
             TabDragGhost.shared.hide()
             self.dropHighlight.hide()
             self.sweepOrphanStrips()

@@ -17,7 +17,7 @@ extension WindowManager {
         grabbedLeaf = focused
         grabTarget = neighborLeaf(from: focused, .right) ?? neighborLeaf(from: focused, .left)
                   ?? neighborLeaf(from: focused, .down)  ?? neighborLeaf(from: focused, .up) ?? others.first
-        tabDragging = true    // freeze focus-sync / space-follow while grabbing
+        interactionReasons.insert(.keyboardGrab)   // freeze focus-sync / space-follow while grabbing
         startGrabKeyCapture(on: screen)
         updateGrabHighlight(zone: .center)
     }
@@ -32,7 +32,7 @@ extension WindowManager {
     func grabCommit(_ zone: DropZone) {
         guard let g = grabbedLeaf, let t = grabTarget else { cancelKeyboardGrab(); return }
         endGrabKeyCapture()
-        grabbedLeaf = nil; grabTarget = nil; tabDragging = false
+        grabbedLeaf = nil; grabTarget = nil; interactionReasons.remove(.keyboardGrab)
         dropInto(g, onto: t, zone: zone)   // same insert as a drag drop
     }
 
@@ -40,7 +40,7 @@ extension WindowManager {
         endGrabKeyCapture()
         TabDragGhost.shared.hide()
         dropHighlight.hide()
-        grabbedLeaf = nil; grabTarget = nil; tabDragging = false
+        grabbedLeaf = nil; grabTarget = nil; interactionReasons.remove(.keyboardGrab)
     }
 
     private func updateGrabHighlight(zone: DropZone) {

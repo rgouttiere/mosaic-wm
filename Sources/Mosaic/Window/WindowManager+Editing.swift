@@ -388,7 +388,7 @@ extension WindowManager {
     func beginWindowGrab(at point: NSPoint) -> Bool {
         guard let leaf = leafAt(point), leaf.window != nil else { return false }
         grabbedLeaf = leaf
-        tabDragging = true
+        interactionReasons.insert(.windowGrab)
         TabDragGhost.shared.show(leaf.title, at: point)
         updateDropHighlight(at: point)
         return true
@@ -404,7 +404,7 @@ extension WindowManager {
         TabDragGhost.shared.hide()
         guard let leaf = grabbedLeaf else { return }
         grabbedLeaf = nil
-        tabDragging = false
+        interactionReasons.remove(.windowGrab)
         dropLeaf(leaf, at: point)   // center = tab, edge = split (identical to a tab drop)
     }
 
@@ -412,7 +412,7 @@ extension WindowManager {
         TabDragGhost.shared.hide()
         dropHighlight.hide()
         grabbedLeaf = nil
-        tabDragging = false
+        interactionReasons.remove(.windowGrab)
     }
 
     /// Highlight the region the drop will land in — the full tile (center = tab) or the half it
