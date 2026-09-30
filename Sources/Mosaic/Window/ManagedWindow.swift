@@ -104,6 +104,19 @@ final class ManagedWindow {
     private var lastSetFrame: CGRect?
 
     /// Position/size the window in Cocoa coordinates (converted to AX internally).
+    /// Forget the frame-write audit counters. They are cumulative since launch on purpose — a
+    /// conflict that only fires on a drop or a wake would be invisible in a snapshot of the last
+    /// (idle, fully cached) render — but that also means a violation, once seen, would stay in every
+    /// dump forever, and an alert that never clears is an alert that gets ignored. `recover` clears
+    /// them AFTER healing, so the next verdict describes what happens from now on: if the violation
+    /// comes back, it is live; if it doesn't, it was the one-off cost of settling.
+    func resetFrameWriteAudit() {
+        maxFrameWrites = 0
+        doubleWriteRenders = 0
+        writesThisEpoch = 0
+        lastWriteEpoch = 0
+    }
+
     /// `probe`: a write that exists only to make the app reveal a constraint we cannot compute (the
     /// monocle blowing a window up to read back its aspect-locked size). It is deliberately followed
     /// by a second, real placement write, so it must not read as two passes fighting.

@@ -48,7 +48,10 @@ extension WindowManager {
         lastReconcileOnScreen = []
         reconcile()
         updateFocusIndicator()
-        Log.event("recover — un-minimized stuck windows, rescued \(rescued) stranded, re-asserted all workspaces, forced a full reconcile")
+        // LAST, once every write this heal makes is behind us: the audit should judge the state we
+        // are leaving behind, not the burst of placements that produced it.
+        for ws in spaces.values { ws.root?.forEachLeaf { $0.window?.resetFrameWriteAudit() } }
+        Log.event("recover — un-minimized stuck windows, rescued \(rescued) stranded, re-asserted all workspaces, forced a full reconcile, reset the frame-write audit")
     }
 
     /// Bring home any window that has ended up outside every screen with no leaf to its name.
