@@ -117,7 +117,9 @@ final class ManagedWindow {
         // pin the window to a frame it never actually took, with no self-heal until a manual
         // re-tile. Otherwise the cache is only reset by `invalidateFrameCache` below.
         Perf.count("ax.frameWrite")
-        if AX.setFrame(element, axRect) {
+        // Our last accepted write is the best free estimate of where the window is now; fall back to
+        // the (50ms-cached) live read when we have none, e.g. right after invalidateFrameCache.
+        if AX.setFrame(element, axRect, current: lastSetFrame ?? frame) {
             lastSetFrame = axRect
             // Detect a min-size clamp: if the window came out wider/taller than we asked, that size
             // is a floor it won't go under — record it so the split solver reserves the room.

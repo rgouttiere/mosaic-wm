@@ -75,6 +75,21 @@ enum SelfTest {
         h.check(parkedLeft.maxX <= leftScreen.minX + 1, "parkRect: leftmost monitor parks off its own left edge")
         h.eq(parkedLeft.minY, leftLayout.minY, "parkRect: leftmost monitor keeps Y (no resize)")
 
+        // positionFirst: which AX attribute to write first when re-framing (avoids a clamped origin).
+        let cur = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        h.check(Geometry.positionFirst(current: cur, target: CGRect(x: 0, y: 0, width: 1200, height: 800)),
+                "positionFirst: growing wider → move first")
+        h.check(Geometry.positionFirst(current: cur, target: CGRect(x: 0, y: 0, width: 1000, height: 900)),
+                "positionFirst: growing taller → move first")
+        h.check(!Geometry.positionFirst(current: cur, target: CGRect(x: 0, y: 0, width: 600, height: 800)),
+                "positionFirst: shrinking → resize first")
+        h.check(!Geometry.positionFirst(current: cur, target: CGRect(x: 500, y: 500, width: 1000, height: 800)),
+                "positionFirst: same size, pure move → resize first (no clamp risk either way)")
+        h.check(Geometry.positionFirst(current: nil, target: cur),
+                "positionFirst: unknown current → keeps the historical position-first order")
+        h.check(!Geometry.positionFirst(current: cur, target: CGRect(x: 0, y: 0, width: 1000.4, height: 800)),
+                "positionFirst: sub-pixel growth is not growth (0.5 tolerance)")
+
         // aspectFit: largest box of a given w/h ratio, centred inside the tile (for IINA & co).
         let fitTall = Geometry.aspectFit(CGRect(x: 0, y: 0, width: 1000, height: 1000), aspect: 16.0/9)
         h.eq(fitTall.width, 1000, "aspectFit: tile taller than 16:9 → full width")

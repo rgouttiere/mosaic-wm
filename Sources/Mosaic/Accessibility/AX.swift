@@ -58,17 +58,26 @@ enum AX {
     /// no self-heal. Note `.success` means *accepted*, not *pixel-applied*: apps that clamp to
     /// a min/max size still return `.success`, so this neither fixes nor regresses clamping.
     @discardableResult
-    static func setFrame(_ element: AXUIElement, _ rect: CGRect) -> Bool {
-        var origin = rect.origin
-        var size = rect.size
-        var ok = true
-        if let posValue = AXValueCreate(.cgPoint, &origin) {
-            ok = (AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, posValue) == .success) && ok
+    /// `current` (the window's present frame, AX coords) picks the write order — see
+    /// `Geometry.positionFirst`. Pass it whenever it's known for free; nil keeps position-first.
+    static func setFrame(_ element: AXUIElement, _ rect: CGRect, current: CGRect? = nil) -> Bool {
+        func writePosition() -> Bool {
+            var origin = rect.origin
+            guard let v = AXValueCreate(.cgPoint, &origin) else { return true }
+            return AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, v) == .success
         }
-        if let sizeValue = AXValueCreate(.cgSize, &size) {
-            ok = (AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue) == .success) && ok
+        func writeSize() -> Bool {
+            var size = rect.size
+            guard let v = AXValueCreate(.cgSize, &size) else { return true }
+            return AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, v) == .success
         }
-        return ok
+        // Both writes must run, so bind each result before combining (no short-circuit).
+        if Geometry.positionFirst(current: current, target: rect) {
+            let p = writePosition(), s = writeSize()
+            return p && s
+        }
+        let s = writeSize(), p = writePosition()
+        return s && p
     }
 
     static func raise(_ element: AXUIElement) {

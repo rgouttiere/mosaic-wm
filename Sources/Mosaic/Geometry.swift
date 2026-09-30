@@ -49,6 +49,21 @@ enum Geometry {
         return (lo, hi)
     }
 
+    /// Which of the two AX writes to issue FIRST when re-framing a window: position, or size.
+    ///
+    /// The two attributes are written separately, so the window briefly exists at a mixed
+    /// old/new geometry — and macOS clamps a window that lands past a screen edge. Moving a window
+    /// that is still LARGE to its new origin can therefore get the origin clamped, and the size
+    /// write that follows lands on that clamped origin: the window ends up offset from its tile.
+    /// So shrink first, then move. Growing needs the opposite: move into the free space first,
+    /// then grow, or the larger size is applied at the old origin and clamped instead.
+    ///
+    /// `current` unknown → keep position-first, the long-standing order. Pure + unit-tested.
+    static func positionFirst(current: CGRect?, target: CGRect) -> Bool {
+        guard let current else { return true }
+        return target.width > current.width + 0.5 || target.height > current.height + 0.5
+    }
+
     /// The largest box of the given width/height `aspect` that fits inside `tile`, centred. Used to
     /// place an aspect-locked window (IINA) inside its tile without overshooting — the leftover gap is
     /// letterboxed. `aspect` ≤ 0 or a degenerate tile → the tile unchanged. Pure + unit-tested.
