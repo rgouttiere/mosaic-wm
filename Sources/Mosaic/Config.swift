@@ -220,171 +220,59 @@ final class Config {
         "move-desktop-prev": "cmd alt shift [",
     ]
 
-    // Internal (not private) so unit tests can exercise the lenient decode directly.
-    struct File: Decodable {
-        var gap: Double?
-        var outerGap: Double?
-        var externalBarTop: Double?
-        var notchBarOffset: Double?
-        var workspaceNames: [String: String]?
-        var workspaceMonitors: [String: Int]?
-        var focusPulseWidth: Double?
-        var focusPulseDuration: Double?
-        var focusGlowRadius: Double?
-        var focusGlowFade: Bool?
-        var exposeDim: Double?
-        var exposeSwitch: String?
-        var exposeAllScreens: Bool?
-        var exposeThumbnails: Bool?
-        var focusSync: Bool?
-        var robustCrossAppTabs: Bool?
-        var tabScrollCycle: Bool?
-        var switcherFadeIn: Bool?
-        var tabBarHeight: Double?
-        var warpMouseOnSwitch: Bool?
-        var workspaceWrap: Bool?
-        var trackpadGestures: Bool?
-        var dragModifier: String?
-        var ejectNativeFullscreen: Bool?
-        var smartGaps: Bool?
-        var autoFloatDialogs: Bool?
-        var yieldToFullscreenWindows: Bool?
-        var defaultMode: String?
-        var floatingApps: [String]?
-        var aspectFitApps: [String]?
-        var alwaysTileApps: [String]?
-        var rules: [AppRule]?
-        var showWorkspaceHUD: Bool?
-        var notchHud: Bool?
-        var hudPosition: String?
-        var onWorkspaceChange: String?
-        var borderEnabled: Bool?
-        var borderInactive: Bool?
-        var dimInactiveMonitors: Bool?
-        var accentColor: String?
-        var letterboxStyle: String?
-        var borderColor: String?
-        var borderWidth: Double?
-        var inactiveBorderOpacity: Double?
-        var inactiveMonitorDim: Double?
-        var borderCornerRadius: Double?
-        var activeOpacity: Double?
-        var inactiveOpacity: Double?
-        var tabCornerRadius: Double?
-        var tabBarColor: String?
-        var tabActiveColor: String?
-        var tabTextColor: String?
-        var tabActiveTextColor: String?
-        var tabFontSize: Double?
-        var tabBarOpacity: Double?
-        var tabActivePadding: Double?
-        var dropHighlightEnabled: Bool?
-        var dropHighlightColor: String?
-        var keybindings: [String: String]?
-
-        /// Names of fields whose value was present but wrong-typed (surfaced via loadIssues).
-        var decodeIssues: [String] = []
-
-        /// Explicit keys (a custom `init(from:)` suppresses synthesis). `decodeIssues` is not a
-        /// config key — it's populated by the initializer, never decoded.
-        private enum CodingKeys: String, CodingKey {
-            case gap, outerGap, externalBarTop, notchBarOffset, workspaceNames, workspaceMonitors, focusPulseWidth, focusPulseDuration, focusGlowRadius, focusGlowFade
-            case exposeDim, exposeSwitch, exposeAllScreens, exposeThumbnails, focusSync, robustCrossAppTabs, tabScrollCycle, switcherFadeIn, tabBarHeight
-            case warpMouseOnSwitch, workspaceWrap, trackpadGestures, dragModifier, ejectNativeFullscreen, smartGaps, autoFloatDialogs, yieldToFullscreenWindows, defaultMode, floatingApps, aspectFitApps, alwaysTileApps, rules, showWorkspaceHUD, notchHud, hudPosition
-            case onWorkspaceChange, borderEnabled, borderInactive, dimInactiveMonitors, accentColor, letterboxStyle, borderColor, borderWidth, borderCornerRadius, inactiveBorderOpacity, inactiveMonitorDim
-            case activeOpacity, inactiveOpacity, tabCornerRadius, tabBarColor, tabActiveColor
-            case tabTextColor, tabActiveTextColor, tabFontSize, tabBarOpacity, tabActivePadding
-            case dropHighlightEnabled, dropHighlightColor, keybindings
-        }
-
-        /// Decode each field INDEPENDENTLY: a single wrong-typed field (e.g. `"gap":"10"` or
-        /// `"borderWidth":true`) then loses only that field and keeps its default, instead of
-        /// the stock `Decodable` behaviour where one bad value throws and reverts the user's
-        /// ENTIRE config to defaults. Structured fields (rules/keybindings/workspaceNames)
-        /// still decode as a unit — a malformed one loses only that field, not the whole file.
-        init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            var issues: [String] = []
-            func v<T: Decodable>(_ key: CodingKeys) -> T? {
-                do { return try c.decodeIfPresent(T.self, forKey: key) }
-                catch { issues.append(key.stringValue); return nil }
-            }
-            gap = v(.gap)
-            outerGap = v(.outerGap)
-            externalBarTop = v(.externalBarTop)
-            notchBarOffset = v(.notchBarOffset)
-            workspaceNames = v(.workspaceNames)
-            workspaceMonitors = v(.workspaceMonitors)
-            focusPulseWidth = v(.focusPulseWidth)
-            focusPulseDuration = v(.focusPulseDuration)
-            focusGlowRadius = v(.focusGlowRadius)
-            focusGlowFade = v(.focusGlowFade)
-            exposeDim = v(.exposeDim)
-            exposeSwitch = v(.exposeSwitch)
-            exposeAllScreens = v(.exposeAllScreens)
-            exposeThumbnails = v(.exposeThumbnails)
-            focusSync = v(.focusSync)
-            robustCrossAppTabs = v(.robustCrossAppTabs)
-            tabScrollCycle = v(.tabScrollCycle)
-            switcherFadeIn = v(.switcherFadeIn)
-            tabBarHeight = v(.tabBarHeight)
-            warpMouseOnSwitch = v(.warpMouseOnSwitch)
-            workspaceWrap = v(.workspaceWrap)
-            trackpadGestures = v(.trackpadGestures)
-            dragModifier = v(.dragModifier)
-            ejectNativeFullscreen = v(.ejectNativeFullscreen)
-            smartGaps = v(.smartGaps)
-            autoFloatDialogs = v(.autoFloatDialogs)
-            yieldToFullscreenWindows = v(.yieldToFullscreenWindows)
-            defaultMode = v(.defaultMode)
-            floatingApps = v(.floatingApps)
-            aspectFitApps = v(.aspectFitApps)
-            alwaysTileApps = v(.alwaysTileApps)
-            rules = v(.rules)
-            showWorkspaceHUD = v(.showWorkspaceHUD)
-            notchHud = v(.notchHud)
-            hudPosition = v(.hudPosition)
-            onWorkspaceChange = v(.onWorkspaceChange)
-            borderEnabled = v(.borderEnabled)
-            borderInactive = v(.borderInactive)
-            dimInactiveMonitors = v(.dimInactiveMonitors)
-            accentColor = v(.accentColor)
-            letterboxStyle = v(.letterboxStyle)
-            borderColor = v(.borderColor)
-            borderWidth = v(.borderWidth)
-            inactiveBorderOpacity = v(.inactiveBorderOpacity)
-            inactiveMonitorDim = v(.inactiveMonitorDim)
-            borderCornerRadius = v(.borderCornerRadius)
-            activeOpacity = v(.activeOpacity)
-            inactiveOpacity = v(.inactiveOpacity)
-            tabCornerRadius = v(.tabCornerRadius)
-            tabBarColor = v(.tabBarColor)
-            tabActiveColor = v(.tabActiveColor)
-            tabTextColor = v(.tabTextColor)
-            tabActiveTextColor = v(.tabActiveTextColor)
-            tabFontSize = v(.tabFontSize)
-            tabBarOpacity = v(.tabBarOpacity)
-            tabActivePadding = v(.tabActivePadding)
-            dropHighlightEnabled = v(.dropHighlightEnabled)
-            dropHighlightColor = v(.dropHighlightColor)
-            keybindings = v(.keybindings)
-            decodeIssues = issues
-        }
+    /// `MOSAIC_CONFIG=/path/to/file.json` points at another file — for testing a config without
+    /// touching the real one, and for the equivalence checks that guard this parser.
+    var configURL: URL {
+        if let p = ProcessInfo.processInfo.environment["MOSAIC_CONFIG"], !p.isEmpty { return URL(fileURLWithPath: p) }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/mosaic/config.json")
     }
 
-    var configURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/mosaic/config.json")
+    /// Every effective value, one `key: value` line per stored property, sorted and rendered
+    /// deterministically (sets and dictionaries sorted, rules as sorted-key JSON). `mosaic
+    /// --dump-config` prints it: "what config is actually in effect" without guessing, and a byte-
+    /// for-byte way to prove a parser change kept every value.
+    func dumpEffective() -> String {
+        func render(_ v: Any) -> String {
+            switch v {
+            case let b as Bool: return b ? "true" : "false"
+            case let i as Int: return String(i)
+            case let d as Double: return String(d)
+            case let f as CGFloat: return String(Double(f))
+            case let s as String: return "\"" + s + "\""
+            case let set as Set<String>: return "[" + set.sorted().joined(separator: ", ") + "]"
+            case let arr as [String]: return "[" + arr.joined(separator: ", ") + "]"
+            case let d as [String: String]: return "{" + d.keys.sorted().map { "\($0)=\(d[$0]!)" }.joined(separator: ", ") + "}"
+            case let d as [Int: String]: return "{" + d.keys.sorted().map { "\($0)=\(d[$0]!)" }.joined(separator: ", ") + "}"
+            case let d as [Int: Int]: return "{" + d.keys.sorted().map { "\($0)=\(d[$0]!)" }.joined(separator: ", ") + "}"
+            case let rules as [AppRule]:
+                let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+                return (try? enc.encode(rules)).flatMap { String(data: $0, encoding: .utf8) } ?? "?"
+            default: return String(describing: v)
+            }
+        }
+        var lines: [String] = []
+        for child in Mirror(reflecting: self).children {
+            guard let label = child.label else { continue }
+            if label == "loadIssues" { continue }   // rendered last, sorted, so ordering can't mask an equal set
+            lines.append("\(label): \(render(child.value))")
+        }
+        lines.sort()
+        lines.append("loadIssues: " + loadIssues.sorted().map { "\n  - " + $0 }.joined())
+        return lines.joined(separator: "\n")
     }
 
     /// Parse the `workspaceNames` map (string keys → labels) into number-keyed labels.
     /// `Int(_:)` is not injective ("1"/"01"/"+1" all → 1), so distinct JSON keys can collapse;
     /// a collision (or a key outside 1…9) is dropped and surfaced as an issue rather than
-    /// trapping in `Dictionary(uniqueKeysWithValues:)`. Pure + static so it's unit-testable.
+    /// trapping in `Dictionary(uniqueKeysWithValues:)`. Keys are walked in sorted order so
+    /// "last write wins" names the SAME winner on every launch — a Dictionary's order is
+    /// randomized per process, and the equivalence check that guards this parser caught the
+    /// same file producing a different label from one run to the next. Pure + static → testable.
     static func parseWorkspaceNames(_ wn: [String: String]) -> (names: [Int: String], issues: [String]) {
         var names: [Int: String] = [:]
         var issues: [String] = []
-        for (key, value) in wn {
+        for key in wn.keys.sorted() { let value = wn[key]!
             guard let n = Int(key) else { continue }
             guard (1...9).contains(n) else {
                 issues.append("workspaceNames: “\(key)” is outside 1…9 — ignored")
@@ -404,7 +292,7 @@ final class Config {
     static func parseWorkspaceMonitors(_ wm: [String: Int]) -> (map: [Int: Int], issues: [String]) {
         var map: [Int: Int] = [:]
         var issues: [String] = []
-        for (key, value) in wm {
+        for key in wm.keys.sorted() { let value = wm[key]!   // sorted: same collision winner every launch
             guard let n = Int(key) else { continue }
             guard (1...9).contains(n) else {
                 issues.append("workspaceMonitors: “\(key)” is outside 1…9 — ignored"); continue
@@ -420,75 +308,172 @@ final class Config {
         return (map, issues)
     }
 
-    func load() {
-        // Reset to defaults first so a reload also reflects keys/bindings removed from
-        // the file (not just overrides).
-        Config.titleRegexCache.removeAll()   // patterns may have been edited or dropped
-        gap = 0
-        outerGap = 0
-        externalBarTop = 0
-        notchBarOffset = 40
-        workspaceNames = [:]
-        workspaceMonitors = [:]
-        focusPulseWidth = 5
-        focusPulseDuration = 0.38
-        focusGlowRadius = 6
-        focusGlowFade = true
-        exposeDim = 0.7
-        exposeSwitch = ""
-        exposeAllScreens = false
-        exposeThumbnails = true
-        focusSync = true
-        robustCrossAppTabs = false
-        tabScrollCycle = true
-        switcherFadeIn = true
-        tabBarHeight = 22
-        defaultMode = "columns"
-        warpMouseOnSwitch = true
-        workspaceWrap = true
-        trackpadGestures = false
-        dragModifier = "ctrl alt cmd"
-        ejectNativeFullscreen = false
-        smartGaps = false
-        autoFloatDialogs = false
-        yieldToFullscreenWindows = true
-        floatingApps = Config.defaultFloatingApps
-        aspectFitApps = Config.defaultAspectFitApps
-        alwaysTileApps = Config.defaultAlwaysTileApps
-        rules = []
-        showWorkspaceHUD = true
-        notchHud = false
-        hudPosition = "top-right"
-        onWorkspaceChange = ""
-        borderEnabled = true
-        borderInactive = false
-        dimInactiveMonitors = false
-        accentColor = "accent"
-        letterboxStyle = "black"
-        borderColor = "accent"
-        borderWidth = 1
-        inactiveBorderOpacity = 0.42
-        inactiveMonitorDim = 0.6
-        borderCornerRadius = 18
-        activeOpacity = 1.0
-        inactiveOpacity = 0.5
-        tabCornerRadius = 10
-        tabBarColor = "#1E1E1E"
-        tabActiveColor = "accent"
-        tabTextColor = "#B0B0B0"
-        tabActiveTextColor = "#FFFFFF"
-        tabFontSize = 14
-        tabBarOpacity = 0.97
-        tabActivePadding = 0
-        dropHighlightEnabled = true
-        dropHighlightColor = "accent"
-        keybindings = Config.defaultKeybindings
+    // MARK: - Options table
 
-        loadIssues = []
+    /// One config option, complete: how to read it from the raw JSON object, how to reset it, and
+    /// (optionally) how it appears in the default file written on first run. Adding a key used to
+    /// take EIGHT edits — the property, a mirror struct, a coding key, a lenient decode line, a
+    /// reset line, the known-key set, an apply line, the serializer — and forgetting any one of
+    /// them failed silently: a key never reset survived a hot-reload that removed it, one never
+    /// listed as known was reported to the user as a typo. Now it takes the property plus one
+    /// entry below, and `known`/reset/apply/serialize are all derived from that entry.
+    private struct Option {
+        let key: String
+        let reset: (Config) -> Void
+        /// Apply a value that IS present in the file. Empty = applied; otherwise why it was
+        /// refused — the default is kept, so one bad value never sinks the rest of the config.
+        let apply: (Config, Any) -> [String]
+        let dump: ((Config) -> Any)?
+    }
+
+    // JSONSerialization hands back an NSNumber for both `true` and `1`, and Swift happily bridges
+    // either to Bool or Double. Telling them apart is what keeps `"gap": true` and `"focusSync": 1`
+    // refused as wrong-typed, exactly as the strict Decodable path did: a JSON boolean is a
+    // CFBoolean, a JSON number is not.
+    private static func boolean(_ v: Any) -> Bool? {
+        guard let n = v as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
+        return n.boolValue
+    }
+    private static func number(_ v: Any) -> Double? {
+        guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+        return n.doubleValue
+    }
+    private static func wrongType(_ key: String) -> [String] { ["invalid value for “\(key)” — ignored, default kept"] }
+
+    private static func bool(_ key: String, _ kp: ReferenceWritableKeyPath<Config, Bool>, _ def: Bool, dump: Bool = false) -> Option {
+        Option(key: key, reset: { $0[keyPath: kp] = def },
+               apply: { c, v in guard let b = boolean(v) else { return wrongType(key) }; c[keyPath: kp] = b; return [] },
+               dump: dump ? { $0[keyPath: kp] } : nil)
+    }
+    private static func double(_ key: String, _ kp: ReferenceWritableKeyPath<Config, Double>, _ def: Double, dump: Bool = false) -> Option {
+        Option(key: key, reset: { $0[keyPath: kp] = def },
+               apply: { c, v in guard let d = number(v) else { return wrongType(key) }; c[keyPath: kp] = d; return [] },
+               dump: dump ? { $0[keyPath: kp] } : nil)
+    }
+    private static func points(_ key: String, _ kp: ReferenceWritableKeyPath<Config, CGFloat>, _ def: CGFloat, dump: Bool = false) -> Option {
+        Option(key: key, reset: { $0[keyPath: kp] = def },
+               apply: { c, v in guard let d = number(v) else { return wrongType(key) }; c[keyPath: kp] = CGFloat(d); return [] },
+               dump: dump ? { Double($0[keyPath: kp]) } : nil)
+    }
+    private static func string(_ key: String, _ kp: ReferenceWritableKeyPath<Config, String>, _ def: String, dump: Bool = false) -> Option {
+        Option(key: key, reset: { $0[keyPath: kp] = def },
+               apply: { c, v in guard let s = v as? String else { return wrongType(key) }; c[keyPath: kp] = s; return [] },
+               dump: dump ? { $0[keyPath: kp] } : nil)
+    }
+    /// A list of app names / bundle ids, matched case-insensitively → stored lowercased.
+    private static func apps(_ key: String, _ kp: ReferenceWritableKeyPath<Config, Set<String>>, _ def: Set<String>, dump: Bool = false) -> Option {
+        Option(key: key, reset: { $0[keyPath: kp] = def },
+               apply: { c, v in
+                   guard let strs = v as? [String] else { return wrongType(key) }
+                   c[keyPath: kp] = Set(strs.map { $0.lowercased() }); return [] },
+               dump: dump ? { Array($0[keyPath: kp]).sorted() } : nil)
+    }
+
+    private static let options: [Option] = [
+        points("gap", \.gap, 0, dump: true),
+        points("outerGap", \.outerGap, 0, dump: true),
+        points("externalBarTop", \.externalBarTop, 0, dump: true),
+        points("notchBarOffset", \.notchBarOffset, 40),
+        Option(key: "workspaceNames", reset: { $0.workspaceNames = [:] }, apply: { c, v in
+            guard let d = v as? [String: String] else { return wrongType("workspaceNames") }
+            let p = parseWorkspaceNames(d); c.workspaceNames = p.names; return p.issues
+        }, dump: nil),
+        Option(key: "workspaceMonitors", reset: { $0.workspaceMonitors = [:] }, apply: { c, v in
+            // Strict integers: a boolean or a fraction is a wrong-typed field, not a monitor index.
+            guard let raw = v as? [String: Any] else { return wrongType("workspaceMonitors") }
+            var d: [String: Int] = [:]
+            for (k, x) in raw {
+                guard let n = number(x), n == n.rounded() else { return wrongType("workspaceMonitors") }
+                d[k] = Int(n)
+            }
+            let p = parseWorkspaceMonitors(d); c.workspaceMonitors = p.map; return p.issues
+        }, dump: nil),
+        points("focusPulseWidth", \.focusPulseWidth, 5),
+        double("focusPulseDuration", \.focusPulseDuration, 0.38),
+        double("focusGlowRadius", \.focusGlowRadius, 6),
+        bool("focusGlowFade", \.focusGlowFade, true),
+        double("exposeDim", \.exposeDim, 0.7),
+        string("exposeSwitch", \.exposeSwitch, ""),
+        bool("exposeAllScreens", \.exposeAllScreens, false),
+        bool("exposeThumbnails", \.exposeThumbnails, true),
+        bool("focusSync", \.focusSync, true),
+        bool("robustCrossAppTabs", \.robustCrossAppTabs, false),
+        bool("tabScrollCycle", \.tabScrollCycle, true),
+        bool("switcherFadeIn", \.switcherFadeIn, true),
+        points("tabBarHeight", \.tabBarHeight, 22, dump: true),
+        bool("warpMouseOnSwitch", \.warpMouseOnSwitch, true, dump: true),
+        bool("workspaceWrap", \.workspaceWrap, true, dump: true),
+        bool("trackpadGestures", \.trackpadGestures, false, dump: true),
+        string("dragModifier", \.dragModifier, "ctrl alt cmd", dump: true),
+        bool("ejectNativeFullscreen", \.ejectNativeFullscreen, false),
+        bool("smartGaps", \.smartGaps, false),
+        bool("autoFloatDialogs", \.autoFloatDialogs, false),
+        bool("yieldToFullscreenWindows", \.yieldToFullscreenWindows, true),
+        string("defaultMode", \.defaultMode, "columns", dump: true),
+        apps("floatingApps", \.floatingApps, Config.defaultFloatingApps, dump: true),
+        apps("aspectFitApps", \.aspectFitApps, Config.defaultAspectFitApps, dump: true),
+        apps("alwaysTileApps", \.alwaysTileApps, Config.defaultAlwaysTileApps, dump: true),
+        Option(key: "rules", reset: { $0.rules = [] }, apply: { c, v in
+            // Structured → the Codable struct decodes it as a unit; a malformed list loses only
+            // this field, not the whole file.
+            guard let arr = v as? [Any], let data = try? JSONSerialization.data(withJSONObject: arr),
+                  let rules = try? JSONDecoder().decode([AppRule].self, from: data) else { return wrongType("rules") }
+            c.rules = rules; return []
+        }, dump: { _ in [["app": "skitch", "float": true]] }),   // example; see README for fields
+        bool("showWorkspaceHUD", \.showWorkspaceHUD, true, dump: true),
+        bool("notchHud", \.notchHud, false),
+        string("hudPosition", \.hudPosition, "top-right", dump: true),
+        string("onWorkspaceChange", \.onWorkspaceChange, ""),
+        bool("borderEnabled", \.borderEnabled, true, dump: true),
+        bool("borderInactive", \.borderInactive, false),
+        bool("dimInactiveMonitors", \.dimInactiveMonitors, false),
+        string("accentColor", \.accentColor, "accent", dump: true),
+        string("letterboxStyle", \.letterboxStyle, "black"),
+        string("borderColor", \.borderColor, "accent", dump: true),
+        double("borderWidth", \.borderWidth, 1, dump: true),
+        double("inactiveBorderOpacity", \.inactiveBorderOpacity, 0.42, dump: true),
+        double("inactiveMonitorDim", \.inactiveMonitorDim, 0.6, dump: true),
+        double("borderCornerRadius", \.borderCornerRadius, 18, dump: true),
+        double("activeOpacity", \.activeOpacity, 1.0, dump: true),
+        double("inactiveOpacity", \.inactiveOpacity, 0.5, dump: true),
+        double("tabCornerRadius", \.tabCornerRadius, 10, dump: true),
+        string("tabBarColor", \.tabBarColor, "#1E1E1E", dump: true),
+        string("tabActiveColor", \.tabActiveColor, "accent", dump: true),
+        string("tabTextColor", \.tabTextColor, "#B0B0B0", dump: true),
+        string("tabActiveTextColor", \.tabActiveTextColor, "#FFFFFF", dump: true),
+        double("tabFontSize", \.tabFontSize, 14, dump: true),
+        double("tabBarOpacity", \.tabBarOpacity, 0.97, dump: true),
+        double("tabActivePadding", \.tabActivePadding, 0, dump: true),
+        bool("dropHighlightEnabled", \.dropHighlightEnabled, true, dump: true),
+        string("dropHighlightColor", \.dropHighlightColor, "accent", dump: true),
+        Option(key: "keybindings", reset: { $0.keybindings = Config.defaultKeybindings }, apply: { c, v in
+            // Merge, so a user overrides only the bindings they care about.
+            guard let k = v as? [String: String] else { return wrongType("keybindings") }
+            c.keybindings.merge(k) { _, new in new }; return []
+        }, dump: { $0.keybindings }),
+    ]
+
+    private func reset() {
+        Config.titleRegexCache.removeAll()   // patterns may have been edited or dropped
+        for o in Config.options { o.reset(self) }
+    }
+
+    func load() {
         guard let data = try? Data(contentsOf: configURL) else {
+            reset(); loadIssues = []
             writeDefault()
             return
         }
+        load(data: data)
+        NSLog("Mosaic: loaded config from \(configURL.path) — \(loadIssues.count) issue(s)")
+    }
+
+    /// The whole parse, from bytes. Resets to defaults first so a reload also reflects keys and
+    /// bindings REMOVED from the file, not just overrides. Internal so the self-tests can run it on
+    /// a scratch instance without touching `shared`.
+    func load(data: Data) {
+        reset()
+        loadIssues = []
         // 1) Well-formed JSON object?
         guard let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             loadIssues.append("Invalid JSON (expected an object { … }). Defaults applied.")
@@ -496,103 +481,18 @@ final class Config {
             return
         }
         // 2) Unknown top-level keys (typos). Keys starting with "_" are comment markers.
-        let known: Set<String> = [
-            "gap", "outerGap", "externalBarTop", "notchBarOffset", "workspaceNames", "workspaceMonitors", "focusPulseWidth", "focusPulseDuration",
-            "focusGlowRadius", "focusGlowFade",
-            "exposeDim", "exposeSwitch", "exposeAllScreens", "exposeThumbnails", "focusSync", "robustCrossAppTabs", "tabScrollCycle", "switcherFadeIn",
-            "tabBarHeight", "warpMouseOnSwitch", "workspaceWrap", "trackpadGestures", "dragModifier", "ejectNativeFullscreen", "smartGaps", "autoFloatDialogs", "yieldToFullscreenWindows", "defaultMode",
-            "floatingApps", "aspectFitApps", "alwaysTileApps", "rules", "showWorkspaceHUD", "notchHud", "hudPosition", "onWorkspaceChange", "borderEnabled", "borderInactive", "dimInactiveMonitors",
-            "accentColor", "letterboxStyle", "borderColor", "borderWidth", "borderCornerRadius", "inactiveBorderOpacity", "inactiveMonitorDim", "activeOpacity",
-            "inactiveOpacity", "tabCornerRadius", "tabBarColor", "tabActiveColor",
-            "tabTextColor", "tabActiveTextColor", "tabFontSize", "tabBarOpacity",
-            "tabActivePadding", "dropHighlightEnabled", "dropHighlightColor", "keybindings",
-        ]
+        let known = Set(Config.options.map(\.key))
         for key in raw.keys.sorted() where !key.hasPrefix("_") && !known.contains(key) {
             loadIssues.append("unknown key “\(key)” ignored (typo?)")
         }
-        // 3) Typed decode — per-field lenient (see File.init(from:)), so one wrong-typed value
-        // loses only that field, not the whole config. A throw here now means the file isn't a
-        // decodable object at all (already screened at step 1), so keep the defensive catch.
-        let file: File
-        do {
-            file = try JSONDecoder().decode(File.self, from: data)
-        } catch {
-            loadIssues.append("invalid value: \(describeDecodingError(error))")
-            NSLog("Mosaic: config.json has an invalid value — using defaults (\(error))")
-            return
+        // 3) Apply each option INDEPENDENTLY: one wrong-typed value loses only that field and keeps
+        //    its default, never the whole config. A JSON null counts as absent.
+        for o in Config.options {
+            guard let v = raw[o.key], !(v is NSNull) else { continue }
+            let issues = o.apply(self, v)
+            loadIssues.append(contentsOf: issues)
+            if !issues.isEmpty { NSLog("Mosaic: config.json field “\(o.key)” — \(issues.joined(separator: "; "))") }
         }
-        for field in file.decodeIssues {
-            loadIssues.append("invalid value for “\(field)” — ignored, default kept")
-            NSLog("Mosaic: config.json field “\(field)” has an invalid value — keeping default")
-        }
-        if let g = file.gap { gap = CGFloat(g) }
-        if let o = file.outerGap { outerGap = CGFloat(o) }
-        if let e = file.externalBarTop { externalBarTop = CGFloat(e) }
-        if let e = file.notchBarOffset { notchBarOffset = CGFloat(e) }
-        if let p = file.focusPulseWidth { focusPulseWidth = CGFloat(p) }
-        if let d = file.focusPulseDuration { focusPulseDuration = d }
-        if let g = file.focusGlowRadius { focusGlowRadius = g }
-        if let b = file.focusGlowFade { focusGlowFade = b }
-        if let d = file.exposeDim { exposeDim = d }
-        if let s = file.exposeSwitch { exposeSwitch = s }
-        if let b = file.exposeAllScreens { exposeAllScreens = b }
-        if let b = file.exposeThumbnails { exposeThumbnails = b }
-        if let b = file.focusSync { focusSync = b }
-        if let b = file.robustCrossAppTabs { robustCrossAppTabs = b }
-        if let b = file.tabScrollCycle { tabScrollCycle = b }
-        if let b = file.switcherFadeIn { switcherFadeIn = b }
-        if let wn = file.workspaceNames {
-            let parsed = Config.parseWorkspaceNames(wn)
-            workspaceNames = parsed.names
-            loadIssues.append(contentsOf: parsed.issues)
-        }
-        if let wm = file.workspaceMonitors {
-            let parsed = Config.parseWorkspaceMonitors(wm)
-            workspaceMonitors = parsed.map
-            loadIssues.append(contentsOf: parsed.issues)
-        }
-        if let t = file.tabBarHeight { tabBarHeight = CGFloat(t) }
-        if let w = file.warpMouseOnSwitch { warpMouseOnSwitch = w }
-        if let b = file.workspaceWrap { workspaceWrap = b }
-        if let g = file.trackpadGestures { trackpadGestures = g }
-        if let s = file.dragModifier { dragModifier = s }
-        if let b = file.ejectNativeFullscreen { ejectNativeFullscreen = b }
-        if let b = file.smartGaps { smartGaps = b }
-        if let b = file.autoFloatDialogs { autoFloatDialogs = b }
-        if let b = file.yieldToFullscreenWindows { yieldToFullscreenWindows = b }
-        if let m = file.defaultMode { defaultMode = m }
-        if let f = file.floatingApps { floatingApps = Set(f.map { $0.lowercased() }) }
-        if let f = file.aspectFitApps { aspectFitApps = Set(f.map { $0.lowercased() }) }
-        if let f = file.alwaysTileApps { alwaysTileApps = Set(f.map { $0.lowercased() }) }
-        if let r = file.rules { rules = r }
-        if let h = file.showWorkspaceHUD { showWorkspaceHUD = h }
-        if let b = file.notchHud { notchHud = b }
-        if let p = file.hudPosition { hudPosition = p }
-        if let o = file.onWorkspaceChange { onWorkspaceChange = o }
-        if let b = file.borderEnabled { borderEnabled = b }
-        if let b = file.borderInactive { borderInactive = b }
-        if let b = file.dimInactiveMonitors { dimInactiveMonitors = b }
-        if let c = file.accentColor { accentColor = c }
-        if let s = file.letterboxStyle { letterboxStyle = s }
-        if let c = file.borderColor { borderColor = c }
-        if let w = file.borderWidth { borderWidth = w }
-        if let o = file.inactiveBorderOpacity { inactiveBorderOpacity = o }
-        if let d = file.inactiveMonitorDim { inactiveMonitorDim = d }
-        if let r = file.borderCornerRadius { borderCornerRadius = r }
-        if let a = file.activeOpacity { activeOpacity = a }
-        if let i = file.inactiveOpacity { inactiveOpacity = i }
-        if let r = file.tabCornerRadius { tabCornerRadius = r }
-        if let c = file.tabBarColor { tabBarColor = c }
-        if let c = file.tabActiveColor { tabActiveColor = c }
-        if let c = file.tabTextColor { tabTextColor = c }
-        if let c = file.tabActiveTextColor { tabActiveTextColor = c }
-        if let s = file.tabFontSize { tabFontSize = s }
-        if let o = file.tabBarOpacity { tabBarOpacity = o }
-        if let p = file.tabActivePadding { tabActivePadding = p }
-        if let d = file.dropHighlightEnabled { dropHighlightEnabled = d }
-        if let c = file.dropHighlightColor { dropHighlightColor = c }
-        // Merge so a user can override only the bindings they care about.
-        if let k = file.keybindings { keybindings.merge(k) { _, new in new } }
 
         // 4) Semantic checks (values parsed fine but are out of range / unknown).
         let validModes: Set<String> = ["columns", "grouped", "tabbed", "master-stack", "masterstack", "master"]
@@ -614,11 +514,12 @@ final class Config {
         }
 
         // Duplicate keybindings: two actions on the same combo → only one wins (undefined). Blank
-        // combos are disabled bindings, not shortcuts, so several "" are fine — skip them.
+        // combos are disabled bindings, not shortcuts, so several "" are fine — skip them. Walked
+        // in key order so the pair reported is the same on every launch (a Dictionary's order isn't).
         var comboOwner: [String: String] = [:]
-        for (action, value) in keybindings {
+        for action in keybindings.keys.sorted() {
             // A value may list several combos (comma-separated) — check each on its own.
-            for combo in value.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !combo.isEmpty {
+            for combo in keybindings[action]!.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !combo.isEmpty {
                 let norm = combo.lowercased().split { " +-".contains($0) }.sorted().joined(separator: "+")
                 if let other = comboOwner[norm], other != action {
                     loadIssues.append("duplicate shortcut “\(combo)”: “\(action)” and “\(other)”")
@@ -627,64 +528,11 @@ final class Config {
                 }
             }
         }
-
-        NSLog("Mosaic: loaded config from \(configURL.path) — \(loadIssues.count) issue(s)")
-    }
-
-    /// Turn a Swift `DecodingError` into a short, user-readable field reference.
-    private func describeDecodingError(_ error: Error) -> String {
-        guard let e = error as? DecodingError else { return error.localizedDescription }
-        func path(_ c: DecodingError.Context) -> String {
-            let p = c.codingPath.map(\.stringValue).joined(separator: ".")
-            return p.isEmpty ? "(root)" : p
-        }
-        switch e {
-        case .typeMismatch(let t, let c): return "wrong type for “\(path(c))” (expected \(t))"
-        case .valueNotFound(_, let c):    return "null value for “\(path(c))”"
-        case .keyNotFound(let k, _):      return "required key missing “\(k.stringValue)”"
-        case .dataCorrupted(let c):       return c.debugDescription
-        @unknown default:                 return "\(e)"
-        }
     }
 
     private func writeDefault() {
-        let dict: [String: Any] = [
-            "gap": Double(gap),
-            "outerGap": Double(outerGap),
-            "externalBarTop": Double(externalBarTop),
-            "warpMouseOnSwitch": warpMouseOnSwitch,
-            "workspaceWrap": workspaceWrap,
-            "trackpadGestures": trackpadGestures,
-            "dragModifier": dragModifier,
-            "tabBarHeight": Double(tabBarHeight),
-            "defaultMode": defaultMode,
-            "floatingApps": Array(floatingApps).sorted(),
-            "aspectFitApps": Array(aspectFitApps).sorted(),
-            "alwaysTileApps": Array(alwaysTileApps).sorted(),
-            "rules": [["app": "skitch", "float": true]],   // example; see README for fields
-            "showWorkspaceHUD": showWorkspaceHUD,
-            "hudPosition": hudPosition,
-            "borderEnabled": borderEnabled,
-            "accentColor": accentColor,
-            "borderColor": borderColor,
-            "borderWidth": borderWidth,
-            "inactiveBorderOpacity": inactiveBorderOpacity,
-            "inactiveMonitorDim": inactiveMonitorDim,
-            "borderCornerRadius": borderCornerRadius,
-            "activeOpacity": activeOpacity,
-            "inactiveOpacity": inactiveOpacity,
-            "tabCornerRadius": tabCornerRadius,
-            "tabBarColor": tabBarColor,
-            "tabActiveColor": tabActiveColor,
-            "tabTextColor": tabTextColor,
-            "tabActiveTextColor": tabActiveTextColor,
-            "tabFontSize": tabFontSize,
-            "tabBarOpacity": tabBarOpacity,
-            "tabActivePadding": tabActivePadding,
-            "dropHighlightEnabled": dropHighlightEnabled,
-            "dropHighlightColor": dropHighlightColor,
-            "keybindings": keybindings,
-        ]
+        var dict: [String: Any] = [:]
+        for o in Config.options { if let d = o.dump { dict[o.key] = d(self) } }
         do {
             try FileManager.default.createDirectory(
                 at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -10,6 +10,11 @@ if let verb = cliArgs.first {
     #if DEBUG
     if verb == "--self-test" { exit(SelfTest.run()) }   // in-module unit tests (debug builds only)
     #endif
+    if verb == "--dump-config" {   // every effective value (honours MOSAIC_CONFIG)
+        Config.shared.load()
+        print(Config.shared.dumpEffective())
+        exit(0)
+    }
     if ["--list", "list", "-h", "--help", "help"].contains(verb) {
         Config.shared.load()
         print("Mosaic — usage: mosaic <action> | mosaic query [focused|workspaces]\n\nActions:")

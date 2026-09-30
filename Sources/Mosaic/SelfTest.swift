@@ -508,46 +508,79 @@ enum SelfTest {
 
     // MARK: - Config: robustness (CFG-ALL-OR-NOTHING + CFG-KEY-CRASH)
 
-    private static func decodeFile(_ json: String) -> Config.File? {
-        try? JSONDecoder().decode(Config.File.self, from: Data(json.utf8))
+    /// Run the real parser on a scratch instance (never `shared`, which other tests read).
+    private static func loadConfig(_ json: String) -> Config {
+        let c = Config(); c.load(data: Data(json.utf8)); return c
+    }
+    /// The fields the parser refused as wrong-typed, pulled out of the user-facing issue text.
+    private static func refused(_ c: Config) -> Set<String> {
+        Set(c.loadIssues.compactMap { s in
+            let p = "invalid value for “"
+            guard s.hasPrefix(p) else { return nil }
+            return String(s.dropFirst(p.count).prefix { $0 != "”" })
+        })
     }
 
     private static func configTests(_ h: Harness) {
         // Lenient per-field decode: valid config, no issues.
-        if let f = decodeFile(#"{"gap":10,"defaultMode":"tabbed","borderEnabled":true}"#) {
-            h.eq(f.gap, 10, "valid: gap")
-            h.eq(f.defaultMode, "tabbed", "valid: defaultMode")
-            h.eq(f.borderEnabled, true, "valid: borderEnabled")
-            h.check(f.decodeIssues.isEmpty, "valid: no issues")
-        } else { h.check(false, "valid config failed to decode") }
-
+        do {
+            let c = loadConfig(#"{"gap":10,"defaultMode":"tabbed","borderEnabled":true}"#)
+            h.eq(c.gap, 10, "valid: gap")
+            h.eq(c.defaultMode, "tabbed", "valid: defaultMode")
+            h.eq(c.borderEnabled, true, "valid: borderEnabled")
+            h.check(c.loadIssues.isEmpty, "valid: no issues")
+        }
         // One bad field must NOT sink the rest (the core CFG-ALL-OR-NOTHING fix).
-        if let f = decodeFile(#"{"gap":"ten","defaultMode":"tabbed","borderEnabled":true}"#) {
-            h.check(f.gap == nil, "one-bad: gap dropped")
-            h.eq(f.defaultMode, "tabbed", "one-bad: defaultMode survives")
-            h.eq(f.borderEnabled, true, "one-bad: borderEnabled survives")
-            h.eq(f.decodeIssues, ["gap"], "one-bad: gap reported")
-        } else { h.check(false, "one-bad config failed to decode") }
-
+        do {
+            let c = loadConfig(#"{"gap":"ten","defaultMode":"tabbed","borderEnabled":true}"#)
+            h.eq(c.gap, 0, "one-bad: gap keeps its default")
+            h.eq(c.defaultMode, "tabbed", "one-bad: defaultMode survives")
+            h.eq(c.borderEnabled, true, "one-bad: borderEnabled survives")
+            h.eq(refused(c), ["gap"], "one-bad: gap reported")
+        }
         // Missing field is not an issue.
-        if let f = decodeFile(#"{"gap":10}"#) {
-            h.eq(f.gap, 10, "missing: gap present")
-            h.check(f.defaultMode == nil, "missing: defaultMode nil")
-            h.check(f.decodeIssues.isEmpty, "missing ≠ malformed")
-        } else { h.check(false, "missing-field config failed to decode") }
-
-        // Several bad fields → all reported.
-        if let f = decodeFile(#"{"gap":"x","borderWidth":true,"tabFontSize":"big"}"#) {
-            h.check(f.gap == nil && f.borderWidth == nil && f.tabFontSize == nil, "multi-bad: all dropped")
-            h.eq(Set(f.decodeIssues), ["gap", "borderWidth", "tabFontSize"], "multi-bad: all reported")
-        } else { h.check(false, "multi-bad config failed to decode") }
-
+        do {
+            let c = loadConfig(#"{"gap":10}"#)
+            h.eq(c.gap, 10, "missing: gap present")
+            h.eq(c.defaultMode, "columns", "missing: defaultMode at default")
+            h.check(c.loadIssues.isEmpty, "missing ≠ malformed")
+        }
+        // Several bad fields → all reported, all defaults kept.
+        do {
+            let c = loadConfig(#"{"gap":"x","borderWidth":true,"tabFontSize":"big"}"#)
+            h.check(c.gap == 0 && c.borderWidth == 1 && c.tabFontSize == 14, "multi-bad: all kept defaults")
+            h.eq(refused(c), ["gap", "borderWidth", "tabFontSize"], "multi-bad: all reported")
+        }
         // Malformed structured field loses only that field.
-        if let f = decodeFile(#"{"gap":10,"rules":[1,2,3]}"#) {
-            h.eq(f.gap, 10, "bad-rules: gap survives")
-            h.check(f.rules == nil, "bad-rules: rules dropped")
-            h.eq(f.decodeIssues, ["rules"], "bad-rules: rules reported")
-        } else { h.check(false, "bad-rules config failed to decode") }
+        do {
+            let c = loadConfig(#"{"gap":10,"rules":[1,2,3]}"#)
+            h.eq(c.gap, 10, "bad-rules: gap survives")
+            h.check(c.rules.isEmpty, "bad-rules: rules dropped")
+            h.eq(refused(c), ["rules"], "bad-rules: rules reported")
+        }
+        // JSON booleans and numbers must not bridge into each other (JSONSerialization hands both
+        // back as NSNumber) — the strict Decodable path refused these, so must the table.
+        do {
+            let c = loadConfig(#"{"focusSync":1,"gap":true,"tabBarHeight":22.5}"#)
+            h.eq(refused(c), ["focusSync", "gap"], "types: a number is not a bool, a bool is not a number")
+            h.eq(c.tabBarHeight, 22.5, "types: a fractional number is fine for a size")
+        }
+        // null = absent; unknown keys reported; "_" keys are comments; bindings merge over defaults.
+        do {
+            let c = loadConfig(#"{"gap":null,"gapp":1,"_note":"x","keybindings":{"tile":"cmd alt shift t"}}"#)
+            h.check(refused(c).isEmpty, "null: not a wrong type")
+            h.check(c.loadIssues.contains { $0.contains("unknown key “gapp”") }, "unknown key reported")
+            h.check(!c.loadIssues.contains { $0.contains("_note") }, "underscore keys are comments")
+            h.eq(c.keybindings["tile"], "cmd alt shift t", "keybindings: override applied")
+            h.eq(c.keybindings["zoom"], "cmd alt return", "keybindings: untouched defaults survive the merge")
+        }
+        // A reload reflects keys REMOVED from the file (the table resets before applying).
+        do {
+            let c = loadConfig(#"{"gap":10,"defaultMode":"tabbed"}"#)
+            c.load(data: Data(#"{"gap":3}"#.utf8))
+            h.eq(c.gap, 3, "reload: new value applied")
+            h.eq(c.defaultMode, "columns", "reload: a removed key returns to its default")
+        }
 
         // workspaceNames parsing must never trap (CFG-KEY-CRASH).
         do {
@@ -558,7 +591,7 @@ enum SelfTest {
         do {
             let (names, issues) = Config.parseWorkspaceNames(["1": "a", "01": "b"])  // both → 1
             h.eq(names.count, 1, "wsNames: collision collapses to one")
-            h.check(names[1] != nil, "wsNames: collision keeps a value")
+            h.eq(names[1], "a", "wsNames: the collision winner is deterministic (sorted keys, last wins → \"1\")")
             h.eq(issues.count, 1, "wsNames: collision reported")
         }
         do {
