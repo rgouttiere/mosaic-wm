@@ -314,6 +314,11 @@ extension WindowManager {
         for bar in TabBarWindow.registry.allObjects where bar.isVisible {
             out += "  frame=\(rectStr(bar.frame))\n"
         }
+        // Impossible states, named. Reading a dump used to mean comparing every border@ against its
+        // tile by eye; this says it outright.
+        let violations = checkInvariants()
+        out += "--- invariants (\(violations.isEmpty ? "OK" : "\(violations.count) VIOLATION(S)")) ---\n"
+        for v in violations { out += "  [\(v.code)] \(v.detail)\n" }
         try? out.write(to: URL(fileURLWithPath: "/tmp/mosaic-dump.txt"), atomically: true, encoding: .utf8)
         NSLog("Mosaic: layout dumped to /tmp/mosaic-dump.txt")
     }

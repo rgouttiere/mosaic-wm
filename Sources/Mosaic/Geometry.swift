@@ -49,6 +49,20 @@ enum Geometry {
         return (lo, hi)
     }
 
+    /// Has a window escaped the tile it was laid out in? A window is allowed to be SMALLER than its
+    /// tile (an aspect-locked player letterboxes inside it), so this asks only whether it pokes
+    /// OUTSIDE — which no correctly-placed tile window ever does. That single test catches the whole
+    /// family: a leaf stranded at a park position, a tile computed for the wrong monitor, a frame
+    /// write that macOS clamped. `tolerance` absorbs the pixel of slack apps add around themselves.
+    /// Pure + unit-tested.
+    static func escapesTile(window: CGRect, tile: CGRect, tolerance: CGFloat = 8) -> Bool {
+        guard tile.width > 0, tile.height > 0 else { return false }
+        return window.minX < tile.minX - tolerance
+            || window.minY < tile.minY - tolerance
+            || window.maxX > tile.maxX + tolerance
+            || window.maxY > tile.maxY + tolerance
+    }
+
     /// Which of the two AX writes to issue FIRST when re-framing a window: position, or size.
     ///
     /// The two attributes are written separately, so the window briefly exists at a mixed

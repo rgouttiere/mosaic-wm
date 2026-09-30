@@ -75,6 +75,21 @@ enum SelfTest {
         h.check(parkedLeft.maxX <= leftScreen.minX + 1, "parkRect: leftmost monitor parks off its own left edge")
         h.eq(parkedLeft.minY, leftLayout.minY, "parkRect: leftmost monitor keeps Y (no resize)")
 
+        // escapesTile: a window may be smaller than its tile, never outside it.
+        let tile = CGRect(x: 100, y: 100, width: 800, height: 600)
+        h.check(!Geometry.escapesTile(window: tile, tile: tile), "escapesTile: exact fit → inside")
+        h.check(!Geometry.escapesTile(window: CGRect(x: 300, y: 250, width: 400, height: 300), tile: tile),
+                "escapesTile: letterboxed smaller window → inside")
+        h.check(Geometry.escapesTile(window: CGRect(x: 2000, y: 100, width: 800, height: 600), tile: tile),
+                "escapesTile: parked far to the right → escaped")
+        h.check(Geometry.escapesTile(window: CGRect(x: 100, y: 100, width: 1600, height: 600), tile: tile),
+                "escapesTile: twice as wide → escaped")
+        h.check(!Geometry.escapesTile(window: CGRect(x: 96, y: 100, width: 800, height: 600), tile: tile),
+                "escapesTile: 4px overhang is within tolerance")
+        h.check(Geometry.escapesTile(window: CGRect(x: 80, y: 100, width: 800, height: 600), tile: tile),
+                "escapesTile: 20px overhang is not")
+        h.check(!Geometry.escapesTile(window: tile, tile: .zero), "escapesTile: no tile yet → never flagged")
+
         // positionFirst: which AX attribute to write first when re-framing (avoids a clamped origin).
         let cur = CGRect(x: 0, y: 0, width: 1000, height: 800)
         h.check(Geometry.positionFirst(current: cur, target: CGRect(x: 0, y: 0, width: 1200, height: 800)),
