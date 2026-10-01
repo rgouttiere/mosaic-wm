@@ -547,7 +547,7 @@ final class WindowManager {
             wm.activeSpaceID = nil
             wm.checkSpaceChange()
             wm.invalidateAllFrameCaches()   // docking scattered windows out from under us → force re-placement
-            wm.reassertAllWorkspaces()
+            wm.reassertAllWorkspaces(why: "display set settled, \(now.count) screen(s)")
             wm.emitWorkspaceState(wm.activeSpaceID.map(Int.init))   // re-publish status.json (sketchybar)
         }
     }
@@ -573,14 +573,14 @@ final class WindowManager {
             wm.activeSpaceID = nil   // force a fresh detect of the current workspace
             wm.checkSpaceChange()
             wm.invalidateAllFrameCaches()   // macOS scattered windows while asleep → force the re-tile writes
-            wm.reassertAllWorkspaces()
+            wm.reassertAllWorkspaces(why: "wake step 1/3")
             wm.emitWorkspaceState(wm.activeSpaceID.map(Int.init))   // re-publish status.json (sketchybar)
         }
-        for delay in [4.0, 7.0] {
+        for (i, delay) in [4.0, 7.0].enumerated() {
             scheduleWakeStep(in: delay, generation: generation) { wm in
                 wm.ensureAllPresentMonitorsShown()
                 wm.invalidateAllFrameCaches()
-                wm.reassertAllWorkspaces()
+                wm.reassertAllWorkspaces(why: "wake step \(i + 2)/3")
                 wm.emitWorkspaceState(wm.activeSpaceID.map(Int.init))
             }
         }
@@ -728,7 +728,15 @@ final class WindowManager {
         for (_, ws) in spaces { ws.root?.forEachLeaf { $0.window?.invalidateFrameCache() } }
     }
 
-    func reassertAllWorkspaces() {
+    func reassertAllWorkspaces(why: String? = nil) {
+        // A full placement pass, so it opens its own render epoch for the frame-write audit. A
+        // dock/undock/wake cycle runs many of these back to back with the caches invalidated each
+        // time and no render() in between (nobody is at the keyboard): counted inside one epoch
+        // they read as "24 placement writes in a render" on every window — measured 2026-10-01
+        // after an undock, a redock and a wake — when nothing was fighting. The real conflict
+        // signature, two writes within ONE pass, is still caught.
+        ManagedWindow.RenderEpoch.begin()
+        if let why { Log.event("reassert all workspaces — \(why)") }
         for (id, ws) in spaces {
             if let scr = screen(forWorkspace: id) {
                 unparkWorkspace(ws, on: scr)   // on-screen + raised
