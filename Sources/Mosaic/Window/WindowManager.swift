@@ -308,7 +308,19 @@ final class WindowManager {
     func unparkWorkspace(_ ws: SpaceState, on screen: NSScreen, raise: Bool = true) {
         guard let r = ws.root else { return }
         r.forEachLeaf { if let w = $0.window, AX.isMinimized(w.element) { AX.setMinimized(w.element, false) } }
-        r.arrange(in: layoutRect(screen))
+        // What you look at arrives first. The writes are sequential and each one waits for its app
+        // (~12 ms into a browser), so their ORDER is the one thing about a switch we control: the
+        // focused window, then the largest. arrange's own pass then finds them placed (cache) and
+        // only does the strips and whatever is left.
+        let area = layoutRect(screen)
+        let focusedLeaf = ws.focused
+        let planned = r.plannedWindowFrames(in: area).sorted { a, b in
+            if a.leaf === focusedLeaf { return true }
+            if b.leaf === focusedLeaf { return false }
+            return a.frame.width * a.frame.height > b.frame.width * b.frame.height
+        }
+        for (leaf, frame) in planned { leaf.window?.setCocoaFrame(frame) }
+        r.arrange(in: area)
         if raise { r.raiseVisibleWindows() }   // caller may skip when a render() right after re-raises the same windows
         r.raiseVisibleStrips()
     }

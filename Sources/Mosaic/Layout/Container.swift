@@ -295,6 +295,30 @@ final class Container {
         return out
     }
 
+    /// The rect `arrange(in:)` writes for this leaf's window given its tile, or nil when it writes
+    /// nothing. The one place the slot math lives, so a planned write and the real one never differ.
+    /// - A full-screen window is not repositioned (it's on its own Space); it keeps its slot in the
+    ///   tree and reclaims it when it leaves full screen. Nor is a parked hidden tab.
+    /// - An aspect-locked window with a learned ratio gets the largest box of that ratio that fits
+    ///   the slot, centred, so it never overshoots and freezes the column; the letterbox fill
+    ///   (computed off the full-tile lastFrame) covers the surrounding gap.
+    private func windowRect(forTile rect: NSRect) -> NSRect? {
+        guard let w = window, w.isFullscreen != true, !parkedOffScreen else { return nil }
+        let slot = rect.insetBy(dx: gap / 2, dy: gap / 2)
+        return (w.isAspectFit && w.aspectRatio > 0) ? Geometry.aspectFit(slot, aspect: w.aspectRatio) : slot
+    }
+
+    /// What `arrange(in:)` is about to write, per visible leaf — so a caller can choose the ORDER
+    /// of the writes (see `WindowManager.unparkWorkspace`). A measure pass plus the slot math.
+    func plannedWindowFrames(in rect: NSRect) -> [(leaf: Container, frame: NSRect)] {
+        let tiles = previewFrames(in: rect)
+        var out: [(leaf: Container, frame: NSRect)] = []
+        forEachVisibleLeaf { leaf in
+            if let tile = tiles[ObjectIdentifier(leaf)], let f = leaf.windowRect(forTile: tile) { out.append((leaf, f)) }
+        }
+        return out
+    }
+
     private func runLayout(in rect: NSRect, visibleOnly: Bool, apply: Bool,
                            into out: inout [ObjectIdentifier: NSRect]) {
         out[ObjectIdentifier(self)] = rect
@@ -302,19 +326,7 @@ final class Container {
         guard !isLeaf else {
             guard apply else { return }
             tabBar?.orderOut(nil)
-            // Don't reposition a full-screen window (it's on its own Space); it keeps
-            // its slot in the tree and reclaims it when it leaves full screen.
-            if let w = window, w.isFullscreen != true, !parkedOffScreen {
-                let slot = rect.insetBy(dx: gap / 2, dy: gap / 2)
-                // Aspect-locked window with a learned ratio → size it to the largest box of that ratio
-                // that fits the slot and centre it, so it never overshoots and freezes the column. The
-                // letterbox fill (computed off this full-tile lastFrame) covers the surrounding gap.
-                if w.isAspectFit, w.aspectRatio > 0 {
-                    w.setCocoaFrame(Geometry.aspectFit(slot, aspect: w.aspectRatio))
-                } else {
-                    w.setCocoaFrame(slot)
-                }
-            }
+            if let f = windowRect(forTile: rect) { window?.setCocoaFrame(f) }
             return
         }
         guard !children.isEmpty else { return }

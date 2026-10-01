@@ -49,7 +49,7 @@ final class FocusIndicator {
                 gv.glowInset = old.glowInset; gv.glowBlur = old.glowBlur; gv.preselect = nil
             }
             ghost.contentView?.frame = NSRect(origin: .zero, size: window.frame.size)
-            ghost.contentView?.needsDisplay = true
+            (ghost.contentView as? BorderView)?.update()
             ghost.alphaValue = 1
             ghost.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup({ ctx in
@@ -60,10 +60,9 @@ final class FocusIndicator {
         }
         lastCocoaFrame = cocoaFrame
 
-        window.setFrame(outer, display: true)
+        window.setFrame(outer, display: false)
         window.contentView?.frame = NSRect(origin: .zero, size: outer.size)
-        if let v = window.contentView as? BorderView { v.glowInset = pad; v.glowBlur = g; v.preselect = preselect }
-        window.contentView?.needsDisplay = true   // pick up config color/width changes
+        if let v = window.contentView as? BorderView { v.glowInset = pad; v.glowBlur = g; v.preselect = preselect; v.update() }
         // orderFrontRegardless (like the tab bars) so a .stationary window actually
         // migrates to the current Space — orderFront leaves it stuck on its old Space,
         // which shows the border on the wrong workspace when two share a display.
@@ -122,15 +121,45 @@ private final class BorderWindow: NSWindow {
 
 private final class BorderView: NSView {
     /// nil = no preselect; true = split armed below; false = armed to the right.
-    var preselect: Bool?
+    var preselect: Bool? { didSet { update() } }
     /// Padding between the view bounds and the true window edge — room for the halo to bloom.
-    var glowInset: CGFloat = 0 { didSet { needsDisplay = true } }
+    var glowInset: CGFloat = 0 { didSet { update() } }
     /// The halo's actual shadow blur radius (kept < glowInset so its soft tail fades within bounds).
-    var glowBlur: CGFloat = 0
+    var glowBlur: CGFloat = 0 { didSet { update() } }
     /// 0 = none, 1 = full one-shot glow (see FocusIndicator.pulse()).
-    var pulse: CGFloat = 0 { didSet { needsDisplay = true } }
+    var pulse: CGFloat = 0 { didSet { update() } }
 
-    override func draw(_ dirtyRect: NSRect) {
+    // Layers, not draw(_:). The halo used to be an NSShadow cast twice by a stroked path inside
+    // draw(_:), re-rasterised on the CPU at every change — 4–7 ms per frame of a live resize,
+    // measured, the costliest thing Mosaic painted. As CAShapeLayers with a shadowPath the glow
+    // is composited on the GPU: a move or a resize updates a path, nothing is rasterised here.
+    private let preselectLayer = CALayer()
+    private let glowLayers = [CAShapeLayer(), CAShapeLayer()]   // two, like the two strokes before
+    private let borderLayer = CAShapeLayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .never
+        guard let root = layer else { return }
+        root.addSublayer(preselectLayer)
+        for g in glowLayers {
+            g.fillColor = nil
+            g.shadowOffset = .zero
+            g.shadowOpacity = 0.85
+            root.addSublayer(g)
+        }
+        borderLayer.fillColor = nil
+        root.addSublayer(borderLayer)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() { super.layout(); update() }
+
+    /// Re-derive every layer from the current bounds + config. No implicit animations: a focus
+    /// jump is handled by the window cross-fade, and an animated path would be a travelling shape.
+    func update() {
+        CATransaction.begin(); CATransaction.setDisableActions(true); defer { CATransaction.commit() }
         let thickness = CGFloat(Config.shared.borderWidth)
         let radius = CGFloat(Config.shared.borderCornerRadius)
         let accent = Config.shared.borderNSColor
@@ -138,37 +167,41 @@ private final class BorderView: NSView {
 
         // Preselect cue: tint the half where the next window will land (Cocoa y=0 = bottom).
         if let ps = preselect {
-            accent.withAlphaComponent(0.28).setFill()
             let half = ps ? NSRect(x: edge.minX, y: edge.minY, width: edge.width, height: edge.height / 2)
                           : NSRect(x: edge.midX, y: edge.minY, width: edge.width / 2, height: edge.height)
-            NSBezierPath(rect: half.insetBy(dx: thickness, dy: thickness)).fill()
+            preselectLayer.frame = half.insetBy(dx: thickness, dy: thickness)
+            preselectLayer.backgroundColor = accent.withAlphaComponent(0.28).cgColor
+            preselectLayer.isHidden = false
+        } else {
+            preselectLayer.isHidden = true
         }
 
         // Border — thickened + brightened for a one-shot pulse, drawn INSET by its own
         // half-width so a wide pulse never clips against the window edge.
         let lineWidth = thickness + pulse * Config.shared.focusPulseWidth
-        let path = NSBezierPath(roundedRect: edge.insetBy(dx: lineWidth / 2, dy: lineWidth / 2),
-                                xRadius: radius, yRadius: radius)
-        path.lineWidth = lineWidth
+        let path = CGPath(roundedRect: edge.insetBy(dx: lineWidth / 2, dy: lineWidth / 2),
+                          cornerWidth: radius, cornerHeight: radius, transform: nil)
 
-        // Soft accent halo: cast the border's own shadow (no offset) so it blooms outward into the
-        // padding. Two passes deepen the bloom. Skipped entirely when the halo is off (inset == 0).
-        if glowInset > 0 {
-            NSGraphicsContext.saveGraphicsState()
-            let sh = NSShadow()
-            sh.shadowColor = accent.withAlphaComponent(0.85)
-            sh.shadowBlurRadius = glowBlur
-            sh.shadowOffset = .zero
-            sh.set()
-            accent.setStroke()
-            path.stroke()
-            path.stroke()
-            NSGraphicsContext.restoreGraphicsState()
+        // Soft accent halo: the stroke's own shadow (no offset) blooming outward into the padding.
+        // The shadowPath is the stroke's outline, so the blur hugs the line rather than the fill.
+        let glowOn = glowInset > 0
+        for g in glowLayers {
+            g.isHidden = !glowOn
+            guard glowOn else { continue }
+            g.frame = bounds
+            g.path = path
+            g.lineWidth = lineWidth
+            g.strokeColor = accent.cgColor
+            g.shadowColor = accent.cgColor
+            g.shadowRadius = glowBlur
+            g.shadowPath = path.copy(strokingWithWidth: lineWidth, lineCap: .butt, lineJoin: .miter, miterLimit: 10)
         }
 
         // Crisp border on top (brightened during a one-shot pulse).
         let stroke = pulse > 0 ? (accent.blended(withFraction: 0.45 * pulse, of: .white) ?? accent) : accent
-        stroke.setStroke()
-        path.stroke()
+        borderLayer.frame = bounds
+        borderLayer.path = path
+        borderLayer.lineWidth = lineWidth
+        borderLayer.strokeColor = stroke.cgColor
     }
 }
