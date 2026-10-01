@@ -91,6 +91,10 @@ final class TabBarView: NSView {
         // colour over it so the strip reads as "ours" rather than a neutral system grey.
         Config.color(from: cfg.tabBarColor).withAlphaComponent(0.22).setFill()
         bounds.fill()
+        // A one-pixel lighter line along the top: the lit edge a frosted sheet has where it meets
+        // the window above it. Reads as glass rather than a flat tinted band; costs nothing.
+        NSColor.white.withAlphaComponent(0.09).setFill()
+        NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: 1).fill()
         if isStackedRows { drawStacked() } else { drawHorizontal() }
     }
 

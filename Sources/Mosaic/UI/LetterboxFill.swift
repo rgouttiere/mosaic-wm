@@ -24,7 +24,16 @@ final class LetterboxFill {
         if !stale, w.isVisible, w.frame == rect { return }   // steady bar: no re-frame, no re-ordering
         w.setFrame(rect, display: false)   // a size change repaints the view; a steady bar re-draws nothing
         if stale { w.contentView?.needsDisplay = true }   // letterboxStyle / accent changed
-        w.orderFrontRegardless()
+        // A bar that was not up fades in where it lands (a zoom, a tile that just became
+        // letterboxed) instead of popping; one already up just moves. In place, honours Reduce Motion.
+        if w.isVisible || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            w.alphaValue = 1
+            w.orderFrontRegardless()
+        } else {
+            w.alphaValue = 0
+            w.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.12; w.animator().alphaValue = 1 }
+        }
     }
 
     /// Repaint every bar on the next pass — the style or the accent colour changed.

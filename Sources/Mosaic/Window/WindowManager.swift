@@ -128,6 +128,8 @@ final class WindowManager {
     /// removed within ~0.25s instead of lingering until the next window event.
     /// Pending named deferred steps — see `later(_:in:whileSuspended:acrossSleep:_:)`.
     var deferredByName: [String: DispatchWorkItem] = [:]
+    var bootSettled = false          // set once the 20 s boot settle has run
+    var pulseOnNextRender = false    // a window was just inserted: pulse the halo once it is placed
     /// Guards reconcile against re-entrancy (all triggers are on the main queue, but this
     /// makes it impossible for a nested call to corrupt the tree mid-pass).
     var isReconciling = false
@@ -436,6 +438,7 @@ final class WindowManager {
         // Stop routing late-launching apps to their saved workspace after a grace window, so
         // windows opened deliberately later go to the active workspace as normal.
         later("bootSettle", in: 20, whileSuspended: true, acrossSleep: true) { wm in
+            wm.bootSettled = true
             wm.restoreHints.removeAll()
             // Boot is over. It places every window in SEVERAL rounds by design (the eager restore,
             // then the display-set settle re-asserting everything), and an aspect-fit window is

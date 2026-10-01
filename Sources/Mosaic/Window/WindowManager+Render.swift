@@ -379,6 +379,7 @@ extension WindowManager {
         Perf.span("render.decorate") { decorateTiles() }   // permanent borders + letterbox gap fill
         Perf.span("render.dimBars") { dimInactiveMonitorTabBars() }   // fade strips off the focused monitor
         Perf.span("render.focusHalo") { updateFocusIndicator(onScreen: onScreen) }   // halo LAST, on top
+        if pulseOnNextRender { pulseOnNextRender = false; focusIndicator.pulse() }   // a window just arrived here
 
         // While the scratchpad is up, keep the tiles' overlays hidden so nothing floats
         // over it (a reconcile-triggered render would otherwise re-show them).

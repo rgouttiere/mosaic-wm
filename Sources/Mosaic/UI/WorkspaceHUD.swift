@@ -73,6 +73,19 @@ final class WorkspaceHUD {
                 ctx.duration = 0.15
                 window.animator().alphaValue = 1
             }
+            // …and a settle from 0.97 to 1, about its own centre — the exposé's bloom, smaller.
+            if let layer = effect.layer {
+                let c = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+                func scaled(_ k: CGFloat) -> CATransform3D {
+                    var t = CATransform3DTranslate(CATransform3DIdentity, c.x, c.y, 0)
+                    t = CATransform3DScale(t, k, k, 1)
+                    return CATransform3DTranslate(t, -c.x, -c.y, 0)
+                }
+                let a = CABasicAnimation(keyPath: "transform")
+                a.fromValue = scaled(0.97); a.toValue = scaled(1.0); a.duration = 0.15
+                a.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                layer.add(a, forKey: "hudSettle")
+            }
         }
 
         hideWork?.cancel()

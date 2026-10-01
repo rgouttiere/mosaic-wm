@@ -559,6 +559,7 @@ extension WindowManager {
 
         let leaf = Container(window: window)
         let ws = activeSpaceID.map { "ws\($0)" } ?? "ws?"
+        pulseOnNextRender = bootSettled   // the eye finds the new tile; silent during the boot rounds
         guard root != nil else {
             self.root = leaf; focused = leaf
             Log.event("insert \(window.logLabel) → \(ws) as root")
