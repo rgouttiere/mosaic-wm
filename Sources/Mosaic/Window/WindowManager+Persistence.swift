@@ -142,17 +142,23 @@ extension WindowManager {
         let fm = FileManager.default
         let prev = stateURL.deletingLastPathComponent().appendingPathComponent("state.json.prev")
         guard fm.fileExists(atPath: stateURL.path) else { return }
-        if let attrs = try? fm.attributesOfItem(atPath: prev.path),
-           let modified = attrs[.modificationDate] as? Date,
-           Date().timeIntervalSince(modified) < 1800 { return }   // half an hour
+        let age = ((try? fm.attributesOfItem(atPath: prev.path))?[.modificationDate] as? Date)
+            .map { Date().timeIntervalSince($0) } ?? .infinity
+        if age < 1800 { return }   // half an hour
         // And never let a SHRINKING layout overwrite the copy. Losing windows is the event this
         // exists to survive, so the backup holds until the live layout is at least as full as the
         // one it already has — otherwise the good version is gone before anyone notices the damage,
         // which is exactly what happened the one time it was needed.
-        guard windowCount >= savedWindowCount(in: prev) else { return }
+        //
+        // Unless the copy is a DAY old. The same guard froze the backup for two days simply because
+        // the user had closed two windows (12 in the copy, 10 live — `doctor` showed "backup 57 h
+        // ago", 2026-10-01): a safety net meant to be minutes behind that has fallen a day behind
+        // protects nothing, and a layout that has looked that way for a day is the layout.
+        let stale = age > 86400
+        guard stale || windowCount >= savedWindowCount(in: prev) else { return }
         try? fm.removeItem(at: prev)
         try? fm.copyItem(at: stateURL, to: prev)
-        Log.event("state backup rolled (\(windowCount) windows)")
+        Log.event("state backup rolled (\(windowCount) windows\(stale ? ", day-old copy replaced" : ""))")
     }
 
     private func savedWindowCount(in url: URL) -> Int {
