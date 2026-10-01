@@ -129,9 +129,10 @@ extension WindowManager {
 
     func tick() {
         guard !suspended else { return }
-        checkSpaceChange()
-        enforceFullscreenRules()
-        enforceEmulatedFullscreen()
+        let __perf = DispatchTime.now(); defer { Perf.record("tick", since: __perf) }
+        Perf.span("tick.spaceChange") { checkSpaceChange() }
+        Perf.span("tick.fsRules") { enforceFullscreenRules() }
+        Perf.span("tick.emulatedFS") { enforceEmulatedFullscreen() }
         reconcile()
     }
 
@@ -320,8 +321,9 @@ extension WindowManager {
         isReconciling = true
         let __perf = DispatchTime.now(); defer { Perf.record("reconcile", since: __perf) }
         defer { isReconciling = false }
-        let onScreen = AX.onScreenWindowIDs()
-        dedupTrees()
+        let onScreen = Perf.span("reconcile.onScreenIDs") { AX.onScreenWindowIDs() }
+        Perf.span("reconcile.dedup") { dedupTrees() }
+        let __resolve = DispatchTime.now()
 
         var aliveTreeIDs = Set<CGWindowID>()          // ids we must not re-add as "new" (incl. a stale leaf's, during grace)
         var aliveConfirmedIDs = Set<CGWindowID>()     // ids we POSITIVELY resolved as alive — for switch-detection only
@@ -361,6 +363,7 @@ extension WindowManager {
                 if let cached = w.lastKnownID { aliveTreeIDs.insert(cached) }   // keep during grace
             }
         }
+        Perf.record("reconcile.resolveIDs", since: __resolve)   // one AX round trip per leaf, every tick
 
         // None of our windows visible → we've switched desktops; leave it untouched.
         // Gate on POSITIVELY-alive ids only, never aliveTreeIDs: a stale leaf (a just-closed window,
@@ -378,8 +381,9 @@ extension WindowManager {
         // captureWindows for the new active screen — leaving a window that opened on a NON-active
         // monitor unadopted when you move there (captureWindows only ever sees the active screen).
         if deadLeaves.isEmpty, staleLeaves.isEmpty,
-           onScreen == lastReconcileOnScreen, activeSpaceID == lastReconcileSpaceID { return }
+           onScreen == lastReconcileOnScreen, activeSpaceID == lastReconcileSpaceID { Perf.count("reconcile.fastPath"); return }
         lastReconcileOnScreen = onScreen
+        let __full = DispatchTime.now(); defer { Perf.record("reconcile.full", since: __full) }   // the slow path: capture + adopt + purge
         lastReconcileSpaceID = activeSpaceID
 
         let windows = captureWindows(on: screen, onScreen: onScreen)   // reuse this pass's enumeration

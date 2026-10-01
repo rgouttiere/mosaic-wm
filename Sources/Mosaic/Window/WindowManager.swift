@@ -451,9 +451,11 @@ final class WindowManager {
         // RunLoop.add, not scheduledTimer which is .default only) so the poll keeps firing while
         // a status-bar menu or modal holds a nested run loop.
         let timer = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in
-            self?.checkSpaceChange()
-            self?.sweepOrphanStrips()   // catch stray tab bars even without a render
-            self?.purgeVisibleGhosts()  // clean dead tiles on visible, non-active monitors
+            guard let self else { return }
+            let __perf = DispatchTime.now(); defer { Perf.record("timer", since: __perf) }   // the idle cost, 2.5×/s
+            Perf.span("timer.spaceChange") { self.checkSpaceChange() }
+            Perf.span("timer.sweepStrips") { self.sweepOrphanStrips() }   // catch stray tab bars even without a render
+            Perf.span("timer.purgeGhosts") { self.purgeVisibleGhosts() }  // clean dead tiles on visible, non-active monitors
             Perf.dumpIfDue()            // opt-in timing summary (no-op unless enabled)
         }
         RunLoop.main.add(timer, forMode: .common)

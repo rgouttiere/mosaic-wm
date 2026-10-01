@@ -126,6 +126,7 @@ enum AX {
     /// to start the app.
     static func windowID(_ element: AXUIElement) -> CGWindowID? {
         guard let get = PrivateAPI.axGetWindow else { return nil }
+        Perf.count("ax.windowID")
         var wid = CGWindowID(0)
         return get(element, &wid) == .success ? wid : nil
     }
