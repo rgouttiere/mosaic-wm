@@ -109,7 +109,8 @@ mosaic focus-left        # same as the ⌘⌥← binding
 mosaic workspace-3       # jump to workspace 3
 mosaic swap-up           # swap with the window above
 mosaic toggle-stacked
-mosaic dump-layout       # write /tmp/mosaic-dump.txt (invariant verdict + the last 40 decisions: inserts, drops, switches, restores…)
+mosaic dump-layout       # print the layout dump (tree, borders, invariant verdict, the last 40 decisions) — also left in /tmp/mosaic-dump.txt
+mosaic doctor            # health report: signature, Accessibility (granted AND effective), Screen Recording, private API, invariants, state age, last crash
 mosaic --dump-config     # every effective config value, sorted — what is really in force
 MOSAIC_CONFIG=other.json mosaic --dump-config   # …for any file, without touching yours
 tail -f ~/.config/mosaic/mosaic.log            # the same decision log, live — why a window landed where it did
@@ -146,7 +147,7 @@ sketchybar --set "$NAME" label="$FOCUSED"        # or loop over `mosaic query wo
 
 Two config keys have to agree with the bar itself: **`externalBarTop`** reserves its height at the top of every screen, and **`notchBarOffset`** (default `40`) adds the extra reserve on a **sole** notched built-in display, where such a bar is shifted below the notch — it must match the offset the bar uses there, or you get a gap or an overlap.
 
-`mosaic query` prints the whole of `status.json` when given no argument, which also carries `coveredDisplays` (monitors taken over by a full-screen game) if you want the bar to get out of the way as well.
+`mosaic query` prints the whole of `status.json` when given no argument, which also carries `coveredDisplays` (monitors taken over by a full-screen game), and the health fields `managed` (windows in Mosaic's trees), `appWindows` (real app windows on screen) and `healthy` — `managed: 0` with `appWindows` high means the Accessibility grant does not apply to this build (see `mosaic doctor`) if you want the bar to get out of the way as well.
 
 ## Menu bar (▦)
 

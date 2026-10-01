@@ -1,0 +1,69 @@
+import AppKit
+import Security
+
+/// The facts a health report is made of — each one something that failed SILENTLY once.
+///
+/// A signature that fell back to ad-hoc left Mosaic running with an Accessibility grant that no
+/// longer applied: every AX enumeration came back empty and it managed zero windows for ten minutes
+/// without a word (2026-10-01). A SIGSEGV at wake left the desktop without a window manager until
+/// morning. Nothing here is new information to the system; it is just never put in one place.
+enum Health {
+    /// The common name of the certificate the running bundle is signed with, "ad-hoc" when the
+    /// signature carries no certificate, "unsigned"/"unknown" otherwise. Presence of the stable
+    /// identity is what keeps the Accessibility grant across rebuilds.
+    static func signatureAuthority() -> String {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(Bundle.main.bundleURL as CFURL, [], &code) == errSecSuccess,
+              let code else { return "unknown" }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any] else { return "unsigned" }
+        if let certs = dict[kSecCodeInfoCertificates as String] as? [SecCertificate], let first = certs.first,
+           let name = SecCertificateCopySubjectSummary(first) as String? {
+            return name
+        }
+        return "ad-hoc"
+    }
+
+    static func accessibilityTrusted() -> Bool { AXIsProcessTrusted() }
+
+    /// Screen Recording, which the exposé previews need. Preflight only — never prompts.
+    static func screenRecordingGranted() -> Bool { CGPreflightScreenCaptureAccess() }
+
+    /// On-screen windows that belong to ordinary, un-hidden apps other than us and are big enough to
+    /// be real windows. Compared with the managed count, this is the only test that tells an
+    /// Accessibility grant that APPLIES from one that merely exists.
+    static func foreignAppWindows(_ snapshot: [(id: CGWindowID, pid: pid_t, bounds: CGRect)]) -> Int {
+        let mine = ProcessInfo.processInfo.processIdentifier
+        var policy: [pid_t: Bool] = [:]
+        func regular(_ pid: pid_t) -> Bool {
+            if let known = policy[pid] { return known }
+            let app = NSRunningApplication(processIdentifier: pid)
+            let ok = app?.activationPolicy == .regular && app?.isHidden == false
+            policy[pid] = ok
+            return ok
+        }
+        return snapshot.filter { $0.pid != mine && $0.bounds.width >= 200 && $0.bounds.height >= 200 && regular($0.pid) }.count
+    }
+
+    /// The newest crash report of ours: when, what, which file. nil when there is none.
+    static func lastCrash() -> String? {
+        let fm = FileManager.default
+        let dir = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/DiagnosticReports")
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return nil }
+        func modified(_ u: URL) -> Date { (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast }
+        let mine = files.filter { $0.lastPathComponent.hasPrefix("Mosaic-") && $0.pathExtension == "ips" }
+        guard let newest = mine.max(by: { modified($0) < modified($1) }) else { return nil }
+        var when = newest.lastPathComponent, what = ""
+        if let text = try? String(contentsOf: newest, encoding: .utf8) {
+            let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+            if let hdr = (try? JSONSerialization.jsonObject(with: Data(parts[0].utf8))) as? [String: Any],
+               let ts = hdr["timestamp"] as? String { when = ts }
+            if parts.count > 1, let body = (try? JSONSerialization.jsonObject(with: Data(parts[1].utf8))) as? [String: Any],
+               let ex = body["exception"] as? [String: Any] {
+                what = " \(ex["type"] ?? "") \(ex["signal"] ?? "")"
+            }
+        }
+        return "\(when)\(what) — \(newest.lastPathComponent)"
+    }
+}

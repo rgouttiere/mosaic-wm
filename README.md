@@ -24,7 +24,8 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 - **Survives dock/undock & reboot** — layouts persist keyed by a stable per-monitor fingerprint.
 - **Panic recovery** (`recover`, ⌘⌥⇧↩) — one key to heal a layout that looks lost: un-minimize, un-strand, re-place every workspace. Nothing is destroyed, only re-placed. `mosaic dump-layout` reports on itself too, ending with an invariant verdict rather than a wall of numbers to read by hand, followed by the last decisions that led there (which branch placed a window and why, drops, switches, restore counts) — the same always-on log as `~/.config/mosaic/mosaic.log`.
 - **Live JSON config** — modes, gaps, styling, per-app rules, keybindings; **auto-reloads on save** (no restart).
-- **CLI** — every action is scriptable via `mosaic <action>` (e.g. `mosaic workspace-3`), sketchybar/automation-friendly.
+- **CLI** — every action is scriptable via `mosaic <action>` (e.g. `mosaic workspace-3`), sketchybar/automation-friendly. `mosaic doctor` prints a health report (is the bundle signed with the stable identity, is Accessibility granted *and effective*, Screen Recording, private symbols, invariants, state age, last crash); `mosaic dump-layout` prints the layout dump.
+- **Self-check** — every 30 s Mosaic compares the windows it manages with the app windows on screen: a grant that no longer applies (an ad-hoc-signed rebuild) shows as `▦!` in the menu bar, one alert, and `"healthy": false` in `status.json` — instead of a desktop that quietly stopped tiling.
 - Keeps **SIP enabled**; runs as a menu-bar accessory app (**▦**).
 
 ## Why another one?

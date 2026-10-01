@@ -20,7 +20,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         requestAccessibilityIfNeeded()
         setupStatusItem()
         windowManager.onWorkspaceChanged = { [weak self] number in
-            self?.statusItem.button?.title = number.map { "▦\($0)" } ?? "▦"
+            self?.shownNumber = number; self?.refreshStatusTitle()
+        }
+        windowManager.onHealthChanged = { [weak self] issue in
+            guard let self else { return }
+            self.healthIssue = issue; self.refreshStatusTitle()
+            guard let issue, !self.healthAlertShown else { return }
+            self.healthAlertShown = true   // once per process: the icon keeps saying it afterwards
+            let alert = NSAlert()
+            alert.alertStyle = .critical
+            alert.messageText = "Mosaic is not managing your windows"
+            alert.informativeText = issue + "\n\n`mosaic doctor` has the full report."
+            alert.addButton(withTitle: "OK")
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
         }
         setupHotkeys()
         setupCmdTabTap()
@@ -108,6 +121,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: Menu bar
+
+    private var shownNumber: Int?
+    private var healthIssue: String?
+    private var healthAlertShown = false
+
+    /// "▦3" normally; "▦!" while the self-check says the grant does not apply — a state that used
+    /// to be invisible until you noticed nothing was tiling.
+    private func refreshStatusTitle() {
+        let number = shownNumber.map(String.init) ?? ""
+        statusItem.button?.title = healthIssue == nil ? "▦\(number)" : "▦!\(number)"
+        statusItem.button?.toolTip = healthIssue ?? "Mosaic"
+    }
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -209,6 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("scratchpad-release", "Release scratchpad", #selector(scratchpadRelease)),
             ("recover", "Recover windows (heal)", #selector(recoverWindows)),
             ("dump-layout", "Dump layout (debug → /tmp/mosaic-dump.txt)", #selector(dumpLayout)),
+            ("doctor", "Doctor (health report → /tmp/mosaic-doctor.txt)", #selector(runDoctor)),
         ]
         for entry in clickable2 {
             let combo = MenuFormat.combo(bindings[entry.action])
@@ -308,6 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func clearLayout() { windowManager.clear() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.shared.configURL) }
     @objc private func dumpLayout() { windowManager.dumpLayout() }
+    @objc private func runDoctor() { windowManager.doctor() }
 
     // MARK: Global hotkeys
 
@@ -379,6 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "recover": { wm.recover() },
             "reload-config": { [weak self] in self?.reloadConfig() },
             "dump-layout": { wm.dumpLayout() },
+            "doctor": { wm.doctor() },
         ]
         // i3-style numbered workspaces: ⌘⌥N switch, ⌘⌥⇧N move focused window.
         for n in 1...9 {

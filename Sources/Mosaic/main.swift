@@ -19,8 +19,28 @@ if let verb = cliArgs.first {
         Config.shared.load()
         print("Mosaic — usage: mosaic <action> | mosaic query [focused|workspaces]\n\nActions:")
         for key in Config.shared.keybindings.keys.sorted() { print("  \(key)") }
-        print("  reload-config\n  dump-layout")
+        print("  reload-config\n  dump-layout\n  doctor")
         exit(0)
+    }
+    // `mosaic doctor` / `mosaic dump-layout`: the app writes a file; wait for it to change and print
+    // it, so the report lands in the terminal (and in a pipe) instead of behind a `cat`.
+    if verb == "doctor" || verb == "dump-layout" {
+        let path = verb == "doctor" ? "/tmp/mosaic-doctor.txt" : "/tmp/mosaic-dump.txt"
+        func modified() -> Date? { (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date }
+        let before = modified()
+        DistributedNotificationCenter.default().postNotificationName(
+            NSNotification.Name(mosaicCommandNotification),
+            object: nil, userInfo: ["command": verb], deliverImmediately: true)
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            usleep(50_000)
+            if let now = modified(), now != before, let text = try? String(contentsOfFile: path, encoding: .utf8) {
+                print(text, terminator: text.hasSuffix("\n") ? "" : "\n")
+                exit(0)
+            }
+        }
+        FileHandle.standardError.write(Data("mosaic: no answer from the running app — is Mosaic running?\n".utf8))
+        exit(1)
     }
     // `mosaic query [focused|workspaces]` — read the state Mosaic publishes to status.json.
     if verb == "query" {

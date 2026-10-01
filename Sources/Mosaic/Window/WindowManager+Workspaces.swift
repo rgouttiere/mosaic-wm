@@ -578,6 +578,12 @@ extension WindowManager {
             // Displays a game has taken over, so an external bar can drop below it (sketchybar:
             // `--bar topmost=off`) the same way we stand our own overlays down.
             "coveredDisplays": coveredDisplays().sorted().map { Int($0) },
+            // Health, for a bar that wants a red light: `managed` is how many windows sit in our
+            // trees, `appWindows` how many real app windows are on screen; both zero is a quiet
+            // desktop, managed zero with appWindows high is a grant that does not apply.
+            "managed": managedWindowCount,
+            "appWindows": Health.foreignAppWindows(onScreenSnapshot(maxAge: 1)),
+            "healthy": healthIssue == nil,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict,
                                                      options: [.prettyPrinted, .sortedKeys]) else { return }
