@@ -44,6 +44,7 @@ final class TabBarWindow: NSWindow {
 
     /// `cocoaFrame` is in Cocoa (bottom-left) coordinates.
     func place(at cocoaFrame: NSRect) {
+        if isVisible, frame == cocoaFrame { return }   // steady strip: no re-frame, no re-ordering
         setFrame(cocoaFrame, display: true)
         effect.frame = NSRect(origin: .zero, size: cocoaFrame.size)
         effect.layer?.cornerRadius = CGFloat(Config.shared.tabCornerRadius)

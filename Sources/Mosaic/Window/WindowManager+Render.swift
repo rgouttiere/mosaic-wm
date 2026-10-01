@@ -583,6 +583,16 @@ extension WindowManager {
         updateFocusIndicator()
     }
 
+    /// The live-resize form: only MOVE a halo that is already up. Whether the focused window is on
+    /// screen, covered by a game, or hidden behind a screenshot tool was settled by the full render
+    /// that showed it and cannot change mid-drag — yet re-deciding it cost a window-list refresh and
+    /// a frontmost-app lookup per frame, twice the price of drawing the glow itself (measured).
+    func moveFocusIndicatorLive() {
+        guard focusIndicator.isShowing, let w = focused?.window, let frame = w.frame else { return }
+        let ps: Bool? = (preselect?.leaf === focused) ? preselect?.vertical : nil
+        focusIndicator.show(around: Geometry.flip(frame), preselect: ps)
+    }
+
     func updateFocusIndicator(onScreen: Set<CGWindowID>? = nil) {
         // The focus contour re-shows from many paths (focus sync, mouse, reconcile); stand all of
         // them down while a screenshot tool is up, else the border creeps back over its overlay.
@@ -597,9 +607,10 @@ extension WindowManager {
         // Focus never moves to an unmanaged window, so without this the halo stays pinned to the
         // last managed tile — tracing the screen edge over the game — for as long as you play.
         if let w = focused?.window, let frame = w.frame, !w.isFullscreen,
-           let id = AX.windowID(w.element), (onScreen ?? AX.onScreenWindowIDs()).contains(id),
+           let id = w.lastKnownID ?? AX.windowID(w.element),   // cached id: the live pass runs this every frame
+           (onScreen ?? AX.onScreenWindowIDs()).contains(id),
            !isCovered(cocoaRect: Geometry.flip(frame)) {
-            focusIndicator.show(around: Geometry.flip(frame), preselect: ps)
+            Perf.span("halo.show") { focusIndicator.show(around: Geometry.flip(frame), preselect: ps) }
         } else {
             focusIndicator.hide()
         }

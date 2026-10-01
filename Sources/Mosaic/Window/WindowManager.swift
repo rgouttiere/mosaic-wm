@@ -420,6 +420,7 @@ final class WindowManager {
     /// and re-render (gaps, tab-bar height & rules are read live from Config).
     func reloadConfig() {
         floatingApps = Config.shared.floatingApps
+        windowBorders.invalidateAll(); letterbox.invalidateAll()   // colour / width / style may have changed
         render()                   // re-arrange the active workspace with new gap / bar / shade
         reassertAllWorkspaces()    // park / re-tile every other workspace under the new geometry
         // Workspace names may have changed → republish status.json and fire the hook so

@@ -193,17 +193,18 @@ extension WindowManager {
     func renderLive() {
         let __perf = DispatchTime.now(); defer { Perf.record("renderLive", since: __perf) }
         ManagedWindow.RenderEpoch.begin()
+        ManagedWindow.liveResize = true; defer { ManagedWindow.liveResize = false }
         guard let root, let screen = activeScreen else { return }
-        root.arrange(in: layoutRect(screen), visibleOnly: true)
-        parkHiddenTabsLive(on: screen)
-        refreshAspectRatios()   // keep IINA fit+centred as the tile shrinks/grows
-        layoutResizeHandles()
+        Perf.span("live.arrange") { root.arrange(in: layoutRect(screen), visibleOnly: true) }
+        Perf.span("live.parkHidden") { parkHiddenTabsLive(on: screen) }
+        Perf.span("live.aspect") { refreshAspectRatios() }   // keep IINA fit+centred as the tile shrinks/grows
+        Perf.span("live.handles") { layoutResizeHandles() }
         // Borders + letterbox in one pass: borders follow the moving edges, and the gap fill runs
         // live too — a growing tile outruns the async AX resize, and the uncovered slice would
         // otherwise flash the parked window / wallpaper underneath (throttled by scheduleLiveRender).
-        updateScrims()
-        decorateTiles()
-        updateFocusIndicator()  // halo on top
+        Perf.span("live.scrims") { updateScrims() }
+        Perf.span("live.decorate") { decorateTiles() }
+        Perf.span("live.halo") { moveFocusIndicatorLive() }  // halo on top
     }
 
     /// During a live resize, shove EVERY hidden tab (any app) off-screen so nothing peeks out from

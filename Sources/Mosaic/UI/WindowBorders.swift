@@ -8,8 +8,12 @@ import AppKit
 final class WindowBorders {
     private var pool: [NSWindow] = []
     private var used = 0
+    private var stale = false   // set by invalidateAll: the next pass redraws every border
 
     func begin() { used = 0 }
+
+    /// Force a redraw of every border on the next pass — the colour, width or radius changed.
+    func invalidateAll() { stale = true }
 
     /// Draw a dim border framing `cocoaFrame` (a window's frame, Cocoa coords). `dim` fades it
     /// further, for tiles on a monitor that doesn't have keyboard focus.
@@ -18,9 +22,16 @@ final class WindowBorders {
         let w: NSWindow
         if used < pool.count { w = pool[used] } else { w = makeBorder(); pool.append(w) }
         used += 1
+        let view = w.contentView as? InactiveBorderView
+        // Same frame, same dim, already up: nothing to do. During a live resize only the two
+        // tiles at the divider move, yet this ran for every tile on every shown monitor at the
+        // live cadence — a setFrame, a full redraw and a window-server ordering per border, per
+        // frame. Slots are index-based and the tile order is stable through a drag, so slot i is
+        // the same tile from one pass to the next.
+        if !stale, w.isVisible, w.frame == cocoaFrame, view?.dimmed == dim { return }
         w.setFrame(cocoaFrame, display: false)
         w.contentView?.frame = NSRect(origin: .zero, size: cocoaFrame.size)
-        (w.contentView as? InactiveBorderView)?.dimmed = dim
+        view?.dimmed = dim
         w.contentView?.needsDisplay = true   // pick up size / config-colour changes
         // A border that was not on screen fades in, in place (a switch hides them all first, so the
         // whole set appears as one). One already showing just moves — a live resize never fades.
@@ -34,7 +45,10 @@ final class WindowBorders {
         }
     }
 
-    func end() { for i in used..<pool.count { pool[i].orderOut(nil) } }
+    func end() {
+        for i in used..<pool.count { pool[i].orderOut(nil) }
+        stale = false
+    }
     func hideAll() { for w in pool { w.orderOut(nil) }; used = 0 }
 
     private func makeBorder() -> NSWindow {

@@ -371,9 +371,14 @@ final class Container {
             let strip = NSRect(x: rect.minX, y: rect.maxY - tabBarHeight, width: rect.width, height: tabBarHeight)
             bar.tabView.vertical = false
             bar.tabView.rows = []
-            bar.tabView.titles = children.map { $0.title }
-            bar.tabView.icons = children.map { $0.appIcon }
-            bar.tabView.pipFlags = children.map { $0.containsPiPSource }
+            // Titles are AX reads — one synchronous round trip per tab, into the app. At the live
+            // cadence of a resize that was every tab, every frame, for text that cannot change
+            // mid-drag; the full render at settle (and the title observer) keep them fresh.
+            if !visibleOnly {
+                bar.tabView.titles = children.map { $0.title }
+                bar.tabView.icons = children.map { $0.appIcon }
+                bar.tabView.pipFlags = children.map { $0.containsPiPSource }
+            }
             bar.tabView.selectedIndex = selected
             bar.place(at: strip)
         }

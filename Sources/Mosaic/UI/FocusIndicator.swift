@@ -8,6 +8,8 @@ final class FocusIndicator {
     private let window: BorderWindow
     private let ghost = BorderWindow()   // lingers the OLD halo at its old spot and dissolves it
     private var lastCocoaFrame: NSRect = .zero
+    private var lastPreselect: Bool?? = .none   // what the halo currently shows (nil = no preselect)
+    private var lastGlow: CGFloat = -1
 
     init() {
         window = BorderWindow()
@@ -24,6 +26,11 @@ final class FocusIndicator {
         // g-wide margin would clip its soft tail into a hard seam. Give it half again as much room.
         let pad = (g * 1.5).rounded(.up)
         let outer = cocoaFrame.insetBy(dx: -pad, dy: -pad)
+        // Same place, same look, already up: nothing to draw. The live-resize pass calls this
+        // every frame for the focused tile even when the divider being dragged is elsewhere, and
+        // the Gaussian glow is the costliest thing we paint.
+        if window.isVisible, window.frame == outer, lastPreselect == preselect, lastGlow == g { return }
+        lastPreselect = preselect; lastGlow = g
 
         // Fade the border in when focus JUMPS to a different window (not on a mere resize of the
         // same one) — an in-place cross-fade, never a travelling rectangle. Honour Reduce Motion.
@@ -77,6 +84,8 @@ final class FocusIndicator {
     func hide() {
         window.orderOut(nil)
     }
+
+    var isShowing: Bool { window.isVisible }
 
     /// One-shot glow around the focused window (e.g. after a workspace switch) to draw the
     /// eye to what's now focused. Ramps a translucent halo down to nothing over ~0.25s.

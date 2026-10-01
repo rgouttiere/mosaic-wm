@@ -153,16 +153,29 @@ final class ManagedWindow {
         }
         // Our last accepted write is the best free estimate of where the window is now; fall back to
         // the (50ms-cached) live read when we have none, e.g. right after invalidateFrameCache.
-        if AX.setFrame(element, axRect, current: lastSetFrame ?? frame) {
+        if Perf.span("ax.setFrame", { AX.setFrame(element, axRect, current: lastSetFrame ?? frame) }) {   // blocks until the app has relaid out
             lastSetFrame = axRect
+            if ManagedWindow.liveResize {
+                // Mid-drag: trust the write. The readback is a second synchronous round trip into the
+                // app — measured at 11 ms, the same as the write itself, so it doubled the cost of
+                // every live frame for a truth nobody looks at until the drag ends. Seeding the cache
+                // with the asked rect keeps the borders, shade and gap fill on the target geometry
+                // (where they belong while the app catches up); the settle pass re-reads every
+                // window for real (`learnResizeMins`) and the full render follows.
+                _ = cacheFrame(axRect)
+                return
+            }
             // Detect a min-size clamp: if the window came out wider/taller than we asked, that size
             // is a floor it won't go under — record it so the split solver reserves the room.
-            if let actual = cacheFrame(AX.frame(element))?.size {   // seeds the cache with the truth
+            if let actual = cacheFrame(Perf.span("ax.frameReadback") { AX.frame(element) })?.size {   // seeds the cache with the truth
                 if actual.width  > axRect.size.width  + 2 { learnedMin.width  = max(learnedMin.width,  actual.width) }
                 if actual.height > axRect.size.height + 2 { learnedMin.height = max(learnedMin.height, actual.height) }
             }
         }
     }
+
+    /// True while `renderLive` runs: frame writes skip their readback (see `setCocoaFrame`).
+    static var liveResize = false
 
     /// Which render pass we're in. Two frame writes to ONE window inside a single pass mean two
     /// passes are fighting over it: `arrange` placing a tile while a park pushed it away again was
@@ -189,6 +202,7 @@ final class ManagedWindow {
     func invalidateFrameCache() {
         lastSetFrame = nil
         frameCache = nil   // the system moved it behind our back: what we last read is suspect too
+        fullscreenCache = nil
     }
 
     /// Bring this window (and its app) to the front of the window stack.
@@ -214,5 +228,24 @@ final class ManagedWindow {
         app.activate()
     }
 
-    var isFullscreen: Bool { AX.isFullscreen(element) }
+    /// Cached like `frame`, for the same reason: every pass asks it for every visible leaf — the
+    /// decorations, the shade, the halo, the hidden-tab park — and each ask was a synchronous AX
+    /// round trip into the app. During a live resize that app is busy relaying out the window we
+    /// just wrote, so the read blocks until its main thread is free: 7–9 ms per overlay pass,
+    /// measured, for a state that cannot change mid-drag — so while a live resize runs the cached
+    /// answer is taken whatever its age (frames are further apart than the TTL). Outside a drag the
+    /// 50 ms TTL keeps the load-bearing rule intact (never raise a window that just went full
+    /// screen): a toggle is seen within a render, not within a frame.
+    var isFullscreen: Bool {
+        if let v = fullscreenCache,
+           Self.liveResize || Date().timeIntervalSince(fullscreenCacheTime) < Self.frameCacheTTL {
+            return v
+        }
+        Perf.count("ax.fullscreenRead")
+        let v = AX.isFullscreen(element)
+        fullscreenCache = v; fullscreenCacheTime = Date()
+        return v
+    }
+    private var fullscreenCache: Bool?
+    private var fullscreenCacheTime = Date.distantPast
 }

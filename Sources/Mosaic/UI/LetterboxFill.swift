@@ -10,6 +10,7 @@ import CoreText
 final class LetterboxFill {
     private var pool: [NSWindow] = []
     private var used = 0
+    private var stale = false
 
     /// Start a render pass — reset the claim counter.
     func begin() { used = 0 }
@@ -20,13 +21,19 @@ final class LetterboxFill {
         let w: NSWindow
         if used < pool.count { w = pool[used] } else { w = makeBar(); pool.append(w) }
         used += 1
+        if !stale, w.isVisible, w.frame == rect { return }   // steady bar: no re-frame, no re-ordering
         w.setFrame(rect, display: false)   // a size change repaints the view; a steady bar re-draws nothing
+        if stale { w.contentView?.needsDisplay = true }   // letterboxStyle / accent changed
         w.orderFrontRegardless()
     }
+
+    /// Repaint every bar on the next pass — the style or the accent colour changed.
+    func invalidateAll() { stale = true }
 
     /// Finish the pass — hide bars this render didn't claim.
     func end() {
         for i in used..<pool.count { pool[i].orderOut(nil) }
+        stale = false
     }
 
     func hideAll() { for w in pool { w.orderOut(nil) }; used = 0 }

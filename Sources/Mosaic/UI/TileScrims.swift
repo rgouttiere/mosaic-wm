@@ -4,8 +4,8 @@ import AppKit
 /// window, at `1 − inactiveOpacity`. This is the public-API form of the old window-alpha dimming.
 /// The window server stopped honouring `CGSSetWindowAlpha` on macOS 27 (the symbol resolves, the
 /// call returns success, the window keeps alpha 1.0 — measured), so the effect moved to our side of
-/// the glass. Same construction as the borders — borderless, `.floating`, ignores the mouse — and
-/// ordered BEFORE the borders of the same pass so the hairline stays crisp on top of the shade.
+/// the glass. Same construction as the borders — borderless, ignores the mouse — one window level
+/// under them, so the hairline stays crisp on top of the shade.
 ///
 /// Keyed by window id rather than pooled by index: a tile keeps its sheet across renders, so a focus
 /// change fades exactly one sheet out and one in, in place. Nothing travels.
@@ -21,7 +21,7 @@ final class TileScrims {
         touched.insert(id)
         let w: NSWindow
         if let existing = sheets[id] { w = existing } else { w = makeSheet(); sheets[id] = w }
-        w.setFrame(cocoaFrame, display: false)
+        if w.frame != cocoaFrame { w.setFrame(cocoaFrame, display: false) }   // steady tile: no re-frame
         w.contentView?.layer?.cornerRadius = CGFloat(Config.shared.borderCornerRadius)
         if w.isVisible {
             if abs(w.alphaValue - darkness) > 0.01 { w.alphaValue = darkness }   // config reload
@@ -63,7 +63,11 @@ final class TileScrims {
         win.isOpaque = false
         win.backgroundColor = .clear
         win.hasShadow = false
-        win.level = .floating
+        // One level under the other overlays (borders, strips, letterbox, halo all sit at
+        // .floating), still above every app window: the hairline and the tab bar stay crisp on top
+        // of the shade whatever order the windows were shown in — a sheet created on a focus change
+        // would otherwise land above its tile's border until the next full render re-fronted it.
+        win.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue - 1)
         win.ignoresMouseEvents = true
         win.collectionBehavior = [.ignoresCycle, .stationary]
         let v = NSView()
