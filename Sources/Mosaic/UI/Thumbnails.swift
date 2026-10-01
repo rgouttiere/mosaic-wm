@@ -4,12 +4,26 @@ import ScreenCaptureKit
 /// Live window previews for the exposé, captured via ScreenCaptureKit (CGWindowListCreateImage is
 /// obsoleted on macOS 15+). Needs the Screen Recording permission — the first capture triggers the
 /// system prompt for Mosaic, like Accessibility did. SCK captures PARKED (off-screen) windows with
-/// real, current content on Tahoe, so the exposé grabs everything live on open — no cache needed.
+/// real, current content on Tahoe, so the exposé re-grabs everything live on open.
 /// Gated by `exposeThumbnails`; when off or ungranted, the exposé falls back to schematic tiles.
 
-/// Shared, by-reference image store the exposé views read from as async captures land.
+/// The exposé's image store. Shared and PERSISTENT across exposé sessions: a fresh store per open
+/// meant every open started on schematic tiles and faded the previews in a few hundred ms later,
+/// every time. Kept, the next open draws the last capture of every window at once and refreshes
+/// behind it — and `WindowManager.warmThumbnails` re-captures the windows that are on a monitor a
+/// few seconds after each quiet render, so what it shows is rarely older than the last pause.
 final class ThumbnailStore {
-    var images: [CGWindowID: NSImage] = [:]
+    static let shared = ThumbnailStore()
+    private(set) var images: [CGWindowID: NSImage] = [:]
+
+    func set(_ cg: CGImage, for id: CGWindowID) {
+        images[id] = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+    }
+
+    /// Drop the previews of windows that are no longer managed.
+    func prune(keeping ids: Set<CGWindowID>) {
+        images = images.filter { ids.contains($0.key) }
+    }
 }
 
 @available(macOS 14.0, *)

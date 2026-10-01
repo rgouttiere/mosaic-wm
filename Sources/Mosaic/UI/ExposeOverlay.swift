@@ -58,7 +58,7 @@ final class ExposeOverlay {
     private let columns: [[Int]]   // grid: one column per screen (indices into workspaces)
     private var col = 0, row = 0
     private let commitOnRelease: Bool
-    private let thumbs = ThumbnailStore()   // live previews, filled in as async captures land
+    private let thumbs = ThumbnailStore.shared   // last captures at once, fresh ones as they land
 
     private var selected: Int { columns[col][row] }
 
@@ -238,19 +238,24 @@ final class ExposeOverlay {
     /// Fire off live captures of every displayed window and redraw tiles as each lands. No-op when
     /// the feature is off or the OS is too old; a denied Screen Recording grant just yields no images
     /// (tiles stay schematic). Captures run off-main; the store + redraw are touched on main only.
+    /// Windows already in the shared store are drawn from the first frame and swapped for the new
+    /// capture silently; only the ones that had NO preview fade in.
     private func loadThumbnails(_ ws: [ExposeWorkspace]) {
         guard Config.shared.exposeThumbnails, #available(macOS 14.0, *) else { return }
         let ids = ws.flatMap { $0.tiles.compactMap { $0.displayedWindowID } }
         guard !ids.isEmpty else { return }
+        let missing = Set(ids).filter { thumbs.images[$0] == nil }
+        Perf.count("expose.ids", ids.count); Perf.count("expose.cached", ids.count - missing.count)
+        for v in views { v.freshIDs = missing }
+        let t0 = DispatchTime.now()
         Task { [weak self] in
             let imgs = await Thumbnails.captureAll(ids)
             guard !imgs.isEmpty else { return }
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                for (id, cg) in imgs {
-                    self.thumbs.images[id] = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
-                }
-                for v in self.views { v.fadeInThumbnails() }   // in-place fade as the previews land
+                Perf.record("expose.capture", since: t0); Perf.count("expose.captured", imgs.count)
+                for (id, cg) in imgs { self.thumbs.set(cg, for: id) }
+                for v in self.views { v.fadeInThumbnails() }   // in-place fade for the previews that were missing
             }
         }
     }
@@ -312,17 +317,21 @@ private final class ExposeView: NSView {
     }
     private var thumbAlpha: CGFloat = 1   // ramps 0→1 as previews land, for an in-place fade-in
     private var fadeTimer: Timer?
+    var freshIDs: Set<CGWindowID> = []    // windows with no preview at open: the only ones that fade in
 
-    /// Fade the freshly-captured previews in over ~0.15s (in place, honours Reduce Motion).
+    /// Fade the freshly-captured previews in over ~0.15s (in place, honours Reduce Motion). The
+    /// previews that were already up from the shared store just redraw with their new capture.
     func fadeInThumbnails() {
         fadeTimer?.invalidate()
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { thumbAlpha = 1; needsDisplay = true; return }
+        guard !freshIDs.isEmpty, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            thumbAlpha = 1; freshIDs.removeAll(); needsDisplay = true; return
+        }
         thumbAlpha = 0
         fadeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] t in
             guard let self else { t.invalidate(); return }
             self.thumbAlpha = min(1, self.thumbAlpha + 1.0 / 9)
             self.needsDisplay = true
-            if self.thumbAlpha >= 1 { t.invalidate() }
+            if self.thumbAlpha >= 1 { t.invalidate(); self.freshIDs.removeAll() }
         }
     }
     deinit { fadeTimer?.invalidate() }
@@ -441,7 +450,7 @@ private final class ExposeView: NSView {
             if let id = tile.displayedWindowID, let img = thumbs?.images[id] {
                 NSGraphicsContext.saveGraphicsState()
                 clip.addClip()
-                drawAspectFill(img, in: wr)
+                drawAspectFill(img, in: wr, alpha: freshIDs.contains(id) ? thumbAlpha : 1)
                 NSGraphicsContext.restoreGraphicsState()
             } else {
                 winFill.setFill()
@@ -565,12 +574,12 @@ private final class ExposeView: NSView {
     }
 
     /// Draw `img` filling `rect` while preserving aspect (overflow cropped by the caller's clip).
-    private func drawAspectFill(_ img: NSImage, in rect: NSRect) {
+    private func drawAspectFill(_ img: NSImage, in rect: NSRect, alpha: CGFloat) {
         let iw = img.size.width, ih = img.size.height
         guard iw > 0, ih > 0 else { return }
         let scale = max(rect.width / iw, rect.height / ih)
         let dw = iw * scale, dh = ih * scale
         let dst = NSRect(x: rect.midX - dw / 2, y: rect.midY - dh / 2, width: dw, height: dh)
-        img.draw(in: dst, from: .zero, operation: .sourceOver, fraction: thumbAlpha)
+        img.draw(in: dst, from: .zero, operation: .sourceOver, fraction: alpha)
     }
 }

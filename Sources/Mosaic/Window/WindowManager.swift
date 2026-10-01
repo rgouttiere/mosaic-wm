@@ -755,6 +755,7 @@ final class WindowManager {
         // right way; the first tab change was what quietly fixed it.
         parkHiddenCrossAppTabs()
         sweepOrphanStrips()
+        later("thumbWarm", in: 3.0) { $0.warmThumbnails() }   // boot / wake / dock place without a render()
     }
 
     /// Bring EVERY workspace's windows back on-screen (on its home monitor) and fully opaque —

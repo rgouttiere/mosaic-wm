@@ -387,6 +387,38 @@ extension WindowManager {
             hideAllHandles()
         }
         Perf.span("render.scheduleSave") { scheduleSave() }
+        later("thumbWarm", in: 3.0) { $0.warmThumbnails() }   // after the dust settles, never mid-burst
+    }
+
+    /// Keep the exposé's previews warm: a few seconds after the last render, re-capture the windows
+    /// that are on a monitor right now — the ones whose content moves — and drop the previews of
+    /// windows that are gone. Off-main capture, main-thread store. The exposé then opens on current
+    /// images instead of schematic tiles (its own capture still refreshes everything behind them).
+    func warmThumbnails() {
+        guard Config.shared.exposeThumbnails, #available(macOS 14.0, *), !ExposeOverlay.isOpen else { return }
+        var shown: [CGWindowID] = []
+        var managed = Set<CGWindowID>()
+        for (sid, ws) in spaces {
+            ws.root?.forEachLeaf { if let id = $0.window?.lastKnownID { managed.insert(id) } }
+            guard screen(forWorkspace: sid) != nil else { continue }
+            ws.root?.forEachVisibleLeaf { leaf in
+                if let w = leaf.window, !w.isFullscreen, let id = w.lastKnownID { shown.append(id) }
+            }
+        }
+        ThumbnailStore.shared.prune(keeping: managed)
+        // Plus every managed window that has no preview yet — parked ones included, once: their
+        // content barely moves, but the first exposé after a launch should not open on schematic
+        // tiles for the workspaces that happen to be parked.
+        let wanted = shown + managed.filter { ThumbnailStore.shared.images[$0] == nil && !shown.contains($0) }
+        guard !wanted.isEmpty else { return }
+        let t0 = DispatchTime.now()
+        Task {
+            let imgs = await Thumbnails.captureAll(wanted)
+            await MainActor.run {
+                Perf.record("thumbs.warm", since: t0); Perf.count("thumbs.warmed", imgs.count); Perf.count("thumbs.wanted", wanted.count)
+                for (id, cg) in imgs { ThumbnailStore.shared.set(cg, for: id) }
+            }
+        }
     }
 
     /// Cross-app tab groups can't rely on z-order: macOS stacks by app LAYER, so a hidden tab from
