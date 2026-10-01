@@ -113,8 +113,8 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `focusGlowRadius` | `6` | Soft accent halo around the focused window, in px (`0` = just the crisp border). |
 | `focusGlowFade` | `true` | Cross-fade the focus halo in place when focus jumps (honours Reduce Motion). |
 | `letterboxStyle` | `"black"` | Fill for letterboxed-tile gaps: `"black"` or `"matrix"` (static rune-rain). |
-| `activeOpacity` | `1.0` | Opacity of the focused window. |
-| `inactiveOpacity` | `0.5` | Opacity of unfocused windows. `1.0` = no dimming. |
+| `activeOpacity` | `1.0` | Opacity of the focused window. **No effect on macOS 27** (see [Caveats](#caveats)). |
+| `inactiveOpacity` | `0.5` | Opacity of unfocused windows. `1.0` = no dimming. **No effect on macOS 27** (see [Caveats](#caveats)). |
 
 **Tab / stack bar appearance**
 
@@ -199,7 +199,8 @@ Sources/Mosaic/
   Config.swift               JSON config load + validation + keybinding parsing
   Persistence.swift          On-disk layout model (state.json)
   Geometry.swift             Cocoa (bottom-left) <-> AX (top-left) coordinate flip
-  Spaces.swift               The one private CGS call left: window alpha (dim unfocused tiles)
+  PrivateAPI.swift           Private symbols resolved at runtime (dlsym), probed for effect, reported by dump-layout
+  Spaces.swift               Window alpha (dim unfocused tiles) — a no-op when the symbol is missing or ineffective
   Accessibility/AX.swift     Swift wrappers over the C AXUIElement API
   Hotkeys/HotkeyManager.swift  Global shortcuts via Carbon RegisterEventHotKey
   Window/
@@ -217,7 +218,8 @@ The menu bar has a **"Debug: dump layout"** item that writes the live tree + vis
 
 ## Caveats
 
-- **Private APIs.** v2 dropped the CGS ***Spaces*** SPI — emulated workspaces never read or switch a desktop — but not CGS altogether. Three private entry points remain, each isolated behind a façade: `_AXUIElementGetWindow` (map an AX element to a window id); `CGSSetWindowAlpha` (dim unfocused tiles — only ever called when `activeOpacity` or `inactiveOpacity` is below `1`); and, only when `trackpadGestures` is on, the `MultitouchSupport` framework loaded at runtime via `dlopen` (raw trackpad touches — no SIP-off, no build dependency). All are historically stable but **can break on a major macOS release** — they are resolved at runtime, so a missing one degrades that feature or explains itself in an alert (the AX bridge) rather than preventing launch. `mosaic dump-layout` ends with a *private API* section that probes each one **functionally**. As of macOS 27.0, `CGSSetWindowAlpha` resolves but the window server ignores it, so `activeOpacity`/`inactiveOpacity` currently do nothing (the config loader says so if you set them). (App Store distribution is impossible regardless; direct/notarized distribution is fine.)
+- **Private APIs.** v2 dropped the CGS ***Spaces*** SPI — emulated workspaces never read or switch a desktop — but not CGS altogether. Three private entry points remain, all behind `PrivateAPI`: `_AXUIElementGetWindow` (map an AX element to a window id — the one Mosaic cannot manage windows without); `CGSSetWindowAlpha` (dim unfocused tiles, only ever called when `activeOpacity` or `inactiveOpacity` is below `1`); and, only when `trackpadGestures` is on, the `MultitouchSupport` framework (raw trackpad touches — no SIP-off, no build dependency). None is hard-linked: each is looked up at runtime with `dlsym` (`dlopen` fallback), so a symbol Apple removes costs one feature instead of the launch itself — a hard-linked one makes dyld refuse to start the app, with no message. A missing essential symbol explains itself in an alert; a missing optional one turns its feature off silently.
+  Symbols are **probed for effect, not just presence**: on macOS 27.0, `CGSSetWindowAlpha` still resolves and returns success, but the window server ignores it (an alpha written and read back is unchanged). `mosaic dump-layout` therefore ends with a *private API* section that reports each one as `ok`, `missing` or `no effect`, and the config loader warns when you set an opacity that cannot act. Until Apple changes its mind, `activeOpacity`/`inactiveOpacity` do nothing on macOS 27. (App Store distribution is impossible regardless; direct/notarized distribution is fine.)
 - **Not notarized** — see the Gatekeeper note above.
 - Apple's native Split View can't be extended — Mosaic recreates the experience on regions it owns.
 - A window's own title bar still shows inside a tab/stack region.
