@@ -22,7 +22,16 @@ final class WindowBorders {
         w.contentView?.frame = NSRect(origin: .zero, size: cocoaFrame.size)
         (w.contentView as? InactiveBorderView)?.dimmed = dim
         w.contentView?.needsDisplay = true   // pick up size / config-colour changes
-        w.orderFront(nil)
+        // A border that was not on screen fades in, in place (a switch hides them all first, so the
+        // whole set appears as one). One already showing just moves — a live resize never fades.
+        if w.isVisible || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            w.alphaValue = 1
+            w.orderFront(nil)
+        } else {
+            w.alphaValue = 0
+            w.orderFront(nil)
+            NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.12; w.animator().alphaValue = 1 }
+        }
     }
 
     func end() { for i in used..<pool.count { pool[i].orderOut(nil) } }

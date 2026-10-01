@@ -26,12 +26,20 @@ extension WindowManager {
             return
         }
 
-        // Park the outgoing workspace off the target monitor. No coverParkedSlivers() here: it only
-        // re-raises the OTHER monitors' workspaces (unchanged by this switch, already covering their
-        // own slivers), while the incoming's own render below raises it above the sliver it leaves.
+        // A switch should read as a cut, not a cascade. AX moves can be neither batched nor animated,
+        // so the ORDER is all we control: every overlay goes out first (nothing floats over the
+        // mid-switch mix), the incoming apps are lifted while still off-screen (z-order only —
+        // invisible), the incoming lands ON TOP of the outgoing, and only then is the outgoing
+        // parked — covered, so its departure never shows. The render below dresses the result in one
+        // shot, borders and shades fading in in place. Parking first left the desktop bare for the
+        // whole incoming arrange, one window popping in after another.
+        // No coverParkedSlivers() here: it only re-raises the OTHER monitors' workspaces (unchanged
+        // by this switch), while the incoming's own render raises it above the sliver it leaves.
         focusIndicator.hide()
+        windowBorders.hideAll(); scrims.hideAll(); letterbox.hideAll()
         let outgoing = shownOnDisplay[did]
-        if let outgoing, let ws = spaces[outgoing] { parkWorkspace(ws) }
+        let outgoingWS = outgoing.flatMap { spaces[$0] }
+        outgoingWS?.root?.forEachTabbed { $0.hideStrip() }   // its strips would float above the incoming
         Log.event("switch mon\(did): ws\(outgoing.map(String.init) ?? "-") → ws\(n)"
                   + (spaces[target] == nil && savedState[target] != nil ? " (restoring saved)" : ""))
         scratchpadVisible = false
@@ -41,14 +49,17 @@ extension WindowManager {
         activeSpaceID = target
         clearAttention(n)   // visiting it dismisses its badge
         if spaces[target] == nil, restoreSaved(target, on: screen) {
-            // restoreSaved built the tree, set focus, and rendered it on-screen
+            // restoreSaved built the tree, set focus, and rendered it on-screen — over the outgoing
+            if let outgoingWS { parkWorkspace(outgoingWS) }
+            if let ws = spaces[target] { liftAppsAboveParked(ws) }   // multi-app: beat macOS' app-layer order
         } else {
             let ws = workspace(n, on: screen)
-            unparkWorkspace(ws, on: screen, raise: false)   // render() below raises — don't raise twice
+            liftAppsAboveParked(ws)            // multi-app: beat macOS' app-layer order — while still off-screen
+            unparkWorkspace(ws, on: screen)    // raised: it has to land above the outgoing
+            if let outgoingWS { parkWorkspace(outgoingWS) }
             if ws.focused == nil { ws.focused = ws.root?.firstLeaf() }
             render()
         }
-        if let ws = spaces[target] { liftAppsAboveParked(ws) }   // multi-app: beat macOS' app-layer order
         layoutResizeHandles()
         showWorkspaceIndicator(for: screen)
         warpMouseToWorkspace(target, on: screen)
@@ -158,7 +169,6 @@ extension WindowManager {
     func unassignWorkspace(_ n: Int) {
         let key = UInt64(n)
         guard let ws = spaces[key] else { return }
-        ws.root?.forEachLeaf { if let w = $0.window, let wid = AX.windowID(w.element) { w.setAlpha(1, id: wid) } }
         ws.root?.teardown()
         spaces[key] = nil
         for (did, v) in shownOnDisplay where v == key { shownOnDisplay[did] = nil }
@@ -677,7 +687,6 @@ extension WindowManager {
         w.setCocoaFrame(rect)
         AX.raise(w.element)
         w.activateApp()
-        if let wid = AX.windowID(w.element) { w.setAlpha(1, id: wid) }   // full opacity
         scratchpadVisible = true
         // Hide the floating overlays so they don't sit on top of the scratchpad.
         active?.root?.forEachTabbed { $0.hideStrip() }

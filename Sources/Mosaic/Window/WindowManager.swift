@@ -79,6 +79,7 @@ final class WindowManager {
     /// video isn't visible twice. Only covers when this leaf is actually the front, shown tab.
     weak var pipSourceLeaf: Container?
     let windowBorders = WindowBorders()
+    let scrims = TileScrims()
     let dropHighlight = DropHighlight()
     var spaceTimer: Timer?
     var mouseMonitor: Any?
@@ -419,9 +420,8 @@ final class WindowManager {
     /// and re-render (gaps, tab-bar height & rules are read live from Config).
     func reloadConfig() {
         floatingApps = Config.shared.floatingApps
-        resetAllOpacity()          // clear previous dimming (incl. parked windows at alpha 0)
-        render()                   // re-arrange the active workspace with new gap / bar / opacity
-        reassertAllWorkspaces()    // re-hide parked workspaces (alpha 0) that reset made opaque
+        render()                   // re-arrange the active workspace with new gap / bar / shade
+        reassertAllWorkspaces()    // park / re-tile every other workspace under the new geometry
         // Workspace names may have changed → republish status.json and fire the hook so
         // the external bar picks up new labels immediately (even if the number is unchanged).
         let num = screenUnderMouse().flatMap { currentWorkspace(for: $0) }.flatMap { workspaceNumber(for: $0) }
@@ -780,6 +780,7 @@ final class WindowManager {
         guard let leaf = visibleLeaf(at: mouse, in: root), leaf !== focused else { return }
         focused = leaf
         preselect = nil          // focus moved → disarm any pending preselect
+        updateScrims()           // the shade leaves the clicked tile
         updateFocusIndicator()   // border only — the click itself already focused the window
     }
 
@@ -909,6 +910,7 @@ final class WindowManager {
             build()
         }
         layoutResizeHandles()   // reposition handles for the now-active workspace
+        updateScrims()          // the shade follows the active workspace
         if Config.shared.dimInactiveMonitors {   // the active monitor changed → follow the dim now
             updateWindowBorders()
             dimInactiveMonitorTabBars()

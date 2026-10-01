@@ -113,7 +113,7 @@ final class Config {
     var borderWidth: Double = 1
     var borderCornerRadius: Double = 18
     var activeOpacity: Double = 1.0       // 1.0 = opaque
-    var inactiveOpacity: Double = 0.5     // < 1.0 dims unfocused windows
+    var inactiveOpacity: Double = 1.0     // < 1.0 shades unfocused tiles (TileScrims); 1.0 = off
 
     // Tab bar styling.
     var tabCornerRadius: Double = 10
@@ -435,7 +435,7 @@ final class Config {
         double("inactiveMonitorDim", \.inactiveMonitorDim, 0.6, dump: true),
         double("borderCornerRadius", \.borderCornerRadius, 18, dump: true),
         double("activeOpacity", \.activeOpacity, 1.0, dump: true),
-        double("inactiveOpacity", \.inactiveOpacity, 0.5, dump: true),
+        double("inactiveOpacity", \.inactiveOpacity, 1.0, dump: true),
         double("tabCornerRadius", \.tabCornerRadius, 10, dump: true),
         string("tabBarColor", \.tabBarColor, "#1E1E1E", dump: true),
         string("tabActiveColor", \.tabActiveColor, "accent", dump: true),
@@ -508,13 +508,6 @@ final class Config {
         for (name, value) in ["activeOpacity": activeOpacity, "inactiveOpacity": inactiveOpacity]
         where !(0...1).contains(value) {
             loadIssues.append("\(name) = \(value) out of range (0.0 to 1.0)")
-        }
-        // Only when the user WROTE an opacity: the shipped default (inactiveOpacity 0.5) must not
-        // greet a fresh install with a warning about a choice nobody made. And only then is the
-        // window server probed at all.
-        let asksForDimming = raw["activeOpacity"] != nil || raw["inactiveOpacity"] != nil
-        if asksForDimming, (activeOpacity < 1 || inactiveOpacity < 1), PrivateAPI.alphaEffective == false {
-            loadIssues.append("activeOpacity/inactiveOpacity have no effect on this macOS — the window server ignores CGSSetWindowAlpha (see dump-layout, private API)")
         }
         for rule in rules where rule.workspace != nil && !(1...9).contains(rule.workspace!) {
             loadIssues.append("rule “\(rule.app)”: workspace \(rule.workspace!) out of range (1 to 9)")

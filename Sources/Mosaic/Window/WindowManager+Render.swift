@@ -254,7 +254,7 @@ extension WindowManager {
         // A screenshot tool is grabbing the screen → hide every overlay so it isn't buried under
         // (or captured with) our decorations. They come back on the next render when it dismisses.
         if Perf.span("render.screenshotCheck", { screenshotToolFrontmost() }) {
-            letterbox.hideAll(); windowBorders.hideAll(); focusIndicator.hide(); zoomBadge.hide()
+            letterbox.hideAll(); windowBorders.hideAll(); scrims.hideAll(); focusIndicator.hide(); zoomBadge.hide()
             return
         }
 
@@ -271,10 +271,9 @@ extension WindowManager {
         if active?.isZoomed == true, let w = focused?.window {
             if activate && !hidden { w.activateApp() }
             if !w.isFullscreen && !hidden { AX.raise(w.element) }   // raising a fullscreen tile would yank its Space
-            if let id = AX.windowID(w.element) { w.setAlpha(1, id: id) }   // zoomed = full opacity
             root.forEachTabbed { $0.hideStrip() }   // only THIS desktop's strips, not other screens'
             hideAllHandles()
-            windowBorders.hideAll()  // siblings hidden — no inactive borders to draw
+            windowBorders.hideAll(); scrims.hideAll()   // siblings hidden — nothing to outline or shade
 
             // Fill the screen; a window that aspect-fits (IINA) shrinks and is centred with the
             // sides letterboxed. AX setFrame is synchronous, so the constrained size reads back in
@@ -375,7 +374,7 @@ extension WindowManager {
             spaces[wsNum]?.root?.forEachTabbed { $0.hideStrip() }
         }
         if hidden { hideAllHandles() }
-        Perf.span("render.opacity") { applyOpacity() }
+        Perf.span("render.scrims") { updateScrims() }   // before the borders, so the hairline stays on top of the shade
         Perf.span("render.aspectFit") { refreshAspectRatios() }   // fit + centre aspect-locked windows (IINA)
         Perf.span("render.decorate") { decorateTiles() }   // permanent borders + letterbox gap fill
         Perf.span("render.dimBars") { dimInactiveMonitorTabBars() }   // fade strips off the focused monitor
@@ -547,19 +546,25 @@ extension WindowManager {
         }
     }
 
-    /// Dim unfocused windows per config (focused → activeOpacity, others → inactiveOpacity).
-    func applyOpacity() {
-        guard let root else { return }
-        let active = Float(Config.shared.activeOpacity)
-        let inactive = Float(Config.shared.inactiveOpacity)
-        guard active < 1 || inactive < 1 else { return }   // feature disabled
+    /// Shade the unfocused tiles of the active workspace per config (focused → activeOpacity,
+    /// others → inactiveOpacity); see `TileScrims`. Derived from scratch each pass, so a tile that
+    /// leaves the tree, floats, or moves to another monitor simply isn't covered any more — no
+    /// per-path "reset to opaque" to forget, which is what the alpha version needed.
+    func updateScrims() {
+        let active = CGFloat(Config.shared.activeOpacity)
+        let inactive = CGFloat(Config.shared.inactiveOpacity)
+        guard active < 1 || inactive < 1, let root, !scratchpadVisible, let screen = activeScreen,
+              !coveredDisplays().contains(displayID(of: screen)) else { scrims.hideAll(); return }
+        scrims.begin()
         // Reuse the cached window id (kept fresh by reconcile's resolvedID) instead of paying a
-        // cross-process AX id lookup per leaf on every render; setAlpha itself is already cached.
-        let activeID = focused?.window.flatMap { $0.lastKnownID ?? AX.windowID($0.element) }
-        root.forEachLeaf { leaf in
-            guard let w = leaf.window, !w.isFullscreen, let id = w.lastKnownID ?? AX.windowID(w.element) else { return }
-            w.setAlpha(id == activeID ? active : inactive, id: id)
+        // cross-process AX id lookup per leaf on every render.
+        let focusedID = focused?.window.flatMap { $0.lastKnownID ?? AX.windowID($0.element) }
+        root.forEachVisibleLeaf { leaf in
+            guard leaf !== pipSourceLeaf, let w = leaf.window, !w.isFullscreen,
+                  let id = w.lastKnownID ?? AX.windowID(w.element), let f = w.frame else { return }
+            scrims.cover(id, frame: Geometry.flip(f), darkness: 1 - (id == focusedID ? active : inactive))
         }
+        scrims.end()
     }
 
     /// Move/hide the focus border only — no window re-arranging. Used on screen
@@ -574,6 +579,7 @@ extension WindowManager {
             updateWindowBorders()
             dimInactiveMonitorTabBars()
         }
+        updateScrims()
         updateFocusIndicator()
     }
 

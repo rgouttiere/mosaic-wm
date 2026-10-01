@@ -6,25 +6,24 @@ import ApplicationServices
 /// They used to be `@_silgen_name` declarations. That binds at load time, so the day Apple removes
 /// one — and a major macOS release is exactly when that happens — dyld refuses to start Mosaic at
 /// all, with a linker error and no explanation the user could act on. Resolving at runtime turns
-/// that into a lost CAPABILITY: window alpha quietly stops dimming, the AX→window-id bridge (which
+/// that into a lost CAPABILITY: trackpad gestures quietly switch off, the AX→window-id bridge (which
 /// nothing can replace) produces a clear alert. Either way Mosaic launches, and `dump-layout`
 /// says which symbol went missing. Probed once, at first use.
+///
+/// Presence is not function. There used to be a third entry point here, `CGSSetWindowAlpha` for
+/// dimming unfocused tiles: on macOS 27 it still resolved and returned success while the window
+/// server ignored it (readback stayed 1.0 — measured with a 0.99 nudge on a foreign window). A
+/// symbol check reported a dead feature as healthy, so the probe had to perform the operation and
+/// read the result back. The dimming now lives in `TileScrims` (plain AppKit) and the entry point
+/// is gone; the lesson stays: a private symbol is only "ok" once its EFFECT has been observed.
 enum PrivateAPI {
     typealias AXGetWindowFn = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
-    typealias CGSMainConnectionIDFn = @convention(c) () -> Int32
-    typealias CGSSetWindowAlphaFn = @convention(c) (Int32, CGWindowID, Float) -> Int32
 
     /// Maps an AX element to its CGWindowID — the bridge every reconcile/dedup/decorate pass
     /// stands on. ESSENTIAL: without it no window can be told apart, so nothing can be managed.
     static let axGetWindow: AXGetWindowFn? = resolve("_AXUIElementGetWindow",
         fallback: "/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/HIServices")
-    /// Window alpha (dim unfocused tiles). Cosmetic: losing it costs a dimming effect, nothing else.
-    static let cgsMainConnectionID: CGSMainConnectionIDFn? = resolve("CGSMainConnectionID",
-        fallback: "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight")
-    static let cgsSetWindowAlpha: CGSSetWindowAlphaFn? = resolve("CGSSetWindowAlpha",
-        fallback: "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight")
-
-    enum Status: String { case ok, missing, ineffective = "no effect" }
+    enum Status: String { case ok, missing }
 
     struct Capability {
         let symbol: String
@@ -34,39 +33,11 @@ enum PrivateAPI {
         var available: Bool { status == .ok }
     }
 
-    /// Does the window server still HONOUR CGSSetWindowAlpha for another app's window? A symbol
-    /// that resolves proves nothing: on macOS 27 the call returns success and changes nothing
-    /// (measured — readback stays 1.0), so a symbol check reported a dead feature as healthy.
-    /// Probed like OmniWM does it: perform the operation on a real foreign window and read the
-    /// result back through the public CGWindowList. The nudge is 0.99 → invisible, restored at once.
-    /// nil = no foreign window to try on (inconclusive, treated as unknown rather than broken).
-    static let alphaEffective: Bool? = {
-        guard let cidFn = cgsMainConnectionID, let set = cgsSetWindowAlpha else { return false }
-        let mine = ProcessInfo.processInfo.processIdentifier
-        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        guard let w = list.first(where: { ($0[kCGWindowLayer as String] as? Int) == 0
-                                          && ($0[kCGWindowOwnerPID as String] as? Int32) != mine
-                                          && ($0[kCGWindowAlpha as String] as? Double) == 1.0 }),
-              let wid = w[kCGWindowNumber as String] as? CGWindowID else { return nil }
-        func read() -> Double {
-            (CGWindowListCopyWindowInfo([.optionIncludingWindow], wid) as? [[String: Any]])?.first?[kCGWindowAlpha as String] as? Double ?? -1
-        }
-        let cid = cidFn()
-        _ = set(cid, wid, 0.99)
-        let changed = abs(read() - 0.99) < 0.005
-        _ = set(cid, wid, 1.0)
-        return changed
-    }()
-
     /// Everything Mosaic relies on beyond the public SDK, with whether it is there today.
     static var capabilities: [Capability] {
         [
             Capability(symbol: "_AXUIElementGetWindow", purpose: "AX element → window id (managing windows at all)",
                        essential: true, status: axGetWindow != nil ? .ok : .missing),
-            Capability(symbol: "CGSSetWindowAlpha", purpose: "dim unfocused tiles (activeOpacity/inactiveOpacity)",
-                       essential: false,
-                       status: (cgsMainConnectionID == nil || cgsSetWindowAlpha == nil) ? .missing
-                             : (alphaEffective == false ? .ineffective : .ok)),
             Capability(symbol: "MultitouchSupport (dlopen)", purpose: "3-finger trackpad gestures (trackpadGestures)",
                        essential: false,
                        status: dlopen("/System/Library/PrivateFrameworks/MultitouchSupport.framework/MultitouchSupport", RTLD_LAZY) != nil ? .ok : .missing),
@@ -79,8 +50,7 @@ enum PrivateAPI {
     static func report() -> String {
         capabilities.map { c -> String in
             let tag = c.status == .ok ? "ok" : (c.essential ? "\(c.status.rawValue.uppercased()) — ESSENTIAL" : c.status.rawValue)
-            let note = c.status == .ineffective ? " (symbol present, but the window server ignores it on this macOS)" : ""
-            return "  [\(tag)] \(c.symbol) — \(c.purpose)\(note)"
+            return "  [\(tag)] \(c.symbol) — \(c.purpose)"
         }
             .joined(separator: "\n")
     }

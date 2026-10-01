@@ -575,12 +575,6 @@ enum SelfTest {
             h.eq(c.keybindings["tile"], "cmd alt shift t", "keybindings: override applied")
             h.eq(c.keybindings["zoom"], "cmd alt return", "keybindings: untouched defaults survive the merge")
         }
-        // The dead-dimming warning is for a choice the user MADE: the shipped default alone never
-        // triggers it (deterministic on every Mac; whether CGSSetWindowAlpha works there is not).
-        do {
-            let c = loadConfig("{}")
-            h.check(!c.loadIssues.contains { $0.contains("no effect") }, "opacity: defaults never warn about dead dimming")
-        }
         // A reload reflects keys REMOVED from the file (the table resets before applying).
         do {
             let c = loadConfig(#"{"gap":10,"defaultMode":"tabbed"}"#)

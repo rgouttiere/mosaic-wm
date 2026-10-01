@@ -119,20 +119,10 @@ extension WindowManager {
     /// Stop managing the current desktop (others keep their layouts).
     func clear() {
         if let id = activeSpaceID, let st = spaces[id] {
-            st.root?.forEachLeaf { if let w = $0.window, let wid = AX.windowID(w.element) { w.setAlpha(1, id: wid) } }
             st.root?.teardown()
             spaces[id] = nil
         }
         focusIndicator.hide()
-    }
-
-    /// Restore full opacity on every managed window (called on quit so nothing stays dimmed).
-    func resetAllOpacity() {
-        for state in spaces.values {
-            state.root?.forEachLeaf {
-                if let w = $0.window, let id = AX.windowID(w.element) { w.setAlpha(1, id: id) }
-            }
-        }
     }
 
     // MARK: - Tick (desktop switch + window changes)
@@ -491,7 +481,6 @@ extension WindowManager {
     }
 
     func detach(_ leaf: Container) {
-        if let w = leaf.window, let id = AX.windowID(w.element) { w.setAlpha(1, id: id) }
         guard let parent = leaf.parent, let idx = parent.index(of: leaf) else {
             root = nil
             return

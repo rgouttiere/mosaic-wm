@@ -200,6 +200,7 @@ extension WindowManager {
         // Borders + letterbox in one pass: borders follow the moving edges, and the gap fill runs
         // live too — a growing tile outruns the async AX resize, and the uncovered slice would
         // otherwise flash the parked window / wallpaper underneath (throttled by scheduleLiveRender).
+        updateScrims()
         decorateTiles()
         updateFocusIndicator()  // halo on top
     }
