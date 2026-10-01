@@ -46,6 +46,25 @@ enum Health {
         return snapshot.filter { $0.pid != mine && $0.bounds.width >= 200 && $0.bounds.height >= 200 && regular($0.pid) }.count
     }
 
+    /// Whether a launch agent exists for us and whether THIS process is the one it runs.
+    /// "running under launchd (KeepAlive)" is the only answer that survives a crash.
+    static func launchAgentStatus() -> String {
+        let plist = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/fr.rgouttiere.mosaic.plist")
+        guard FileManager.default.fileExists(atPath: plist.path) else { return "not installed (make agent)" }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        p.arguments = ["print", "gui/\(getuid())/fr.rgouttiere.mosaic"]
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+        guard (try? p.run()) != nil else { return "installed, launchctl unavailable" }
+        p.waitUntilExit()
+        let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        guard p.terminationStatus == 0 else { return "installed but NOT loaded (make agent)" }
+        let me = ProcessInfo.processInfo.processIdentifier
+        if out.contains("pid = \(me)\n") || out.contains("pid = \(me) ") { return "running under launchd (KeepAlive)" }
+        return "loaded, but this instance was started by hand — a crash would not be recovered (make restart)"
+    }
+
     /// The newest crash report of ours: when, what, which file. nil when there is none.
     static func lastCrash() -> String? {
         let fm = FileManager.default

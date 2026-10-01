@@ -7,7 +7,7 @@ BIN := .build/$(CONFIG)/$(APP_NAME)
 SIGN_ID := Mosaic Self-Signed
 
 PREFIX ?= /usr/local
-.PHONY: build bundle run clean cert dist install-cli test spike
+.PHONY: build bundle run clean cert dist install-cli test spike agent agent-unload restart deploy
 
 ## Create the stable self-signed dev identity (run once).
 cert:
@@ -83,3 +83,48 @@ spike:
 
 clean:
 	rm -rf .build $(BUNDLE) dist Mosaic.zip
+
+## --- Launch agent: keep one Mosaic alive --------------------------------------------------------
+## A crash at wake once left the desktop without a window manager until morning. Under launchd with
+## KeepAlive (SuccessfulExit = false) a crash is followed by a relaunch within seconds, while Quit
+## from the menu (exit 0) stays quit. RunAtLoad starts it at login. The agent runs the bundle built
+## here, so `make deploy` is the whole update ritual: rebuild, verify the signature, restart.
+AGENT_LABEL := fr.rgouttiere.mosaic
+AGENT_PLIST := $(HOME)/Library/LaunchAgents/$(AGENT_LABEL).plist
+AGENT_TARGET := gui/$(shell id -u)/$(AGENT_LABEL)
+
+## Install (or refresh) the launch agent and start Mosaic under it. Stops a manually launched one first.
+agent: bundle
+	@mkdir -p "$(HOME)/Library/LaunchAgents"
+	@printf '%s\n' \
+	  '<?xml version="1.0" encoding="UTF-8"?>' \
+	  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+	  '<plist version="1.0"><dict>' \
+	  '  <key>Label</key><string>$(AGENT_LABEL)</string>' \
+	  '  <key>ProgramArguments</key><array><string>$(CURDIR)/$(BUNDLE)/Contents/MacOS/$(APP_NAME)</string></array>' \
+	  '  <key>RunAtLoad</key><true/>' \
+	  '  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>' \
+	  '  <key>ProcessType</key><string>Interactive</string>' \
+	  '  <key>LimitLoadToSessionType</key><string>Aqua</string>' \
+	  '</dict></plist>' > "$(AGENT_PLIST)"
+	@launchctl bootout $(AGENT_TARGET) 2>/dev/null || true
+	@killall $(APP_NAME) 2>/dev/null && sleep 1 || true
+	launchctl bootstrap gui/$(shell id -u) "$(AGENT_PLIST)"
+	@echo "Agent loaded: $(AGENT_TARGET) → $(CURDIR)/$(BUNDLE). Restart with 'make restart', remove with 'make agent-unload'."
+
+## Stop the agent and remove it (Mosaic is left stopped).
+agent-unload:
+	@launchctl bootout $(AGENT_TARGET) 2>/dev/null || true
+	@rm -f "$(AGENT_PLIST)"
+	@echo "Agent removed."
+
+## Restart the running Mosaic: under the agent with kickstart, else the plain kill + open.
+restart:
+	@if launchctl print $(AGENT_TARGET) >/dev/null 2>&1; then \
+		launchctl kickstart -k $(AGENT_TARGET) && echo "Restarted under launchd."; \
+	else \
+		killall $(APP_NAME) 2>/dev/null; sleep 1; open $(BUNDLE) && echo "Restarted (no agent loaded)."; \
+	fi
+
+## The update ritual: rebuild + verify the signature (bundle does both) + restart.
+deploy: bundle restart

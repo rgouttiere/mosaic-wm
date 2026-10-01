@@ -97,6 +97,9 @@ extension WindowManager {
             out += "state.json   none yet\n"
         }
         out += "log          ~/.config/mosaic/mosaic.log · timing \(Perf.enabled ? "ON (~/.config/mosaic/timings.log)" : "off")\n"
+        let agent = Health.launchAgentStatus()
+        out += "launch agent \(agent)\n"
+        if !agent.hasPrefix("running under launchd") { issues.append("not kept alive by launchd: \(agent)") }
         if Config.shared.trackpadGestures { out += "multitouch   \(cmt_device_count()) device(s)\n" }
         if let crash = Health.lastCrash() { out += "last crash   \(crash)\n" }
 

@@ -41,10 +41,14 @@ Its headline feature is the one thing most macOS tilers lack: **tab & stack cont
 ## Install & run
 
 ```sh
-make run      # build release, bundle Mosaic.app, launch it
+make agent    # build release, bundle Mosaic.app, and run it under a launch agent (starts at login, relaunched after a crash)
+make run      # …or just build + launch it once, by hand
+make deploy   # after a change: rebuild, verify the signature, restart the agent's instance
 ```
 
-Then grant **System Settings → Privacy & Security → Accessibility → Mosaic** and relaunch. A **▦** icon appears in the menu bar.
+Then grant **System Settings → Privacy & Security → Accessibility → Mosaic** and relaunch. A **▦** icon appears in the menu bar (**▦!** when the self-check finds that the grant does not apply — `mosaic doctor` says why).
+
+The agent keeps exactly one Mosaic alive: a crash is followed by a relaunch within seconds (the layout comes back from `state.json`), **Quit** from the menu stays quit, and a second `open Mosaic.app` exits at once. `make agent-unload` removes it.
 
 Quick debug build: `swift build && .build/debug/Mosaic`.
 

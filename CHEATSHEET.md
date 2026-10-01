@@ -143,7 +143,7 @@ Then, in sketchybar, subscribe an item to `mosaic_workspace_change` and render f
 FOCUSED=$(mosaic query focused)
 sketchybar --set "$NAME" label="$FOCUSED"        # or loop over `mosaic query workspaces`
 ```
-(`make install-cli` puts `mosaic` on your PATH; the hook's PATH already includes `/opt/homebrew/bin`.)
+(`make install-cli` puts `mosaic` on your PATH; the hook's PATH already includes `/opt/homebrew/bin`. `make agent` runs Mosaic under a launch agent — relaunched after a crash, started at login — and `make deploy` is the rebuild + restart ritual.)
 
 Two config keys have to agree with the bar itself: **`externalBarTop`** reserves its height at the top of every screen, and **`notchBarOffset`** (default `40`) adds the extra reserve on a **sole** notched built-in display, where such a bar is shifted below the notch — it must match the offset the bar uses there, or you get a gap or an overlap.
 

@@ -67,6 +67,15 @@ if let verb = cliArgs.first {
     exit(0)
 }
 
+// One Mosaic at a time. With the launch agent keeping one alive, a manual `open Mosaic.app` (or a
+// second agent) would otherwise start a rival that fights the first over every window. The newcomer
+// leaves with status 0, so launchd does not treat its exit as a crash to recover from.
+if let other = NSRunningApplication.runningApplications(withBundleIdentifier: "fr.rgouttiere.mosaic")
+    .first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+    Log.event("another Mosaic is already running (pid \(other.processIdentifier)) — this one exits")
+    exit(0)
+}
+
 // Normal app mode: load user config first (writes a default on first run).
 Config.shared.load()
 
