@@ -37,6 +37,13 @@ bundle: build
 		echo "WARNING: identity '$(SIGN_ID)' not found — run 'make cert'. Falling back to ad-hoc (grant will reset each build)."; \
 		codesign --force --deep --sign - $(BUNDLE); \
 	fi
+	@# Verify what actually landed. codesign can fail quietly against a locked keychain and leave the
+	@# linker's ad-hoc signature in place: TCC then sees an unknown app, the Accessibility grant does
+	@# not apply, AX enumerates nothing and Mosaic runs managing zero windows (2026-10-01). Fail here.
+	@if security find-certificate -c "$(SIGN_ID)" >/dev/null 2>&1; then \
+		codesign -dvv $(BUNDLE) 2>&1 | grep -q "^Authority=$(SIGN_ID)$$" \
+			|| { echo "ERROR: $(BUNDLE) is NOT signed with '$(SIGN_ID)' (ad-hoc?) — the Accessibility grant would not apply. Unlock the login keychain and rebuild."; exit 1; }; \
+	fi
 	@echo "Built $(BUNDLE) — open it, then grant Accessibility in System Settings."
 
 ## Build the bundle and launch it.

@@ -179,8 +179,13 @@ extension WindowManager {
                                          tree: serialize(root),
                                          displayUUID: nil, spaceOrdinal: nil)
         }
-        // Keep layouts for workspaces we haven't restored yet this session.
-        for (id, saved) in savedState where spaces[id] == nil {
+        // Keep layouts for workspaces we haven't restored yet this session — ALSO when an EMPTY live
+        // space exists under their number. `ensureAllPresentMonitorsShown` creates one for every
+        // shown monitor, so a launch whose AX enumeration came back empty (an ad-hoc-signed build the
+        // Accessibility grant no longer covered, 2026-10-01) had empty ws1/3/5 live and their real
+        // trees pending; keyed on `spaces[id] == nil`, the next save would have dropped all three
+        // for good. Only a live tree WITH windows may replace a saved one.
+        for (id, saved) in savedState where out[String(id)] == nil {
             out[String(id)] = saved
         }
         // Which workspace is shown on each monitor, left→right, so a restart restores the view.
