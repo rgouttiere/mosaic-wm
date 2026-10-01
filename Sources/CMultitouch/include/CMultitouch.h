@@ -13,8 +13,12 @@ typedef void (*CMTFrameCallback)(const float *xs, const float *ys, int count);
 // call once. On unsupported systems it returns false and does nothing (no crash).
 bool cmt_start(CMTFrameCallback cb);
 
-// Stop all devices and clear the callback.
+// Unregister the callback and stop every device that still runs. The device references are kept
+// (never released): see the comment in cmt_stop.
 void cmt_stop(void);
+
+// Devices currently registered (0 after cmt_stop or a failed cmt_start).
+int cmt_device_count(void);
 
 // True if >=3 fingers were on the trackpad within the last `graceSeconds` (covers the momentum
 // tail after lift). Lets the scroll event-tap swallow the phantom scroll a 3-finger swipe emits.

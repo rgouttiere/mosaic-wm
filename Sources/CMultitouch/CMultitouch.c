@@ -31,12 +31,15 @@ typedef void (*MTRegisterFn)(MTDeviceRef, MTContactCallbackFunction);
 typedef void (*MTDeviceStartFn)(MTDeviceRef, int);
 typedef void (*MTDeviceStopFn)(MTDeviceRef);
 typedef void (*MTUnregisterFn)(MTDeviceRef, MTContactCallbackFunction);
+typedef bool (*MTDevicePredicateFn)(MTDeviceRef);
 
 static CMTFrameCallback g_cb = NULL;
 static MTDeviceRef g_devices[16];
 static int g_deviceCount = 0;
 static MTDeviceStopFn g_stop = NULL;
 static MTUnregisterFn g_unreg = NULL;
+static MTDevicePredicateFn g_isRunning = NULL;   // optional guards, NULL when the symbol is gone
+static MTDevicePredicateFn g_isAlive = NULL;
 
 // Last time (mach ticks) at least 3 fingers were on the pad. Used to suppress the phantom scroll
 // that macOS emits from a 3-finger swipe when native 3-finger gestures are off (else IINA & co.
@@ -77,6 +80,8 @@ bool cmt_start(CMTFrameCallback cb) {
     MTDeviceStartFn start = (MTDeviceStartFn)dlsym(h, "MTDeviceStart");
     g_stop = (MTDeviceStopFn)dlsym(h, "MTDeviceStop");
     g_unreg = (MTUnregisterFn)dlsym(h, "MTUnregisterContactFrameCallback");
+    g_isRunning = (MTDevicePredicateFn)dlsym(h, "MTDeviceIsRunning");
+    g_isAlive = (MTDevicePredicateFn)dlsym(h, "MTDeviceIsAlive");
     if (!createList || !reg || !start) return false;
 
     g_cb = cb;
@@ -85,6 +90,15 @@ bool cmt_start(CMTFrameCallback cb) {
     CFIndex count = CFArrayGetCount(list);
     for (CFIndex i = 0; i < count && g_deviceCount < 16; i++) {
         MTDeviceRef dev = (MTDeviceRef)CFArrayGetValueAtIndex(list, i);
+        /* OWN a reference. Releasing the list below drops the only one we had; what remains is a
+           single reference that is not ours (retain count 1 after start, measured), held inside
+           MultitouchSupport. That is fine until the framework lets go of it: when a device vanished
+           across a sleep, its thread releases that last reference on exit — and if cmt_stop's
+           MTDeviceStop had just run, the dealloc path (__MTDeviceRelease) calls MTDeviceStop AGAIN
+           on the already-stopped device and reads a CFMachPort that is now NULL. SIGSEGV on
+           MultitouchSupport's own thread, 20 ms after the wake event, with the rest of Mosaic idle
+           (crash of 2026-10-01 02:22). With our retain the count cannot reach zero behind our back. */
+        CFRetain(dev);
         reg(dev, contact_cb);
         start(dev, 0);
         g_devices[g_deviceCount++] = dev;
@@ -95,13 +109,27 @@ bool cmt_start(CMTFrameCallback cb) {
 }
 
 void cmt_stop(void) {
-    /* Stop the feed first, THEN drop the callback: cmt_start can be called again (a wake
-       re-registers the devices), and registering a second time without unregistering would
-       leave the frame callback installed twice on the same device. */
+    /* Drop the callback, then stop the feed — cmt_start can be called again (a wake re-registers
+       the devices), and registering a second time without unregistering would leave the frame
+       callback installed twice on the same device.
+
+       Stop ONLY a device that still runs. MTDeviceStop does not tolerate a second call (see the
+       retain above), and a device whose hardware vanished across a sleep — a Bluetooth trackpad
+       that dropped, a hub re-enumerating — has already been stopped by the framework itself.
+       Without the symbol we fall back to stopping unconditionally, as before.
+
+       The references are deliberately NEVER released: the framework's thread releases its own
+       some time after the stop, and ours must still be there when it does, or the dealloc path
+       above runs. One leaked MTDevice per device per wake is nothing. */
     for (int i = 0; i < g_deviceCount; i++) {
-        if (g_stop) g_stop(g_devices[i]);
-        if (g_unreg) g_unreg(g_devices[i], contact_cb);
+        MTDeviceRef dev = g_devices[i];
+        if (g_unreg) g_unreg(dev, contact_cb);
+        bool alive = g_isAlive ? g_isAlive(dev) : true;
+        bool running = g_isRunning ? g_isRunning(dev) : true;
+        if (g_stop && alive && running) g_stop(dev);
     }
     g_deviceCount = 0;
     g_cb = NULL;
 }
+
+int cmt_device_count(void) { return g_deviceCount; }

@@ -66,7 +66,7 @@ final class TrackpadGestures {
         if started {
             attempt = 0
             installScrollTap()
-            NSLog("Mosaic: trackpad gestures active (MultitouchSupport)")
+            Log.event("trackpad gestures active — \(cmt_device_count()) multitouch device(s)")
         } else {
             scheduleRetry()   // quiet: the log would repeat on every attempt
         }
@@ -88,6 +88,7 @@ final class TrackpadGestures {
     /// callback, so this can't stack a second one on the same device.
     private func restart() {
         guard wantsRunning else { return }
+        Log.event("trackpad gestures — re-registering after wake")
         cmt_stop()
         removeScrollTap()
         started = false
@@ -99,7 +100,13 @@ final class TrackpadGestures {
         guard wakeObserver == nil else { return }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.restart() }
+        ) { [weak self] _ in
+            // Not at the notification itself: at that instant the framework is still tearing down
+            // the devices that did not come back (and the display set is a one-screen transient).
+            // Stopping ours while it stops its own is the overlap that made the double-stop in
+            // cmt_stop reachable. A couple of seconds later the device list has settled.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { self?.restart() }
+        }
     }
 
     /// The multitouch service isn't always ready when we are — `cmt_start` reports failure when it
