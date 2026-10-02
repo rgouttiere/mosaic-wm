@@ -273,7 +273,7 @@ extension WindowManager {
             if !w.isFullscreen && !hidden { AX.raise(w.element) }   // raising a fullscreen tile would yank its Space
             root.forEachTabbed { $0.hideStrip() }   // only THIS desktop's strips, not other screens'
             hideAllHandles()
-            windowBorders.hideAll(); scrims.hideAll()   // siblings hidden — nothing to outline or shade
+            windowBorders.hideAll(animated: true); scrims.hideAll(animated: true)   // siblings hidden — the dressing fades, in place
 
             // Fill the screen; a window that aspect-fits (IINA) shrinks and is centred with the
             // sides letterboxed. AX setFrame is synchronous, so the constrained size reads back in

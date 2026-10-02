@@ -321,7 +321,10 @@ extension WindowManager {
         isReconciling = true
         let __perf = DispatchTime.now(); defer { Perf.record("reconcile", since: __perf) }
         defer { isReconciling = false }
-        let onScreen = Perf.span("reconcile.onScreenIDs") { AX.onScreenWindowIDs() }
+        // The render's snapshot (150 ms TTL, same layer-0 filter as AX.onScreenWindowIDs). A window
+        // that closed inside that window shows up one confirmation pass later (+0.3 s), which the
+        // observer schedules anyway; a fresh CGWindowList here cost 4 ms a reconcile for nothing.
+        let onScreen = Perf.span("reconcile.onScreenIDs") { Set(onScreenSnapshot(maxAge: snapshotTTL).map { $0.id }) }
         Perf.span("reconcile.dedup") { dedupTrees() }
         let __resolve = DispatchTime.now()
 

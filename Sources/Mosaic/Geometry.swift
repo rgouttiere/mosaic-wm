@@ -127,4 +127,20 @@ enum Geometry {
         return CGRect(x: layoutRect.minX, y: screenFrame.minY - layoutRect.height,
                       width: layoutRect.width, height: layoutRect.height)
     }
+
+    /// Among `candidates`, the frame closest to `saved` — if one is close enough to be the same
+    /// window: size within `sizeTolerance` on both axes, origin within `originTolerance` (apps that
+    /// restore their own geometry after a reboot may land a few points off). nil when none qualifies.
+    /// Pure, so a restore scenario is three lines in a self-test.
+    static func frameMatchIndex(saved: CGRect, candidates: [CGRect],
+                                sizeTolerance: CGFloat = 6, originTolerance: CGFloat = 60) -> Int? {
+        var best: (index: Int, distance: CGFloat)?
+        for (i, c) in candidates.enumerated() where !c.isNull {
+            guard abs(c.width - saved.width) <= sizeTolerance, abs(c.height - saved.height) <= sizeTolerance,
+                  abs(c.minX - saved.minX) <= originTolerance, abs(c.minY - saved.minY) <= originTolerance else { continue }
+            let d = abs(c.minX - saved.minX) + abs(c.minY - saved.minY) + abs(c.width - saved.width) + abs(c.height - saved.height)
+            if best == nil || d < best!.distance { best = (i, d) }
+        }
+        return best?.index
+    }
 }

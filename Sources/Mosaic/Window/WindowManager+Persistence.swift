@@ -224,7 +224,8 @@ extension WindowManager {
         if let window = node.window {
             return SavedNode(window: SavedWindow(windowID: AX.windowID(window.element),
                                                  bundleID: window.app.bundleIdentifier,
-                                                 title: window.title),
+                                                 title: window.title,
+                                                 frame: window.frame.map { [$0.minX, $0.minY, $0.width, $0.height] }),
                              layout: nil, ratios: nil, selected: nil, stacked: nil, children: nil)
         }
         return SavedNode(window: nil,
@@ -294,6 +295,17 @@ extension WindowManager {
         if let b = sw.bundleID, let t = sw.title,
            let i = pool.firstIndex(where: { $0.app.bundleIdentifier == b && $0.title == t }) {
             return pool.remove(at: i)
+        }
+        // Same app, same place: two Chrome windows whose titles both changed since the save used to
+        // fall through to the ambiguous bundle case and come back as fresh inserts. Their frames are
+        // where Mosaic put them — the one that fits the saved frame best, within tolerance, is it.
+        if let b = sw.bundleID, let f = sw.frame, f.count == 4 {
+            let saved = CGRect(x: f[0], y: f[1], width: f[2], height: f[3])
+            let same = pool.indices.filter { pool[$0].app.bundleIdentifier == b }
+            let frames = same.map { pool[$0].frame ?? .null }
+            if let k = Geometry.frameMatchIndex(saved: saved, candidates: frames) {
+                return pool.remove(at: same[k])
+            }
         }
         // Bundle-only fallback: only when it's UNAMBIGUOUS (exactly one window of that app
         // left in the pool) — otherwise we'd grab an arbitrary same-app window.

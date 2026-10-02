@@ -34,6 +34,7 @@ enum SelfTest {
         coverTests(h)
         titleRuleTests(h)
         eventRingTests(h)
+        frameMatchTests(h)
         print("MosaicSelfTest: \(h.passed) passed, \(h.failed) failed")
         return h.failed == 0 ? 0 : 1
     }
@@ -617,6 +618,17 @@ enum SelfTest {
         h.eq(ring.tail(10), ["e3", "e4", "e5"], "ring: tail larger than content returns everything")
         h.eq(ring.tail(0), [], "ring: zero tail")
         h.eq(EventRing(capacity: 0).capacity, 1, "ring: capacity floors at 1")
+    }
+
+    // MARK: - Restore: matching a saved window by where it sat
+    static func frameMatchTests(_ h: Harness) {
+        let a = CGRect(x: 0, y: 40, width: 1200, height: 900), b = CGRect(x: 1200, y: 40, width: 1200, height: 900)
+        h.eq(Geometry.frameMatchIndex(saved: a, candidates: [b, a]), 1, "frameMatch: exact frame wins")
+        h.eq(Geometry.frameMatchIndex(saved: a, candidates: [b, a.offsetBy(dx: 20, dy: -10)]), 1, "frameMatch: a few points off still matches")
+        h.eq(Geometry.frameMatchIndex(saved: a, candidates: [b]), nil, "frameMatch: a different tile does not")
+        h.eq(Geometry.frameMatchIndex(saved: a, candidates: [a.insetBy(dx: 10, dy: 0)]), nil, "frameMatch: a different size does not")
+        h.eq(Geometry.frameMatchIndex(saved: a, candidates: [a.offsetBy(dx: 30, dy: 0), a.offsetBy(dx: 5, dy: 0)]), 1, "frameMatch: the closest of two plausible wins")
+        h.eq(Geometry.frameMatchIndex(saved: a, candidates: [.null, a]), 1, "frameMatch: an unreadable frame is skipped")
     }
 }
 #endif

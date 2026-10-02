@@ -43,8 +43,12 @@ final class TileScrims {
         }
     }
 
-    func hideAll() {
-        for w in sheets.values { w.orderOut(nil) }
+    /// `animated`: fade out in place (a zoom), else drop instantly (a switch must not leave ghosts).
+    func hideAll(animated: Bool = false) {
+        let fade = animated && !reduceMotion
+        for w in sheets.values {
+            if fade { self.fade(w, to: 0) { w.orderOut(nil) } } else { w.orderOut(nil) }
+        }
         sheets.removeAll()
         touched.removeAll()
     }

@@ -49,7 +49,15 @@ final class WindowBorders {
         for i in used..<pool.count { pool[i].orderOut(nil) }
         stale = false
     }
-    func hideAll() { for w in pool { w.orderOut(nil) }; used = 0 }
+    /// `animated`: fade out in place (a zoom), else drop instantly (a switch must not leave ghosts).
+    func hideAll(animated: Bool = false) {
+        used = 0
+        let fade = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        for w in pool where w.isVisible {
+            if fade { NSAnimationContext.runAnimationGroup({ ctx in ctx.duration = 0.1; w.animator().alphaValue = 0 }, completionHandler: { w.orderOut(nil) }) }
+            else { w.orderOut(nil) }
+        }
+    }
 
     private func makeBorder() -> NSWindow {
         let win = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)

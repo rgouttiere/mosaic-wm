@@ -123,7 +123,11 @@ extension WindowManager {
         let cum = c.ratios[0...i].reduce(0, +)
         let divider = horizontal ? NSPoint(x: f.minX + cum * f.width, y: f.midY)
                                  : NSPoint(x: f.midX, y: f.maxY - cum * f.height)
-        resizeRatioHUD.show("\(pctI) / \(100 - pctI)", at: divider)
+        // …plus the focused window's size in points: the number you are actually trying to hit when
+        // you size a video or a terminal (the frame cache holds the rect just asked for, mid-drag).
+        var text = "\(pctI) / \(100 - pctI)"
+        if let wf = focused?.window?.frame { text += "  ·  \(Int(wf.width.rounded())) × \(Int(wf.height.rounded()))" }
+        resizeRatioHUD.show(text, at: divider)
     }
 
     /// Read back the now-settled windows of the last-resized pair, learn any real minimum size an app

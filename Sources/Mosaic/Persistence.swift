@@ -7,6 +7,10 @@ struct SavedWindow: Codable {
     var windowID: UInt32?
     var bundleID: String?
     var title: String?
+    /// The window's AX frame (x, y, w, h) when the layout was saved. Mosaic placed it there, so
+    /// after a restart — and after a reboot for apps that restore their own geometry — the window
+    /// is still at that frame even when its title has moved on (a browser tab, a terminal cwd).
+    var frame: [Double]?
 }
 
 struct SavedNode: Codable {
