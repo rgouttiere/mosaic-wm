@@ -331,6 +331,16 @@ extension WindowManager {
         var staleLeaves: [Container] = []   // has a window, but AX couldn't resolve its id now
         root?.forEachLeaf { leaf in
             guard let w = leaf.window else { deadLeaves.append(leaf); return }   // no window at all
+            // A cached id that CGWindowList lists on screen IS alive (ids are not reused within a
+            // session): no need to ask the app. That ask — one synchronous round trip per leaf, on
+            // every reconcile — cost 26 ms a reconcile on average over a night, 900 ms at worst,
+            // for a fact the window list we already hold had settled. AX is consulted only for the
+            // leaves it cannot vouch for (hidden apps, native full screen, a window that just closed).
+            if let cached = w.lastKnownID, onScreen.contains(cached), !w.isFullscreen {
+                w.missCount = 0
+                aliveTreeIDs.insert(cached); aliveConfirmedIDs.insert(cached)
+                return
+            }
             if let id = w.resolvedID() {
                 // A full-screened window (e.g. a video) is temporarily on its own Space.
                 // Keep it in the tree — neither counted as present nor detached — so it

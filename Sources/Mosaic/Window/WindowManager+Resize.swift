@@ -361,7 +361,10 @@ extension WindowManager {
         dropHighlight.hide()   // the drop highlight must only ever show during a drag
         var active = Set<ObjectIdentifier>()
         for state in spaces.values { state.root?.collectActiveStrips(into: &active) }
-        for strip in TabBarWindow.registry.allObjects where !active.contains(ObjectIdentifier(strip)) {
+        // Only strips that are actually up: this runs 2.5×/s, and an orderOut of a hidden window is
+        // still a window-server round trip — 2.9 ms on average over a night, 2.9 s when the server
+        // was busy at a wake (measured). The tree walk above is the only thing that should cost here.
+        for strip in TabBarWindow.registry.allObjects where strip.isVisible && !active.contains(ObjectIdentifier(strip)) {
             strip.orderOut(nil)
         }
     }

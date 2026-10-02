@@ -71,5 +71,8 @@ final class DropHighlight {
         }
     }
 
-    func hide() { window.orderOut(nil); currentTile = .zero }
+    func hide() {
+        guard window.isVisible else { return }   // called from the 0.4 s timer: no round trip when already hidden
+        window.orderOut(nil); currentTile = .zero
+    }
 }
