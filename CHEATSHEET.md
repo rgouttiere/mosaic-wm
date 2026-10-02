@@ -101,7 +101,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 
 ## CLI
 
-Every action is also scriptable from the command line — `mosaic <action>` sends it to the running app (great for scripts, sketchybar, etc.). Install the command with `make install-cli`.
+Every action is also scriptable from the command line — `mosaic <action>` sends it to the running app over its Unix socket and gets an answer: an unknown action is an error (exit 1), `mosaic query` reads live state (falls back to `status.json` when Mosaic isn't running), `doctor` and `dump-layout` print their reports (great for scripts, sketchybar, nvim, etc.). Install the command with `make install-cli`.
 
 ```sh
 mosaic --list            # list all actions

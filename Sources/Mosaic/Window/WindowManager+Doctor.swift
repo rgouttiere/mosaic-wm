@@ -97,6 +97,8 @@ extension WindowManager {
             out += "state.json   none yet\n"
         }
         out += "log          ~/.config/mosaic/mosaic.log · timing \(Perf.enabled ? "ON (~/.config/mosaic/timings.log)" : "off")\n"
+        out += "command sock \(CommandServer.shared.isListening ? "listening" : "NOT listening") — \(CommandServer.socketPath)\n"
+        if !CommandServer.shared.isListening { issues.append("command socket not listening: the `mosaic` CLI cannot reach the app") }
         let agent = Health.launchAgentStatus()
         out += "launch agent \(agent)\n"
         if !agent.hasPrefix("running under launchd") { issues.append("not kept alive by launchd: \(agent)") }

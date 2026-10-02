@@ -544,7 +544,8 @@ extension WindowManager {
         }
     }
 
-    func writeStatusFile(focused: Int?) {
+    /// Everything `status.json` carries — also what `mosaic query` is answered from, live.
+    func statusDictionary(focused: Int?) -> [String: Any] {
         var monitors: [[String: Any]] = []
         for screen in NSScreen.screens {
             guard let sp = currentWorkspace(for: screen) else { continue }
@@ -585,6 +586,11 @@ extension WindowManager {
             "appWindows": Health.foreignAppWindows(onScreenSnapshot(maxAge: 1)),
             "healthy": healthIssue == nil,
         ]
+        return dict
+    }
+
+    func writeStatusFile(focused: Int?) {
+        let dict = statusDictionary(focused: focused)
         guard let data = try? JSONSerialization.data(withJSONObject: dict,
                                                      options: [.prettyPrinted, .sortedKeys]) else { return }
         // Don't republish an identical file: every write wakes whatever watches it, and an external

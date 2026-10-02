@@ -267,7 +267,8 @@ extension WindowManager {
     /// Strips belonging to other desktops' trees are kept (macOS hides them off-space).
     /// Write a full snapshot (per-space trees + every visible tab bar's frame) to
     /// /tmp/mosaic-dump.txt for diagnostics.
-    func dumpLayout() {
+    @discardableResult
+    func dumpLayout() -> String {
         var out = "=== Mosaic layout dump ===\n"
         out += "activeSpaceID=\(activeSpaceID.map(String.init) ?? "nil")  screens=\(NSScreen.screens.count)  suspended=\(suspended)\n"
         for scr in NSScreen.screens {
@@ -329,7 +330,7 @@ extension WindowManager {
             out += "  \(line.replacingOccurrences(of: "\n", with: "\n      "))\n"
         }
         try? out.write(to: URL(fileURLWithPath: "/tmp/mosaic-dump.txt"), atomically: true, encoding: .utf8)
-        NSLog("Mosaic: layout dumped to /tmp/mosaic-dump.txt")
+        return out
     }
 
     func rectStr(_ r: CGRect) -> String {

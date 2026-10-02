@@ -50,13 +50,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateTrackpadGestures()   // opt-in native 3-finger swipe → workspace nav
         updateWindowDrag()         // hold-modifier + left-drag to move any window
 
-        // CLI channel: `mosaic <action>` posts this; run the matching action on the main thread.
-        DistributedNotificationCenter.default().addObserver(
-            forName: NSNotification.Name(mosaicCommandNotification), object: nil, queue: .main
-        ) { [weak self] note in
-            guard let self, let cmd = note.userInfo?["command"] as? String else { return }
-            if let run = self.makeActions()[cmd] { run() }
-            else { NSLog("Mosaic: unknown CLI action '\(cmd)'") }
+        // CLI channel: `mosaic <verb>` over the Unix socket; every request gets an answer.
+        CommandServer.shared.handle = { [weak self] line in
+            self?.respond(to: line) ?? (1, "Mosaic is shutting down\n")
+        }
+        CommandServer.shared.start()
+    }
+
+    /// Answer one CLI request. Reports and queries return text; an action runs and returns nothing;
+    /// a name nobody knows is an error — it used to vanish silently.
+    func respond(to line: String) -> (status: Int32, text: String) {
+        let parts = line.split(separator: " ").map(String.init)
+        guard let verb = parts.first, !verb.isEmpty else { return (1, "empty command\n") }
+        switch verb {
+        case "doctor":
+            return (0, windowManager.doctorReport())
+        case "dump-layout":
+            return (0, windowManager.dumpLayout())
+        case "query":
+            let wm = windowManager
+            let focused = wm.activeSpaceID.flatMap { wm.workspaceNumber(for: $0) }
+            let dict = wm.statusDictionary(focused: focused)
+            switch parts.dropFirst().first {
+            case "focused", "workspace":
+                return (0, (dict["focused"] as? Int).map { "\($0)\n" } ?? "\n")
+            case "workspaces":
+                return (0, ((dict["workspaces"] as? [Int]) ?? []).map(String.init).joined(separator: " ") + "\n")
+            case "active":
+                let mons = (dict["monitors"] as? [[String: Any]]) ?? []
+                return (0, mons.compactMap { $0["workspace"] as? Int }.map(String.init).joined(separator: " ") + "\n")
+            default:
+                let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
+                return (0, data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}")
+            }
+        default:
+            if let run = makeActions()[verb] { run(); return (0, "") }
+            return (1, "unknown action '\(verb)' — see `mosaic --list`\n")
         }
     }
 
@@ -104,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        CommandServer.shared.stop()
         windowManager.unparkAll()   // bring parked (off-screen, transparent) windows back so none is stranded
         windowManager.saveNow()
     }
