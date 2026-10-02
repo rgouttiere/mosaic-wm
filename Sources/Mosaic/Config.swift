@@ -212,6 +212,7 @@ final class Config {
         "workspace-next": "ctrl right",  // cycle this monitor's workspaces (needs macOS "Move a space" off)
         "workspace-prev": "ctrl left",   // ← see README: disable Mission Control's Ctrl+←/→ first
         "recover": "cmd alt shift return",   // panic heal: un-minimize + re-assert every workspace
+        "undo": "cmd alt z",                 // put the workspace back the way it was before the last edit
         "scratchpad-toggle": "cmd alt minus",
         "scratchpad-send": "cmd alt shift minus",
         "move-screen-next": "cmd alt ]",

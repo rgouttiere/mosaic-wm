@@ -132,6 +132,7 @@ final class WindowManager {
     var healthIssue: String?         // what the last self-check found (nil = healthy); see WindowManager+Doctor
     var onHealthChanged: ((String?) -> Void)?
     var healthTicks = 0
+    var undoRing = UndoRing()        // arrangements before each structural edit; see WindowManager+Undo
     let processStart = ProcessInfo.processInfo.systemUptime
     var pulseOnNextRender = false    // a window was just inserted: pulse the halo once it is placed
     /// Guards reconcile against re-entrancy (all triggers are on the main queue, but this

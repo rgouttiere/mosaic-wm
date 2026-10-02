@@ -11,6 +11,7 @@ extension WindowManager {
     /// nothing is restructured; unlike `rotate`, only these two are affected.
     func swap(_ direction: Direction) {
         checkSpaceChange()
+        snapshotForUndo()
         guard let a = focused, let b = neighborLeaf(from: a, direction), a !== b,
               let pa = a.parent, let ia = pa.index(of: a),
               let pb = b.parent, let ib = pb.index(of: b) else { return }
@@ -43,6 +44,7 @@ extension WindowManager {
 
     func move(_ direction: Direction) {
         checkSpaceChange()
+        snapshotForUndo()
         guard let f = focused, let parent = f.parent, let idx = parent.index(of: f) else { return }
 
         // Does this direction run ALONG the parent's axis? Horizontal axis = splitH or
@@ -102,6 +104,7 @@ extension WindowManager {
 
     func resize(_ direction: Direction, by delta: CGFloat = 0.05) {
         checkSpaceChange()
+        snapshotForUndo()
         guard let leaf = focused else { return }
         var node = leaf
         while let parent = node.parent {
@@ -127,6 +130,7 @@ extension WindowManager {
 
     func toggleSplitOrientation() {
         checkSpaceChange()
+        snapshotForUndo()
         guard let parent = focused?.parent else { return }
         parent.layout = (parent.layout == .splitH) ? .splitV : .splitH
         render()
@@ -146,6 +150,7 @@ extension WindowManager {
     /// when focus is inside a tab group (whose own parent has no meaningful ratios).
     func equalizeFocused() {
         checkSpaceChange()
+        snapshotForUndo()
         var node = focused
         while let n = node {
             if let p = n.parent, p.layout == .splitH || p.layout == .splitV, p.children.count > 1 {
@@ -160,6 +165,7 @@ extension WindowManager {
     /// Rotate the focused container's children (windows shift one position).
     func rotateFocused() {
         checkSpaceChange()
+        snapshotForUndo()
         guard let f = focused, let parent = f.parent, parent.children.count > 1 else { return }
         parent.children.append(parent.children.removeFirst())
         if !parent.ratios.isEmpty { parent.ratios.append(parent.ratios.removeFirst()) }
@@ -172,12 +178,14 @@ extension WindowManager {
     /// Rebuild the current desktop from scratch (discard manual groups & ratios).
     func resetDesktop() {
         checkSpaceChange()
+        snapshotForUndo()
         guard active != nil else { return }
         build()   // fresh tree in the current mode
     }
 
     func toggleTabbed() {
         checkSpaceChange()
+        snapshotForUndo()
         guard let f = focused, let parent = f.parent else { return }
         if parent.layout == .tabbed && !parent.stacked {
             parent.layout = .splitH          // already horizontal tabs → un-tab
@@ -193,6 +201,7 @@ extension WindowManager {
     /// window's parent; re-invoking on a stack reverts it to a horizontal split.
     func toggleStacked() {
         checkSpaceChange()
+        snapshotForUndo()
         guard let f = focused, let parent = f.parent else { return }
         if parent.layout == .tabbed && parent.stacked {
             parent.layout = .splitH          // already stacked → un-stack
@@ -211,6 +220,7 @@ extension WindowManager {
 
     func groupWithNeighbor(stacked: Bool) {
         checkSpaceChange()
+        snapshotForUndo()
         guard let root, !root.isLeaf, root.layout != .tabbed, let f = focused else { return }
         guard let column = rootColumn(of: f), let idx = root.index(of: column) else { return }
 
@@ -295,6 +305,7 @@ extension WindowManager {
         guard targetLeaf !== dragged, !contains(dragged, targetLeaf),
               let sourceState = stateContaining(dragged),
               let targetState = stateContaining(targetLeaf) else { return }
+        if sourceState === targetState { snapshotForUndo(targetState) }   // a cross-workspace drop is not undoable (two trees)
         Log.event("drop \(dragged.window?.logLabel ?? "?") \(zone) onto \(targetLeaf.window?.logLabel ?? "?")"
                   + (sourceState !== targetState
                      ? " (ws\(workspaceID(of: sourceState) ?? 0) → ws\(workspaceID(of: targetState) ?? 0))" : ""))

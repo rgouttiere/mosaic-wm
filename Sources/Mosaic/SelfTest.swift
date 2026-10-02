@@ -35,6 +35,7 @@ enum SelfTest {
         titleRuleTests(h)
         eventRingTests(h)
         frameMatchTests(h)
+        undoRingTests(h)
         print("MosaicSelfTest: \(h.passed) passed, \(h.failed) failed")
         return h.failed == 0 ? 0 : 1
     }
@@ -629,6 +630,29 @@ enum SelfTest {
         h.eq(Geometry.frameMatchIndex(saved: a, candidates: [a.insetBy(dx: 10, dy: 0)]), nil, "frameMatch: a different size does not")
         h.eq(Geometry.frameMatchIndex(saved: a, candidates: [a.offsetBy(dx: 30, dy: 0), a.offsetBy(dx: 5, dy: 0)]), 1, "frameMatch: the closest of two plausible wins")
         h.eq(Geometry.frameMatchIndex(saved: a, candidates: [.null, a]), 1, "frameMatch: an unreadable frame is skipped")
+    }
+
+    // MARK: - Undo history: coalescing a gesture, popping per workspace
+    static func undoRingTests(_ h: Harness) {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        func snap(_ space: UInt64, _ dt: TimeInterval) -> UndoSnapshot {
+            UndoSnapshot(space: space, tree: SavedNode(window: nil, layout: "splitH", ratios: nil, selected: nil, stacked: nil, children: nil),
+                         mode: "columns", focusedID: nil, at: t0.addingTimeInterval(dt))
+        }
+        var r = UndoRing(capacity: 3, coalesce: 1.5)
+        r.push(snap(1, 0)); r.push(snap(1, 0.5)); r.push(snap(1, 1.0))
+        h.eq(r.items.count, 1, "undo: a burst within the coalesce window is one snapshot")
+        r.push(snap(1, 3.0))
+        h.eq(r.items.count, 2, "undo: a later edit is a new snapshot")
+        r.push(snap(2, 3.2))
+        h.eq(r.items.count, 3, "undo: another workspace is never coalesced with this one")
+        r.push(snap(1, 10)); r.push(snap(1, 20))
+        h.eq(r.items.count, 3, "undo: capacity holds")
+        h.eq(r.items.first?.at, t0.addingTimeInterval(3.2), "undo: the oldest is dropped first")
+        h.eq(r.pop(space: 2)?.at, t0.addingTimeInterval(3.2), "undo: pop takes the newest of THAT workspace")
+        h.eq(r.pop(space: 1)?.at, t0.addingTimeInterval(20), "undo: then the newest of this one")
+        h.eq(r.pop(space: 2)?.at, nil, "undo: nothing left for workspace 2")
+        h.eq(r.items.count, 1, "undo: pops remove")
     }
 }
 #endif

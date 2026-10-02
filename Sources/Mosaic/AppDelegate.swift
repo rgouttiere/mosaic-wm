@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AX.installMessagingTimeout()   // before anything talks to another app over AX
         presentCapabilityIssues()      // a private symbol Apple removed → say so, don't fail silently
+        Health.noteCrashSinceLastStart()   // "Mosaic was gone this morning" → the cause, in the log
         requestAccessibilityIfNeeded()
         setupStatusItem()
         windowManager.onWorkspaceChanged = { [weak self] number in
@@ -262,6 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("scratchpad-send", "Send to scratchpad", #selector(scratchpadSend)),
             ("scratchpad-toggle", "Toggle scratchpad", #selector(scratchpadToggle)),
             ("scratchpad-release", "Release scratchpad", #selector(scratchpadRelease)),
+            ("undo", "Undo last layout change", #selector(undoLayout)),
             ("recover", "Recover windows (heal)", #selector(recoverWindows)),
             ("dump-layout", "Dump layout (debug → /tmp/mosaic-dump.txt)", #selector(dumpLayout)),
             ("doctor", "Doctor (health report → /tmp/mosaic-doctor.txt)", #selector(runDoctor)),
@@ -310,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func scratchpadToggle() { windowManager.toggleScratchpad() }
     @objc private func scratchpadRelease() { windowManager.releaseScratchpad() }
     @objc private func recoverWindows() { windowManager.recover() }
+    @objc private func undoLayout() { windowManager.undo() }
     @objc private func assignFromMenu(_ sender: NSMenuItem) { windowManager.assignWorkspace(sender.tag) }
     @objc private func unassignThisDesktop() { windowManager.unassignCurrent() }
     @objc private func showSwitcher() { windowManager.showSwitcher() }
@@ -436,6 +439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "recover": { wm.recover() },
             "reload-config": { [weak self] in self?.reloadConfig() },
             "dump-layout": { wm.dumpLayout() },
+            "undo": { wm.undo() },
             "doctor": { wm.doctor() },
         ]
         // i3-style numbered workspaces: ⌘⌥N switch, ⌘⌥⇧N move focused window.

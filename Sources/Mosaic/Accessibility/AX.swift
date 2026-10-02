@@ -33,11 +33,33 @@ enum AX {
     // MARK: Attribute reads
 
     static func copy<T>(_ element: AXUIElement, _ attribute: String) -> T? {
+        let t0 = DispatchTime.now(); defer { reportIfSlow(attribute, element, since: t0) }
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
             return nil
         }
         return value as? T
+    }
+
+    // MARK: - Slow-call attribution
+
+    /// Every call in this file is a synchronous round trip into another process, and while it
+    /// waits the whole window manager waits. A night of timings showed stalls of 0.7–3 s without
+    /// ever saying WHICH app was holding the line. Anything over half a second is logged with the
+    /// app it went to — at most one line per app every 10 s, so a frozen app cannot flood the log.
+    private static let slowThreshold: Double = 500   // ms
+    private static var lastSlowReport: [pid_t: Date] = [:]
+
+    static func reportIfSlow(_ what: String, _ element: AXUIElement, since t0: DispatchTime) {
+        let ms = Double(DispatchTime.now().uptimeNanoseconds &- t0.uptimeNanoseconds) / 1_000_000
+        guard ms >= slowThreshold else { return }
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        let now = Date()
+        if let last = lastSlowReport[pid], now.timeIntervalSince(last) < 10 { return }
+        lastSlowReport[pid] = now
+        let app = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid \(pid)"
+        Log.event("slow AX \(what) → \(app): \(Int(ms)) ms")
     }
 
     static func title(_ element: AXUIElement) -> String {
@@ -73,6 +95,7 @@ enum AX {
     /// `current` (the window's present frame, AX coords) picks the write order — see
     /// `Geometry.positionFirst`. Pass it whenever it's known for free; nil keeps position-first.
     static func setFrame(_ element: AXUIElement, _ rect: CGRect, current: CGRect? = nil) -> Bool {
+        let t0 = DispatchTime.now(); defer { reportIfSlow("setFrame", element, since: t0) }
         func writePosition() -> Bool {
             var origin = rect.origin
             guard let v = AXValueCreate(.cgPoint, &origin) else { return true }
@@ -93,16 +116,19 @@ enum AX {
     }
 
     static func raise(_ element: AXUIElement) {
+        let t0 = DispatchTime.now(); defer { reportIfSlow("raise", element, since: t0) }
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
     }
 
     /// Mark a window as its app's main window (used to pull its Space forward).
     static func makeMain(_ element: AXUIElement) {
+        let t0 = DispatchTime.now(); defer { reportIfSlow("makeMain", element, since: t0) }
         AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
     }
 
     static func setMinimized(_ element: AXUIElement, _ minimized: Bool) {
+        let t0 = DispatchTime.now(); defer { reportIfSlow("setMinimized", element, since: t0) }
         AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString,
                                      minimized ? kCFBooleanTrue : kCFBooleanFalse)
     }
@@ -134,6 +160,7 @@ enum AX {
     /// A natively full-screened window lives on its own Space; managing it makes
     /// macOS jump desktops, so Mosaic leaves these alone.
     static func isFullscreen(_ element: AXUIElement) -> Bool {
+        let t0 = DispatchTime.now(); defer { reportIfSlow("AXFullScreen", element, since: t0) }
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &value) == .success else {
             return false

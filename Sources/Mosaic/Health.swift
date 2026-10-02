@@ -66,7 +66,21 @@ enum Health {
     }
 
     /// The newest crash report of ours: when, what, which file. nil when there is none.
-    static func lastCrash() -> String? {
+    static func lastCrash() -> String? { newestCrashReport()?.summary }
+
+    /// At start: a crash report of ours newer than the previous start means the previous run ended
+    /// in a crash — said once, in the log, where the next morning's question gets asked. The stamp
+    /// file's mtime is the previous start; it is refreshed after the check.
+    static func noteCrashSinceLastStart() {
+        let fm = FileManager.default
+        let stamp = fm.homeDirectoryForCurrentUser.appendingPathComponent(".config/mosaic/.last-start")
+        let previous = (try? fm.attributesOfItem(atPath: stamp.path))?[.modificationDate] as? Date
+        defer { try? Data().write(to: stamp) }
+        guard let previous, let crash = newestCrashReport(), crash.date > previous else { return }
+        Log.event("previous run ended in a crash: \(crash.summary)")
+    }
+
+    static func newestCrashReport() -> (date: Date, summary: String)? {
         let fm = FileManager.default
         let dir = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/DiagnosticReports")
         guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return nil }
@@ -83,6 +97,6 @@ enum Health {
                 what = " \(ex["type"] ?? "") \(ex["signal"] ?? "")"
             }
         }
-        return "\(when)\(what) — \(newest.lastPathComponent)"
+        return (modified(newest), "\(when)\(what) — \(newest.lastPathComponent)")
     }
 }

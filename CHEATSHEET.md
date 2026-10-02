@@ -31,6 +31,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 - **Trackpad gestures** (`config.json`): **`trackpadGestures: true`** enables native 3-finger swipes (raw MultitouchSupport) — ←/→ switch workspace, ↑ opens the exposé, ↓ commits, and in the exposé 3-finger moves the selection while 2-finger navigates the grid. Disable macOS's own 3/4-finger gestures first so they don't fight. Off by default.
 - **Picture-in-picture** (`pip` action): a live, floating, draggable mirror of the focused window (even one parked on another workspace) via ScreenCaptureKit — the source keeps playing, so audio continues. Right-click / Space = play-pause, scroll = the player's volume, ⤢ = return to the window. Needs Screen Recording. No default key for `pip` — bind it in `keybindings`. **⌘⌥⇧P** (`pip-here`) brings the PiP **centred under the mouse pointer** on whatever screen you're on (clamped so it can't hang off an edge) — so you never have to drag it across monitors. If the source window is one tab of a group, starting the PiP flips the tile to the **neighbouring tab** (the video already plays in the PiP, so the tile is better spent on the other tab) and the source's tab keeps a small **PiP badge** on its right so you can tell where the floating video comes from. A lone tile has no sibling to show, so it keeps the letterbox cover instead.
 - **Notch HUD** (`config.json`): **`notchHud: true`** shows the workspace indicator as a dynamic-island pill under the notch on switch (instead of the corner HUD).
+- **Undo** (**⌘⌥Z**, also in the menu): the workspace goes back to how it was before the last layout edit — move, swap, resize, group/ungroup, rotate, equalize, reset, or a drop. Ten steps deep; a burst of resize steps or arrow-key moves is one step. Active workspace only; a drop that crossed workspaces is not undoable.
 - **Recovery** (**⌘⌥⇧↩**, also in the menu): the panic key for "a window is lost". It un-minimizes every managed window (a window minimized while its workspace was parked can't be woken by a re-tile alone), drops the learned resize minimums (a poisoned one narrows or freezes a split), rescues windows stranded off every screen, then re-asserts every workspace — re-tiling the shown ones and re-parking the rest. **Nothing is ever destroyed, only re-placed.**
 - **Scratchpad**: a dedicated app shown/hidden as a floating panel (survives relaunch).
 - **Rules** (`config.json`): `float`, `groupWith`, `place` (`column`/`tab`), `workspace: N`, `fullscreen` (`false` = force windowed/tileable, `true` = force native full screen; add `fullscreenLock: true` to keep enforcing it).
@@ -45,6 +46,7 @@ Menu-bar icon **▦** (with the current workspace number). Default shortcuts bel
 | Cycle mode (columns/grouped/tabbed) | ⌘⌥W |
 | Reset desktop | ⌘⌥⇧R |
 | Clear (stop managing) | ⌘⌥⇧C |
+| Undo last layout change | ⌘⌥Z |
 | Recover windows (heal — un-minimize, re-place everything) | ⌘⌥⇧↩ |
 
 ### Focus
