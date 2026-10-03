@@ -621,7 +621,16 @@ extension WindowManager {
     /// Append a leaf as a new column in a (possibly non-active) desktop's tree.
     func appendLeaf(_ leaf: Container, to state: SpaceState) {
         guard let r = state.root else { state.root = leaf; return }
-        if !r.isLeaf, r.layout != .tabbed {
+        if !r.isLeaf, r.layout == .tabbed {
+            // The workspace IS a tab group (a Safari-windows-plus-KeePassXC "mail & chat" workspace,
+            // say): a window routed there by a rule or a restore hint joins it as a tab and comes to
+            // the front, like a window inserted there by hand would. It used to be wrapped into a new
+            // column beside the group — the one layout nobody who tabbed that workspace wanted.
+            r.children.append(leaf)
+            leaf.parent = r
+            r.addRatio(at: r.children.count - 1)
+            r.selected = r.children.count - 1
+        } else if !r.isLeaf {
             r.children.append(leaf)
             leaf.parent = r
             r.addRatio(at: r.children.count - 1)

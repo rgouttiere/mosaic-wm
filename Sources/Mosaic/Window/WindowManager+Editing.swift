@@ -12,6 +12,7 @@ extension WindowManager {
     func swap(_ direction: Direction) {
         checkSpaceChange()
         snapshotForUndo()
+        Log.event("swap \(focused?.window?.logLabel ?? "?") \(direction)")
         guard let a = focused, let b = neighborLeaf(from: a, direction), a !== b,
               let pa = a.parent, let ia = pa.index(of: a),
               let pb = b.parent, let ib = pb.index(of: b) else { return }
@@ -131,6 +132,7 @@ extension WindowManager {
     func toggleSplitOrientation() {
         checkSpaceChange()
         snapshotForUndo()
+        Log.event("toggle-split on \(focused?.window?.logLabel ?? "?")")
         guard let parent = focused?.parent else { return }
         parent.layout = (parent.layout == .splitH) ? .splitV : .splitH
         render()
@@ -151,6 +153,7 @@ extension WindowManager {
     func equalizeFocused() {
         checkSpaceChange()
         snapshotForUndo()
+        Log.event("equalize around \(focused?.window?.logLabel ?? "?")")
         var node = focused
         while let n = node {
             if let p = n.parent, p.layout == .splitH || p.layout == .splitV, p.children.count > 1 {
@@ -166,6 +169,7 @@ extension WindowManager {
     func rotateFocused() {
         checkSpaceChange()
         snapshotForUndo()
+        Log.event("rotate around \(focused?.window?.logLabel ?? "?")")
         guard let f = focused, let parent = f.parent, parent.children.count > 1 else { return }
         parent.children.append(parent.children.removeFirst())
         if !parent.ratios.isEmpty { parent.ratios.append(parent.ratios.removeFirst()) }
@@ -179,6 +183,7 @@ extension WindowManager {
     func resetDesktop() {
         checkSpaceChange()
         snapshotForUndo()
+        Log.event("reset-desktop on \(activeSpaceID.map { "ws\($0)" } ?? "ws?")")
         guard active != nil else { return }
         build()   // fresh tree in the current mode
     }
@@ -186,6 +191,7 @@ extension WindowManager {
     func toggleTabbed() {
         checkSpaceChange()
         snapshotForUndo()
+        Log.event("toggle-tabbed on \(focused?.window?.logLabel ?? "?")")
         guard let f = focused, let parent = f.parent else { return }
         if parent.layout == .tabbed && !parent.stacked {
             parent.layout = .splitH          // already horizontal tabs → un-tab
@@ -202,6 +208,7 @@ extension WindowManager {
     func toggleStacked() {
         checkSpaceChange()
         snapshotForUndo()
+        Log.event("toggle-stacked on \(focused?.window?.logLabel ?? "?")")
         guard let f = focused, let parent = f.parent else { return }
         if parent.layout == .tabbed && parent.stacked {
             parent.layout = .splitH          // already stacked → un-stack
@@ -221,6 +228,7 @@ extension WindowManager {
     func groupWithNeighbor(stacked: Bool) {
         checkSpaceChange()
         snapshotForUndo()
+        Log.event("group \(focused?.window?.logLabel ?? "?") with its neighbour column\(stacked ? " (stacked)" : "")")
         guard let root, !root.isLeaf, root.layout != .tabbed, let f = focused else { return }
         guard let column = rootColumn(of: f), let idx = root.index(of: column) else { return }
 
