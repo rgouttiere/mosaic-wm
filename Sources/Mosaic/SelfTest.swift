@@ -37,6 +37,7 @@ enum SelfTest {
         frameMatchTests(h)
         undoRingTests(h)
         unreadBadgeTests(h)
+        confinedAppsTests(h)
         print("MosaicSelfTest: \(h.passed) passed, \(h.failed) failed")
         return h.failed == 0 ? 0 : 1
     }
@@ -666,6 +667,17 @@ enum SelfTest {
         h.eq(UnreadBadge.parse("Meet (3 participants)"), nil, "badge: a number with words is not a count")
         h.eq(UnreadBadge.parse("Shadow - Calendar - Week of September 28, 2026"), nil, "badge: no parentheses, nothing")
         h.eq(UnreadBadge.parse("Gmail - Pro — Inbox (0) - Gmail"), nil, "badge: zero is nothing")
+    }
+
+    // MARK: - Park by hiding: which apps are confined to the workspace being parked
+    static func confinedAppsTests(_ h: Harness) {
+        let by: [pid_t: Set<UInt64>] = [10: [1], 20: [1, 3], 30: [1], 40: [2]]
+        h.eq(WindowManager.confinedPids(windowsByPid: by, space: 1, foreignPids: []), [10, 30], "confined: only apps whose every window is in the parked workspace")
+        h.eq(WindowManager.confinedPids(windowsByPid: by, space: 1, foreignPids: [30]), [10], "confined: an unmanaged window on screen disqualifies the app")
+        h.eq(WindowManager.confinedPids(windowsByPid: by, space: 3, foreignPids: []), [], "confined: a browser spanning two workspaces is never hidden")
+        h.eq(WindowManager.confinedPids(windowsByPid: by, space: 2, foreignPids: []), [40], "confined: a lone app in its own workspace")
+        h.eq(WindowManager.parseHiddenPids("123\n456\n\n  789 \nabc\n"), [123, 456, 789], "hidden pids file: one per line, blanks and junk skipped")
+        h.eq(WindowManager.parseHiddenPids(""), [], "hidden pids file: empty")
     }
 }
 #endif

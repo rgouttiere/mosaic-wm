@@ -303,7 +303,8 @@ final class Container {
     ///   the slot, centred, so it never overshoots and freezes the column; the letterbox fill
     ///   (computed off the full-tile lastFrame) covers the surrounding gap.
     private func windowRect(forTile rect: NSRect) -> NSRect? {
-        guard let w = window, w.isFullscreen != true, !parkedOffScreen else { return nil }
+        guard let w = window, w.isFullscreen != true, !parkedOffScreen,
+              !ManagedWindow.parkHiddenPids.contains(w.pid) else { return nil }   // hidden by the park: stays put, unseen
         let slot = rect.insetBy(dx: gap / 2, dy: gap / 2)
         return (w.isAspectFit && w.aspectRatio > 0) ? Geometry.aspectFit(slot, aspect: w.aspectRatio) : slot
     }

@@ -300,7 +300,8 @@ final class WindowManager {
         guard let r = ws.root else { return }
         guard let screen = screen(forDisplayID: ws.displayID) ?? screenUnderMouse() ?? NSScreen.screens.first
         else { return }
-        r.arrange(in: parkRect(for: screen))
+        hideConfinedApps(parking: ws)       // apps that live only here are hidden, not moved (WindowManager+Park)
+        r.arrange(in: parkRect(for: screen))   // the rest goes off the void edge; hidden ones are skipped
     }
 
     /// Unpark a workspace onto `screen`: un-minimize (in case a window was minimized — by the
@@ -308,6 +309,7 @@ final class WindowManager {
     /// unmanaged windows. `setCocoaFrame`'s cache skips windows already at their on-screen frame.
     func unparkWorkspace(_ ws: SpaceState, on screen: NSScreen, raise: Bool = true) {
         guard let r = ws.root else { return }
+        unhideApps(for: ws)   // first: a hidden app's windows reappear where they were, then get placed
         r.forEachLeaf { if let w = $0.window, AX.isMinimized(w.element) { AX.setMinimized(w.element, false) } }
         // What you look at arrives first. The writes are sequential and each one waits for its app
         // (~12 ms into a browser), so their ORDER is the one thing about a switch we control: the
@@ -451,7 +453,16 @@ final class WindowManager {
 
     func startObserving() {
         loadState()
-        restoreSavedWorkspaces()   // eager, BEFORE the timer can lazily restore just one
+        // Apps a previous run hid for a park and never unhid (kill -9, a crash): their windows are
+        // invisible to the restore's capture, so they came back as "new" windows — re-routed and
+        // tabbed after the focused one instead of in their saved slots, one workspace "kept for a
+        // later visit" with its only app invisible. Unhide first; the windows take a beat to
+        // reappear, so the eager restore waits for them.
+        if unhideLeftoversFromPreviousRun() > 0 {
+            later("restoreAfterUnhide", in: 0.5, whileSuspended: true) { $0.restoreSavedWorkspaces() }
+        } else {
+            restoreSavedWorkspaces()   // eager, BEFORE the timer can lazily restore just one
+        }
         // Stop routing late-launching apps to their saved workspace after a grace window, so
         // windows opened deliberately later go to the active workspace as normal.
         later("bootSettle", in: 20, whileSuspended: true, acrossSleep: true) { wm in
@@ -785,6 +796,7 @@ final class WindowManager {
     /// called on quit so no parked window is left stranded off the visible desktop. Workspaces
     /// sharing a monitor overlap, but everything is reachable and visible again.
     func unparkAll() {
+        unhideAllParked()
         for (id, ws) in spaces {
             guard let r = ws.root,
                   let scr = screen(forWorkspace: id) ?? homeScreen(forWorkspace: Int(id))

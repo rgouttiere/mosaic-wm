@@ -176,6 +176,8 @@ final class ManagedWindow {
 
     /// True while `renderLive` runs: frame writes skip their readback (see `setCocoaFrame`).
     static var liveResize = false
+    /// Apps hidden by the park (see WindowManager+Park): their windows are not written at all.
+    static var parkHiddenPids = Set<pid_t>()
 
     /// Which render pass we're in. Two frame writes to ONE window inside a single pass mean two
     /// passes are fighting over it: `arrange` placing a tile while a park pushed it away again was

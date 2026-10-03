@@ -56,6 +56,7 @@ extension WindowManager {
             let ws = workspace(n, on: screen)
             liftAppsAboveParked(ws)            // multi-app: beat macOS' app-layer order — while still off-screen
             unparkWorkspace(ws, on: screen)    // raised: it has to land above the outgoing
+            activateBeforeHiding(ws)           // hide-park only: hiding the frontmost app makes macOS activate the next one
             if let outgoingWS { parkWorkspace(outgoingWS) }
             if ws.focused == nil { ws.focused = ws.root?.firstLeaf() }
             render()
@@ -140,7 +141,8 @@ extension WindowManager {
                     if w.isFullscreen {
                         tiles.append(ExposeTile(frame: wsScreen, tabs: [ExposeTab(label: "⛶ \(w.title)", icon: w.app.icon, selected: true, windowID: w.resolvedID(), focus: { [weak self] in self?.focusManagedWindow(w, onWorkspace: n) })]))
                     } else if let f = frames[ObjectIdentifier(tile)] {
-                        tiles.append(ExposeTile(frame: f, tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true, windowID: w.resolvedID(), focus: { [weak self] in self?.focusManagedWindow(w, onWorkspace: n) })]))
+                        tiles.append(ExposeTile(frame: f, tabs: [ExposeTab(label: w.title, icon: w.app.icon, selected: true, windowID: w.resolvedID(), focus: { [weak self] in self?.focusManagedWindow(w, onWorkspace: n) },
+                                                                        capturable: !ManagedWindow.parkHiddenPids.contains(w.pid))]))
                     }
                 } else {
                     // Tabbed container → one tile with a tab per child (rep = child's first window).
@@ -151,7 +153,8 @@ extension WindowManager {
                         let w = c.firstLeaf().window
                         return ExposeTab(label: w?.title ?? "—", icon: w?.app.icon, selected: i == sel, windowID: w?.resolvedID(),
                                          focus: w.map { win in { [weak self] in self?.focusManagedWindow(win, onWorkspace: n) } },
-                                         iconKey: w?.app.bundleIdentifier ?? w?.appName ?? "?")
+                                         iconKey: w?.app.bundleIdentifier ?? w?.appName ?? "?",
+                                         capturable: w.map { !ManagedWindow.parkHiddenPids.contains($0.pid) } ?? true)
                     }
                     tiles.append(ExposeTile(frame: f, tabs: tabs, stacked: tile.stacked))
                 }

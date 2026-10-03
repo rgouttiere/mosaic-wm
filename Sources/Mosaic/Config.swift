@@ -34,6 +34,7 @@ final class Config {
     var tabScrollCycle = true   // scroll over a tab bar to cycle its tabs
     var switcherFadeIn = true   // fade the quick-switcher popup in
     var tabBarHeight: CGFloat = 22
+    var hideConfinedApps: Bool = false   // opt-in: park an app confined to one workspace by HIDING it — no sliver, but apps redraw on unhide (switch measured 2× slower) instead of moving its windows
     var stackStyle: String = "rows"   // how a stacked group draws its strip: "rows" (full-width rows on top) or "rail" (an icon rail on the left)
     var railWidth: CGFloat = 44       // rail: width of the strip, in points; cells are square
     var railIconSize: Double = 24     // rail: icon size for a single-window row (pairs shrink to fit)
@@ -406,6 +407,7 @@ final class Config {
         bool("tabScrollCycle", \.tabScrollCycle, true),
         bool("switcherFadeIn", \.switcherFadeIn, true),
         points("tabBarHeight", \.tabBarHeight, 22, dump: true),
+        bool("hideConfinedApps", \.hideConfinedApps, false, dump: true),
         string("stackStyle", \.stackStyle, "rows", dump: true),
         points("railWidth", \.railWidth, 44, dump: true),
         double("railIconSize", \.railIconSize, 24, dump: true),

@@ -344,14 +344,8 @@ extension WindowManager {
                 aliveTreeIDs.insert(cached); aliveConfirmedIDs.insert(cached)
                 return
             }
-            if let id = w.resolvedID() {
-                // A full-screened window (e.g. a video) is temporarily on its own Space.
-                // Keep it in the tree — neither counted as present nor detached — so it
-                // returns to its exact place when it leaves full screen. Only its content
-                // isn't arranged/raised while full screen (handled in Container).
-                if !w.isFullscreen { aliveTreeIDs.insert(id); aliveConfirmedIDs.insert(id) }
-                return
-            }
+            // Checked BEFORE resolvedID: that round trip, per hidden leaf on every tick, is what
+            // stalled the main thread while an app hidden for a park was busy waking up.
             // A hidden app (Cmd-H) leaves the screen but must keep its slot — treat like
             // full screen, never as a close. (Its windows aren't in captureWindows either,
             // so they won't be re-inserted elsewhere.)
@@ -361,6 +355,14 @@ extension WindowManager {
                 // the on-screen list, so counting it there would make the switch-detection at line
                 // ~301 (confirmed-alive ∩ onScreen == ∅) misfire when a whole workspace is hidden.
                 if let cached = w.lastKnownID { aliveTreeIDs.insert(cached) }
+                return
+            }
+            if let id = w.resolvedID() {
+                // A full-screened window (e.g. a video) is temporarily on its own Space.
+                // Keep it in the tree — neither counted as present nor detached — so it
+                // returns to its exact place when it leaves full screen. Only its content
+                // isn't arranged/raised while full screen (handled in Container).
+                if !w.isFullscreen { aliveTreeIDs.insert(id); aliveConfirmedIDs.insert(id) }
                 return
             }
             // AX couldn't resolve the window. It might be a transient glitch, a real close,
@@ -463,7 +465,7 @@ extension WindowManager {
             Log.event("holding \(staleLeaves.count) unresolvable leaves — bulk, not closes: \(who)")
         }
         for leaf in staleLeaves {
-            guard let w = leaf.window, w.resolvedID() == nil, !w.app.isHidden else { continue }
+            guard let w = leaf.window, !w.app.isHidden, w.resolvedID() == nil else { continue }
             w.missCount += 1
             if w.missCount >= missesToConfirm { deadLeaves.append(leaf) } else { gracePending = true }
         }

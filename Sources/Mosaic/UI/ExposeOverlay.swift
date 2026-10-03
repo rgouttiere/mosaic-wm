@@ -8,6 +8,7 @@ struct ExposeTab {
     let windowID: CGWindowID?
     var focus: (() -> Void)? = nil
     var iconKey: String = ""   // bundle id — the key the tinted variant of the icon is cached under
+    var capturable: Bool = true   // false for a window of an app the park hid: keep its last capture
 }
 /// A tile in a workspace: its frame (in the workspace's screen coords) + its tab(s).
 struct ExposeTile {
@@ -16,6 +17,7 @@ struct ExposeTile {
     var stacked: Bool = false   // a stacked group: drawn as a rail when the config says so, like the real one
     /// Window whose thumbnail backs the tile: the selected tab's (or the first).
     var displayedWindowID: CGWindowID? { (tabs.first(where: { $0.selected }) ?? tabs.first)?.windowID }
+    var displayedCapturable: Bool { (tabs.first(where: { $0.selected }) ?? tabs.first)?.capturable ?? true }
 }
 
 /// One workspace to draw in the exposé grid.
@@ -244,7 +246,7 @@ final class ExposeOverlay {
     /// capture silently; only the ones that had NO preview fade in.
     private func loadThumbnails(_ ws: [ExposeWorkspace]) {
         guard Config.shared.exposeThumbnails, #available(macOS 14.0, *) else { return }
-        let ids = ws.flatMap { $0.tiles.compactMap { $0.displayedWindowID } }
+        let ids = ws.flatMap { $0.tiles.filter(\.displayedCapturable).compactMap { $0.displayedWindowID } }
         guard !ids.isEmpty else { return }
         let missing = Set(ids).filter { thumbs.images[$0] == nil }
         Perf.count("expose.ids", ids.count); Perf.count("expose.cached", ids.count - missing.count)
