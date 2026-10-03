@@ -78,7 +78,11 @@ private final class InactiveBorderView: NSView {
         let width = max(1, CGFloat(Config.shared.borderWidth))   // a hair thinner than the focus line
         let radius = CGFloat(Config.shared.borderCornerRadius)
         let op = Config.shared.inactiveBorderOpacity
-        Config.shared.borderNSColor.withAlphaComponent(dimmed ? op * Config.shared.inactiveMonitorDim : op).setStroke()
+        // Off the focused monitor the border gets DARKER, not more transparent: the monitor dim is a
+        // brightness, and lowering the alpha let the window show through the line instead.
+        let accent = Config.shared.borderNSColor
+        let shade = dimmed ? (accent.blended(withFraction: 1 - Config.shared.inactiveMonitorDim, of: .black) ?? accent) : accent
+        shade.withAlphaComponent(op).setStroke()
         let p = NSBezierPath(roundedRect: bounds.insetBy(dx: width / 2, dy: width / 2), xRadius: radius, yRadius: radius)
         p.lineWidth = width
         p.stroke()

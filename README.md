@@ -110,8 +110,8 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `borderEnabled` | `true` | Draw a border around the focused window. |
 | `borderInactive` | `false` | Also draw a dim accent border on the other tiled windows, so the whole layout reads as outlined. |
 | `inactiveBorderOpacity` | `0.42` | Opacity of that inactive-window border. |
-| `dimInactiveMonitors` | `false` | Fade the borders + tab strips on the monitor(s) without keyboard focus. |
-| `inactiveMonitorDim` | `0.6` | Fraction of brightness the non-focused monitors keep when `dimInactiveMonitors` is on (`1` = no dim). |
+| `dimInactiveMonitors` | `false` | Darken the borders + tab strips on the monitor(s) without keyboard focus. A black veil over the strip and a darker accent on the borders: nothing becomes transparent. |
+| `inactiveMonitorDim` | `0.6` | Fraction of brightness the non-focused monitors keep when `dimInactiveMonitors` is on (`1` = no dim). `0.8` = a 20 % black veil. |
 | `accentColor` | `"accent"` | The single accent for the whole UI. `"accent"`/`"system"` follows the macOS accent; a hex like `"#a6e3a1"` pins it. Every field left at `"accent"` resolves through this, so one value re-themes everything. |
 | `borderColor` | `"accent"` | Border color (`"accent"` or hex). |
 | `borderWidth` | `1` | Border thickness. |

@@ -106,9 +106,9 @@ final class Config {
     // Window styling.
     var borderEnabled: Bool = true
     var borderInactive: Bool = false   // also draw a dim accent border on non-focused tiled windows
-    var dimInactiveMonitors: Bool = false   // fade tile borders + tab strips on the monitor(s) without keyboard focus
+    var dimInactiveMonitors: Bool = false   // darken tile borders + tab strips on the monitor(s) without keyboard focus (a veil, never alpha)
     var inactiveBorderOpacity: Double = 0.42   // opacity of the permanent border on non-focused windows (dimmed further off the focused monitor)
-    var inactiveMonitorDim: Double = 0.6   // dimInactiveMonitors: fraction of brightness the non-focused monitors keep (1 = none)
+    var inactiveMonitorDim: Double = 0.6   // dimInactiveMonitors: fraction of brightness the non-focused monitors keep (1 = none); strips get a black veil of 1-dim, borders a darker accent
     /// The single accent used across the whole UI. "accent"/"system" = the macOS system accent;
     /// or a hex like "#a6e3a1". Every field set to "accent" (border, tabs, drop) resolves through
     /// this, and the overlays read `Palette.accent`, so one value re-themes everything.
