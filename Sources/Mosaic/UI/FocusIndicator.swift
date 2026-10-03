@@ -51,12 +51,12 @@ final class FocusIndicator {
             ghost.contentView?.frame = NSRect(origin: .zero, size: window.frame.size)
             (ghost.contentView as? BorderView)?.update()
             ghost.alphaValue = 1
-            ghost.orderFrontRegardless()
-            NSAnimationContext.runAnimationGroup({ ctx in
+            if !ghost.isVisible { ghost.orderFrontRegardless() }   // stays up at alpha 0 between jumps: one window-server call saved per jump
+            NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.26
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 ghost.animator().alphaValue = 0
-            }, completionHandler: { [weak self] in self?.ghost.orderOut(nil) })
+            }
         }
         lastCocoaFrame = cocoaFrame
 
@@ -66,9 +66,12 @@ final class FocusIndicator {
         // orderFrontRegardless (like the tab bars) so a .stationary window actually
         // migrates to the current Space — orderFront leaves it stuck on its old Space,
         // which shows the border on the wrong workspace when two share a display.
+        // Ordering is a window-server round trip that stalls for hundreds of ms right after an app
+        // relayout (halo.show 31 ms on average, 537 worst, on cross-app tab switches). The halo sits
+        // one level above every other overlay, so once it is up it needs no re-ordering.
         if animate {
             window.alphaValue = 0
-            window.orderFrontRegardless()
+            if !window.isVisible { window.orderFrontRegardless() }
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.24
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -76,7 +79,7 @@ final class FocusIndicator {
             }
         } else {
             window.alphaValue = 1
-            window.orderFrontRegardless()
+            if !window.isVisible { window.orderFrontRegardless() }
         }
     }
 
@@ -109,7 +112,7 @@ private final class BorderWindow: NSWindow {
         backgroundColor = .clear
         hasShadow = false
         ignoresMouseEvents = true   // never intercept clicks
-        level = .floating
+        level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)   // above borders, letterbox, scrims, handles — by level, not by re-ordering
         // moveToActiveSpace: the border follows to whatever Space is active when we order
         // it front — so it lands on the desktop you're actually looking at, even when two
         // workspaces share a display or you switch with ⌃←/→. (.stationary kept it pinned

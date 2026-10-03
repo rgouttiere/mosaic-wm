@@ -56,11 +56,22 @@ final class WindowObserver {
     /// `AXApplicationActivated` alone. Without this, `syncFocusToSystem` — which owns the rule
     /// "the requested window is parked elsewhere, go to its workspace" — was simply never called
     /// on that path: clicking the banner brought the app forward with nothing to look at.
-    @objc private func appActivated() { scheduleChange(); scheduleFocusSync() }
+    /// Answers "did WE just activate this app?" — then the activation is the echo of a render, not
+    /// a change to reconcile (three reconciles per tab switch, 28 ms each, measured). Focus-sync
+    /// still runs: it has its own echo guard.
+    var isOwnActivation: (() -> Bool)?
+
+    @objc private func appActivated() {
+        if isOwnActivation?() != true { scheduleChange() }
+        scheduleFocusSync()
+    }
 
     /// Called (debounced) when only a window TITLE changed — a light refresh (update the
     /// tab strips) without re-tiling windows.
     var onTitleChange: (() -> Void)?
+    /// A window-level notification (title, moved, resized) with the element it is about — the
+    /// window manager drops that window's caches. Called synchronously, before any scheduled work.
+    var onWindowEvent: ((AXUIElement, String) -> Void)?
     private var titlePending: DispatchWorkItem?
 
     /// Called (debounced) when the system's focused window changed (click, cmd-tab, app
@@ -81,11 +92,23 @@ final class WindowObserver {
     func watchForClose(_ windows: [ManagedWindow]) {
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         for window in windows {
+            // The restore watches its windows BEFORE `start()` has created the per-app observers:
+            // the guard below then skipped every restored window silently — no close, title, move
+            // or resize event for them until the app relaunched (found 2026-10-04, when a window-
+            // level Moved never arrived while a standalone observer got it). Create the app's
+            // observer on demand instead.
+            if observers[window.pid] == nil, let app = NSRunningApplication(processIdentifier: window.pid) { observe(app) }
             guard let observer = observers[window.pid] else { continue }
             AXObserverAddNotification(observer, window.element,
                                       kAXUIElementDestroyedNotification as CFString, refcon)
             AXObserverAddNotification(observer, window.element,
                                       kAXTitleChangedNotification as CFString, refcon)
+            // Moved/Resized feed the frame + full-screen caches only (see the callback): a re-tile
+            // on them would loop on the echo of our own writes.
+            AXObserverAddNotification(observer, window.element,
+                                      kAXWindowMovedNotification as CFString, refcon)
+            AXObserverAddNotification(observer, window.element,
+                                      kAXWindowResizedNotification as CFString, refcon)
         }
     }
 
@@ -103,6 +126,10 @@ final class WindowObserver {
                                          kAXUIElementDestroyedNotification as CFString)
             AXObserverRemoveNotification(observer, window.element,
                                          kAXTitleChangedNotification as CFString)
+            AXObserverRemoveNotification(observer, window.element,
+                                         kAXWindowMovedNotification as CFString)
+            AXObserverRemoveNotification(observer, window.element,
+                                         kAXWindowResizedNotification as CFString)
         }
     }
 
@@ -183,12 +210,15 @@ final class WindowObserver {
 }
 
 /// C callback: AXObserver passes our `WindowObserver` back via the refcon pointer.
-private let axObserverCallback: AXObserverCallback = { _, _, notification, refcon in
+private let axObserverCallback: AXObserverCallback = { _, element, notification, refcon in
     guard let refcon else { return }
     let obs = Unmanaged<WindowObserver>.fromOpaque(refcon).takeUnretainedValue()
     switch notification as String {
     case kAXTitleChangedNotification:
+        obs.onWindowEvent?(element, notification as String)   // drop the cached title first
         obs.scheduleTitleRefresh()   // light: just refresh tab labels
+    case kAXWindowMovedNotification, kAXWindowResizedNotification:
+        obs.onWindowEvent?(element, notification as String)   // caches only — never a re-tile (our writes echo here)
     case kAXFocusedWindowChangedNotification:
         obs.scheduleFocusSync()      // light: adopt system focus, no re-tile
     default:

@@ -341,14 +341,17 @@ extension WindowManager {
     /// `onScreen` lets a caller that already enumerated the on-screen window ids this pass
     /// (e.g. reconcile) thread its snapshot in, instead of paying a second identical
     /// CGWindowList enumeration microseconds later. Defaults to a fresh enumeration.
-    func captureWindows(on screen: NSScreen, onScreen: Set<CGWindowID>? = nil) -> [ManagedWindow] {
+    /// `limitedTo`: ask only these apps (reconcile passes the owners of on-screen windows it does
+    /// not track yet — see there); nil = every app with something on screen.
+    func captureWindows(on screen: NSScreen, onScreen: Set<CGWindowID>? = nil, limitedTo: Set<pid_t>? = nil) -> [ManagedWindow] {
         let __perf = DispatchTime.now(); defer { Perf.record("captureWindows", since: __perf) }
         // The window list carries each window's owner, so we know which apps have anything on
         // screen at all — and the filter below discards every window that isn't. Asking the others
         // for their windows was a round trip per app, on a dozen apps, ~1.4 times a second.
         let snapshot = onScreenSnapshot(maxAge: onScreen == nil ? 0 : snapshotTTL)
         let onScreen = onScreen ?? Set(snapshot.map { $0.id })
-        return AX.managedWindows(limitedTo: Set(snapshot.map { $0.pid }))
+        let onScreenPids = Set(snapshot.map { $0.pid })
+        return AX.managedWindows(limitedTo: limitedTo.map { $0.intersection(onScreenPids) } ?? onScreenPids)
             .compactMap(ManagedWindow.init)
             .filter { window in
                 // Order matters: reject via cheap local checks and the on-screen gate BEFORE the

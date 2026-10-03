@@ -698,6 +698,7 @@ extension WindowManager {
         let count = tabbed.children.count
         tabbed.selected = (tabbed.selected + step + count) % count
         focused = tabbed.children[tabbed.selected].firstLeaf()
+        tabbed.flushStripSelection()   // the strip answers within a frame; the window follows
         render()
     }
 

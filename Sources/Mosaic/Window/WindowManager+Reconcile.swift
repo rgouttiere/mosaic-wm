@@ -16,6 +16,17 @@ extension WindowManager {
         build()
     }
 
+    /// A window-level AX notification (title, moved, resized): find the window it is about and
+    /// drop what we cached on it. Equality is on the AX element — a token compare, no round trip.
+    func noteWindowEvent(_ element: AXUIElement, _ notification: String) {
+        Perf.count("ax.windowEvent")
+        for ws in spaces.values {
+            ws.root?.forEachLeaf { leaf in
+                if let w = leaf.window, CFEqual(w.element, element) { w.noteExternalChange(notification) }
+            }
+        }
+    }
+
     /// Panic recovery / stuck-off-screen heal (M5): bring every managed window back to a
     /// known-good state. Un-minimizes any window that got stuck minimized (e.g. minimized while
     /// its workspace was parked — `setCocoaFrame` alone won't wake a minimized window), then
@@ -357,6 +368,7 @@ extension WindowManager {
                 if let cached = w.lastKnownID { aliveTreeIDs.insert(cached) }
                 return
             }
+            Perf.count("reconcile.axLeaf")   // off the fast path: one round trip into the app
             if let id = w.resolvedID() {
                 // A full-screened window (e.g. a video) is temporarily on its own Space.
                 // Keep it in the tree — neither counted as present nor detached — so it
@@ -401,8 +413,6 @@ extension WindowManager {
         let __full = DispatchTime.now(); defer { Perf.record("reconcile.full", since: __full) }   // the slow path: capture + adopt + purge
         lastReconcileSpaceID = activeSpaceID
 
-        let windows = captureWindows(on: screen, onScreen: onScreen)   // reuse this pass's enumeration
-
         // Windows Mosaic already manages in ANOTHER present workspace stay THERE — never
         // re-adopt one into the active workspace just because macOS relocated it onto this
         // display (wake/unlock scatter). This makes tiled windows "sticky" to their workspace
@@ -416,6 +426,14 @@ extension WindowManager {
                 if let w = leaf.window, let id = w.lastKnownID ?? w.resolvedID() { trackedElsewhere.insert(id) }
             }
         }
+        // Only an app that owns an on-screen window we do not track yet can have an addition. The
+        // capture used to ask EVERY app on screen for its windows — a dozen round trips, 260 ms on
+        // average on the reconciles after a workspace switch (measured), to discard nearly all of
+        // them. Nothing unknown on screen → nothing to ask.
+        let known = aliveTreeIDs.union(trackedElsewhere)
+        let candidatePids = Set(onScreenSnapshot(maxAge: snapshotTTL).filter { !known.contains($0.id) }.map(\.pid))
+        if !candidatePids.isEmpty { Perf.count("reconcile.captureApps", candidatePids.count) }
+        let windows = candidatePids.isEmpty ? [] : captureWindows(on: screen, onScreen: onScreen, limitedTo: candidatePids)
         var additions = windows.filter { window in
             guard let id = AX.windowID(window.element) else { return false }
             if trackedElsewhere.contains(id) { return false }   // belongs to another workspace → leave it there

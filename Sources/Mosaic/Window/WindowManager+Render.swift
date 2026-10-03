@@ -48,12 +48,15 @@ extension WindowManager {
 
     func selectTabsOnPath(to leaf: Container) {
         var child = leaf
+        var changed: Container?
         while let parent = child.parent {
-            if parent.layout == .tabbed, let idx = parent.index(of: child) {
+            if parent.layout == .tabbed, let idx = parent.index(of: child), parent.selected != idx {
                 parent.selected = idx
+                changed = parent
             }
             child = parent
         }
+        changed?.flushStripSelection()   // a focus move into a hidden tab: the strip flips before the arrange
     }
 
     func wireTabCallbacks(_ node: Container) {
@@ -61,6 +64,7 @@ extension WindowManager {
             guard let self, container.children.indices.contains(index) else { return }
             container.selected = index
             self.focused = container.children[index].firstLeaf()
+            container.flushStripSelection()
             self.render()
         }
         node.onStackSelect = { [weak self] container, row, seg in
@@ -74,6 +78,7 @@ extension WindowManager {
             } else {
                 self.focused = entry.firstLeaf()
             }
+            container.flushStripSelection()
             self.render()
         }
         node.onReorder = { [weak self] container, from, to in
@@ -183,10 +188,40 @@ extension WindowManager {
 
     /// The on-screen, layer-0 windows, at most `maxAge` old. Shared so a render enumerates once.
     func onScreenSnapshot(maxAge: TimeInterval = 0.4) -> [(id: CGWindowID, pid: pid_t, bounds: CGRect)] {
-        if Date().timeIntervalSince(windowSnapshotTime) < maxAge { return windowSnapshot }
-        windowSnapshot = AX.onScreenWindows()
-        windowSnapshotTime = Date()
+        let age = Date().timeIntervalSince(windowSnapshotTime)
+        if age < maxAge { return windowSnapshot }
+        // Stale. CGWindowListCopyWindowInfo is a window-server round trip, and right after a tab or
+        // workspace switch the server is busy compositing the apps' relayouts: 4 ms at rest, 40 ms
+        // on average and 500 ms worst on the reconciles that follow a switch (measured). So the main
+        // thread never waits for it when it has anything to show: it serves the last list and asks
+        // for a fresh one behind; if that one differs, a reconcile follows at once. The synchronous
+        // capture remains for a first call or a list older than two seconds.
+        if windowSnapshot.isEmpty || age > 2.0 {
+            windowSnapshot = Perf.span("snapshot.sync") { AX.onScreenWindows() }
+            windowSnapshotTime = Date()
+            return windowSnapshot
+        }
+        refreshSnapshotInBackground()
         return windowSnapshot
+    }
+
+    private static let snapshotQueue = DispatchQueue(label: "mosaic.windowlist", qos: .userInitiated)
+
+    func refreshSnapshotInBackground() {
+        guard !snapshotRefreshing else { return }
+        snapshotRefreshing = true
+        Perf.count("snapshot.async")
+        Self.snapshotQueue.async { [weak self] in
+            let list = AX.onScreenWindows()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.snapshotRefreshing = false
+                let changed = Set(list.map(\.id)) != Set(self.windowSnapshot.map(\.id))
+                self.windowSnapshot = list
+                self.windowSnapshotTime = Date()
+                if changed { Perf.count("snapshot.changed"); self.tick() }   // what the stale pass missed
+            }
+        }
     }
 
     func coveredDisplays(maxAge: TimeInterval = 0.4) -> Set<CGDirectDisplayID> {
@@ -411,7 +446,13 @@ extension WindowManager {
         // Plus every managed window that has no preview yet — parked ones included, once: their
         // content barely moves, but the first exposé after a launch should not open on schematic
         // tiles for the workspaces that happen to be parked.
-        let wanted = shown + managed.filter { ThumbnailStore.shared.images[$0] == nil && !shown.contains($0) }
+        // A shown window is re-captured only when its preview is older than `staleAfter`: the warm
+        // used to grab every shown window 3 s after EVERY render, fifteen ScreenCaptureKit captures
+        // in parallel at up to 1200 px — 340 ms of window-server load, during which any of our own
+        // calls to it (overlay frames, the window list) stalled. "Parfois ça rame."
+        let store = ThumbnailStore.shared
+        let wanted = shown.filter { store.age(of: $0) > ThumbnailStore.staleAfter }
+            + managed.filter { store.images[$0] == nil && !shown.contains($0) }
         guard !wanted.isEmpty else { return }
         let t0 = DispatchTime.now()
         Task {
@@ -467,7 +508,7 @@ extension WindowManager {
                     // so a re-park each render can't compound the window further off-screen.
                     guard let w = leaf.window, !w.isFullscreen,
                           w.app.processIdentifier != selPid, leaf.lastFrame.width > 0 else { return }
-                    w.setCocoaFrame(leaf.lastFrame.offsetBy(dx: dx, dy: dy))
+                    w.setCocoaFrameAsync(leaf.lastFrame.offsetBy(dx: dx, dy: dy))   // off the critical path: the raised tab covers it
                     // From here on `arrange` records this leaf's geometry without writing it, so the
                     // park above is the only writer — and its target is stable, so setCocoaFrame's
                     // cache skips it on every subsequent render.
@@ -489,9 +530,10 @@ extension WindowManager {
             guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
             root.forEachVisibleLeaf { leaf in
                 guard let w = leaf.window, w.isAspectFit, !w.isFullscreen,
-                      let f = w.frame, f.width > 1, f.height > 1 else { return }
+                      let f = Perf.span("aspectFit.frame", { w.frame }), f.width > 1, f.height > 1 else { return }
                 let cand = f.width / f.height
                 if w.aspectRatio == 0 || abs(cand - w.aspectRatio) / w.aspectRatio > 0.02 {
+                    Perf.count("aspectFit.write")
                     w.aspectRatio = cand
                     w.setCocoaFrame(Geometry.aspectFit(leaf.lastFrame.insetBy(dx: gap / 2, dy: gap / 2), aspect: cand))
                 }

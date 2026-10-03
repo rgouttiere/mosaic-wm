@@ -15,14 +15,23 @@ import ScreenCaptureKit
 final class ThumbnailStore {
     static let shared = ThumbnailStore()
     private(set) var images: [CGWindowID: NSImage] = [:]
+    private var capturedAt: [CGWindowID: Date] = [:]
+    /// How old a shown window's preview may get before the post-render warm refreshes it.
+    static let staleAfter: TimeInterval = 15
 
     func set(_ cg: CGImage, for id: CGWindowID) {
         images[id] = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        capturedAt[id] = Date()
+    }
+
+    func age(of id: CGWindowID) -> TimeInterval {
+        capturedAt[id].map { Date().timeIntervalSince($0) } ?? .infinity
     }
 
     /// Drop the previews of windows that are no longer managed.
     func prune(keeping ids: Set<CGWindowID>) {
         images = images.filter { ids.contains($0.key) }
+        capturedAt = capturedAt.filter { ids.contains($0.key) }
     }
 }
 
@@ -42,15 +51,14 @@ enum Thumbnails {
         var byID: [CGWindowID: SCWindow] = [:]
         for w in content.windows { byID[w.windowID] = w }
 
-        return await withTaskGroup(of: (CGWindowID, CGImage?).self) { group in
-            for id in Set(ids) {
-                guard let win = byID[id] else { continue }
-                group.addTask { (id, await capture(win)) }
-            }
-            var out: [CGWindowID: CGImage] = [:]
-            for await (id, img) in group where img != nil { out[id] = img }
-            return out
+        // One at a time, not a task group: the captures all land on the window server, and a burst
+        // of fifteen was a 300–500 ms stall for everything else that talks to it (measured).
+        var out: [CGWindowID: CGImage] = [:]
+        for id in Set(ids) {
+            guard let win = byID[id] else { continue }
+            if let img = await capture(win) { out[id] = img }
         }
+        return out
     }
 
     /// Screenshot a single window, downscaled — exposé tiles are small, full-res is wasteful.
@@ -58,7 +66,7 @@ enum Thumbnails {
         let filter = SCContentFilter(desktopIndependentWindow: win)
         let cfg = SCStreamConfiguration()
         let longEdge = max(win.frame.width, win.frame.height)
-        let scale = longEdge > 1200 ? 1200 / longEdge : 1
+        let scale = longEdge > 800 ? 800 / longEdge : 1   // an exposé tile is a few hundred points wide; 1200 bought nothing but window-server time
         cfg.width = max(1, Int(win.frame.width * scale))
         cfg.height = max(1, Int(win.frame.height * scale))
         cfg.showsCursor = false

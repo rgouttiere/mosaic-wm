@@ -526,6 +526,32 @@ final class Container {
 
     /// Re-read window titles into the strips WITHOUT moving any window — for live tab
     /// labels when a title changes (e.g. the browser navigates).
+    /// Paint the strip's new selection NOW, before the AX work of the render that follows (50 to
+    /// 600 ms, measured): the eye gets its answer within a frame, the window catches up. Walks up
+    /// to the strip that actually shows this group — a tab group inside a stack row draws inline
+    /// in the stack's bar.
+    func flushStripSelection() {
+        var node: Container? = self
+        while let n = node {
+            if n.layout == .tabbed, let bar = n.tabBar, bar.isVisible {
+                if n.stacked {
+                    bar.tabView.selectedRow = n.selected
+                    var seg = bar.tabView.selectedSeg
+                    if seg.indices.contains(n.selected), n.children.indices.contains(n.selected) {
+                        let row = n.children[n.selected]
+                        if !row.isLeaf, row.layout == .tabbed { seg[n.selected] = row.selected; bar.tabView.selectedSeg = seg }
+                    }
+                } else {
+                    bar.tabView.selectedIndex = n.selected
+                }
+                bar.displayIfNeeded()
+                CATransaction.flush()
+                return
+            }
+            node = n.parent
+        }
+    }
+
     func refreshBarTitles() {
         if layout == .tabbed, let bar = tabBar {
             if stacked {

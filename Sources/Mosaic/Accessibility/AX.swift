@@ -94,8 +94,20 @@ enum AX {
     @discardableResult
     /// `current` (the window's present frame, AX coords) picks the write order — see
     /// `Geometry.positionFirst`. Pass it whenever it's known for free; nil keeps position-first.
-    static func setFrame(_ element: AXUIElement, _ rect: CGRect, current: CGRect? = nil) -> Bool {
-        let t0 = DispatchTime.now(); defer { reportIfSlow("setFrame", element, since: t0) }
+    /// `quiet`: no slow-call report — that bookkeeping is main-thread state, and the park writes
+    /// run on their own queues (see `ManagedWindow.setCocoaFrameAsync`).
+    /// `onlyChanged`: with `current` known, write only the component that differs — a park, an
+    /// unpark and a tab switch move a window of unchanged size, and the size write was a second
+    /// synchronous relayout in the app for nothing.
+    static func setFrame(_ element: AXUIElement, _ rect: CGRect, current: CGRect? = nil, quiet: Bool = false,
+                         onlyChanged: Bool = false) -> Bool {
+        let t0 = DispatchTime.now(); defer { if !quiet { reportIfSlow("setFrame", element, since: t0) } }
+        if onlyChanged, let current {
+            let needPos = abs(current.origin.x - rect.origin.x) > 0.5 || abs(current.origin.y - rect.origin.y) > 0.5
+            let needSize = abs(current.width - rect.width) > 0.5 || abs(current.height - rect.height) > 0.5
+            if !needSize { return needPos ? Self.writePosition(element, rect.origin) : true }
+            if !needPos { return Self.writeSize(element, rect.size) }
+        }
         func writePosition() -> Bool {
             var origin = rect.origin
             guard let v = AXValueCreate(.cgPoint, &origin) else { return true }
@@ -113,6 +125,17 @@ enum AX {
         }
         let s = writeSize(), p = writePosition()
         return s && p
+    }
+
+    private static func writePosition(_ element: AXUIElement, _ origin: CGPoint) -> Bool {
+        var o = origin
+        guard let v = AXValueCreate(.cgPoint, &o) else { return true }
+        return AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, v) == .success
+    }
+    private static func writeSize(_ element: AXUIElement, _ size: CGSize) -> Bool {
+        var s = size
+        guard let v = AXValueCreate(.cgSize, &s) else { return true }
+        return AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, v) == .success
     }
 
     static func raise(_ element: AXUIElement) {

@@ -200,6 +200,7 @@ final class WindowManager {
     /// use. Same short TTL as the covered-display cache, for the same reason.
     var windowSnapshot: [(id: CGWindowID, pid: pid_t, bounds: CGRect)] = []
     var windowSnapshotTime = Date.distantPast
+    var snapshotRefreshing = false   // a background CGWindowList capture is in flight (main-thread flag)
     /// Non-active monitors are healed on a timer rather than on every render — see `render`.
     var lastOtherMonitorArrange = Date.distantPast
     /// While this is in the future, a window missing from the AX enumeration is treated as slow
@@ -301,6 +302,8 @@ final class WindowManager {
         guard let screen = screen(forDisplayID: ws.displayID) ?? screenUnderMouse() ?? NSScreen.screens.first
         else { return }
         hideConfinedApps(parking: ws)       // apps that live only here are hidden, not moved (WindowManager+Park)
+        ManagedWindow.parkingWrites = true       // the outgoing is covered by the incoming: its moves can land in their own time
+        defer { ManagedWindow.parkingWrites = false }
         r.arrange(in: parkRect(for: screen))   // the rest goes off the void edge; hidden ones are skipped
     }
 
@@ -478,6 +481,11 @@ final class WindowManager {
         }
         observer.onTitleChange = { [weak self] in self?.refreshVisibleTitles(); self?.scanAttention() }
         observer.onFocusChange = { [weak self] in self?.syncFocusToSystem() }
+        observer.onWindowEvent = { [weak self] element, note in self?.noteWindowEvent(element, note) }
+        observer.isOwnActivation = { [weak self] in
+            guard let self, Date().timeIntervalSince(self.focusAssertedAt) < 1.0 else { return false }
+            return NSWorkspace.shared.frontmostApplication?.processIdentifier == self.focusAssertedPID
+        }
         observer.start()
         // Poll which monitor the mouse is on so the active workspace follows it (the emulated
         // model has no macOS Space change to hook). .common mode (via explicit Timer +

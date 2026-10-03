@@ -25,14 +25,25 @@ final class ManagedWindow {
     /// Current window id, caching it on success. nil only when AX genuinely can't
     /// resolve the element right now (which may just be a transient glitch).
     func resolvedID() -> CGWindowID? {
-        if let id = AX.windowID(element) { lastKnownID = id; missCount = 0; return id }
+        Perf.count("ax.resolveID")
+        if let id = Perf.span("ax.resolveID", { AX.windowID(element) }) { lastKnownID = id; missCount = 0; return id }
         return nil
     }
 
+    /// Cached: a title changes when the app says so (kAXTitleChanged → `noteExternalChange`), yet a
+    /// strip with six rows re-read all six on every render — one of them 560 ms while its web app
+    /// was busy, measured. The TTL is only a net for an app that never notifies.
     var title: String {
-        let t = AX.title(element)
-        return t.isEmpty ? (app.localizedName ?? "Untitled") : t
+        if let t = titleCache, Date().timeIntervalSince(titleCacheTime) < Self.titleTTL { return t }
+        Perf.count("ax.titleRead")
+        let raw = AX.title(element)
+        let t = raw.isEmpty ? (app.localizedName ?? "Untitled") : raw
+        titleCache = t; titleCacheTime = Date()
+        return t
     }
+    private var titleCache: String?
+    private var titleCacheTime = Date.distantPast
+    private static let titleTTL: TimeInterval = 60
 
     var appName: String { app.localizedName ?? "App" }
 
@@ -58,7 +69,12 @@ final class ManagedWindow {
     private var frameCache: CGRect?
     private var frameCacheTime = Date.distantPast
     private var frameCacheEpoch: UInt64 = 0
-    private static let frameCacheTTL: TimeInterval = 0.05
+    /// Was 50 ms, when nothing told us a window had moved. Now the per-window Moved/Resized
+    /// notifications drop the cache the moment the app or macOS moves it (`noteExternalChange`),
+    /// our own writes seed it with the readback, and the TTL is only a net for a silent app.
+    /// Measured before: 616 full-screen reads and 121 frame reads for ten tab switches.
+    private static let frameCacheTTL: TimeInterval = 10
+    private static let fullscreenTTL: TimeInterval = 30
 
     /// Bumped at both ends of a render, so an entry filled DURING one stays valid for the rest of
     /// it however long it takes, and no entry can match between renders. The plain 50ms window
@@ -129,6 +145,7 @@ final class ManagedWindow {
     /// monocle blowing a window up to read back its aspect-locked size). It is deliberately followed
     /// by a second, real placement write, so it must not read as two passes fighting.
     func setCocoaFrame(_ cocoaRect: CGRect, probe: Bool = false) {
+        if Self.parkingWrites, !probe { setCocoaFrameAsync(cocoaRect); return }   // a workspace park: nobody is looking
         let axRect = Geometry.flip(cocoaRect)
         if let last = lastSetFrame,
            abs(last.origin.x - axRect.origin.x) < 1, abs(last.origin.y - axRect.origin.y) < 1,
@@ -140,21 +157,23 @@ final class ManagedWindow {
         // stay uncached so the next render re-issues it — otherwise the <1px skip above would
         // pin the window to a frame it never actually took, with no self-heal until a manual
         // re-tile. Otherwise the cache is only reset by `invalidateFrameCache` below.
+        drainParkWrites()   // a park of THIS window still in flight must land before we move it again
         Perf.count("ax.frameWrite")
-        if !probe {
-            if lastWriteEpoch == RenderEpoch.current {
-                writesThisEpoch += 1
-                if writesThisEpoch == 2 { doubleWriteRenders += 1 }
-            } else {
-                lastWriteEpoch = RenderEpoch.current
-                writesThisEpoch = 1
-            }
-            maxFrameWrites = max(maxFrameWrites, writesThisEpoch)
-        }
+        if !probe { noteWriteForAudit() }
         // Our last accepted write is the best free estimate of where the window is now; fall back to
         // the (50ms-cached) live read when we have none, e.g. right after invalidateFrameCache.
-        if Perf.span("ax.setFrame", { AX.setFrame(element, axRect, current: lastSetFrame ?? frame) }) {   // blocks until the app has relaid out
+        let before = lastSetFrame ?? frame
+        let sizeChanges = before.map { abs($0.width - axRect.width) > 0.5 || abs($0.height - axRect.height) > 0.5 } ?? true
+        if Perf.span("ax.setFrame", { AX.setFrame(element, axRect, current: before, onlyChanged: true) }) {   // blocks until the app has relaid out
             lastSetFrame = axRect
+            lastWriteAt = Date()
+            if !sizeChanges {
+                // A move at constant size cannot hit a min-size clamp, so there is nothing to learn
+                // from a readback — and that second round trip waited for the app's relayout (17 ms
+                // on average, 150 ms worst, on every tab switch). Trust the write.
+                _ = cacheFrame(axRect)
+                return
+            }
             if ManagedWindow.liveResize {
                 // Mid-drag: trust the write. The readback is a second synchronous round trip into the
                 // app — measured at 11 ms, the same as the write itself, so it doubled the cost of
@@ -178,6 +197,58 @@ final class ManagedWindow {
     static var liveResize = false
     /// Apps hidden by the park (see WindowManager+Park): their windows are not written at all.
     static var parkHiddenPids = Set<pid_t>()
+
+    // MARK: - Park writes off the critical path
+
+    /// Set around a workspace park: every `setCocoaFrame` then queues instead of blocking.
+    static var parkingWrites = false
+    /// One serial queue PER window: its writes keep their order, and waiting for them never waits
+    /// for another app's. Created on first use — most windows are never parked asynchronously.
+    private lazy var parkQueue = DispatchQueue(label: "mosaic.park.\(pid)", qos: .userInitiated)
+    private var pendingParkWrites = 0   // main-thread only
+
+    /// A park moves a window nobody is looking at — it is leaving under a raised one, or its whole
+    /// workspace is — yet the app's relayout was paid synchronously on every tab switch and every
+    /// workspace switch: 25–45 ms typical, 470 ms worst, measured on Chrome, Firefox and the Safari
+    /// web apps. Queue it. The caches take the asked rect; the Moved echo drops them and the next
+    /// read tells the truth. A later synchronous write to the same window drains the queue first.
+    func setCocoaFrameAsync(_ cocoaRect: CGRect) {
+        let axRect = Geometry.flip(cocoaRect)
+        if let last = lastSetFrame,
+           abs(last.origin.x - axRect.origin.x) < 1, abs(last.origin.y - axRect.origin.y) < 1,
+           abs(last.size.width - axRect.size.width) < 1, abs(last.size.height - axRect.size.height) < 1 {
+            Perf.count("ax.frameWriteSkipped")
+            return
+        }
+        Perf.count("ax.frameWrite"); Perf.count("ax.parkWriteQueued")
+        noteWriteForAudit()   // a queued park counts like any write: two passes fighting is still two passes
+        let current = lastSetFrame ?? frameCache
+        lastSetFrame = axRect
+        lastWriteAt = Date()
+        _ = cacheFrame(axRect)
+        pendingParkWrites += 1
+        let el = element
+        parkQueue.async { [weak self] in
+            _ = AX.setFrame(el, axRect, current: current, quiet: true, onlyChanged: true)
+            DispatchQueue.main.async { self?.pendingParkWrites -= 1 }
+        }
+    }
+
+    private func noteWriteForAudit() {
+        if lastWriteEpoch == RenderEpoch.current {
+            writesThisEpoch += 1
+            if writesThisEpoch == 2 { doubleWriteRenders += 1 }
+        } else {
+            lastWriteEpoch = RenderEpoch.current
+            writesThisEpoch = 1
+        }
+        maxFrameWrites = max(maxFrameWrites, writesThisEpoch)
+    }
+
+    private func drainParkWrites() {
+        guard pendingParkWrites > 0 else { return }
+        Perf.span("ax.parkDrain") { parkQueue.sync {} }
+    }
 
     /// Which render pass we're in. Two frame writes to ONE window inside a single pass mean two
     /// passes are fighting over it: `arrange` placing a tile while a park pushed it away again was
@@ -206,6 +277,19 @@ final class ManagedWindow {
         frameCache = nil   // the system moved it behind our back: what we last read is suspect too
         fullscreenCache = nil
     }
+
+    /// The app (or macOS) reported something about this window: drop what we cached about it.
+    /// Moved/Resized also arrive as the echo of our own writes — one extra read per write, cheap.
+    /// `lastSetFrame` (the write-skip memory) is left alone: that is the drag path's business.
+    func noteExternalChange(_ notification: String) {
+        if notification == kAXTitleChangedNotification as String { titleCache = nil; return }
+        // The Moved/Resized echo of our own write: the readback (or the asked rect) already holds
+        // the truth, and dropping it made the very next read — aspect-fit, halo, borders — a round
+        // trip into an app still busy with that relayout (200 ms, measured).
+        if Date().timeIntervalSince(lastWriteAt) < 0.5 { return }
+        frameCache = nil; fullscreenCache = nil
+    }
+    private var lastWriteAt = Date.distantPast
 
     /// Bring this window (and its app) to the front of the window stack.
     func focus() {
@@ -240,7 +324,7 @@ final class ManagedWindow {
     /// screen): a toggle is seen within a render, not within a frame.
     var isFullscreen: Bool {
         if let v = fullscreenCache,
-           Self.liveResize || Date().timeIntervalSince(fullscreenCacheTime) < Self.frameCacheTTL {
+           Self.liveResize || Date().timeIntervalSince(fullscreenCacheTime) < Self.fullscreenTTL {
             return v
         }
         Perf.count("ax.fullscreenRead")
