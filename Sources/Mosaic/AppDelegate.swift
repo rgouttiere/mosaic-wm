@@ -13,11 +13,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var configWatch: DispatchSourceFileSystemObject?
     private var configReloadWork: DispatchWorkItem?
+    private var termSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AX.installMessagingTimeout()   // before anything talks to another app over AX
         presentCapabilityIssues()      // a private symbol Apple removed → say so, don't fail silently
         Health.noteCrashSinceLastStart()   // "Mosaic was gone this morning" → the cause, in the log
+        // `killall Mosaic` and a launchd stop deliver SIGTERM, which by default ends the process
+        // with no applicationWillTerminate: parked windows stayed off-screen, apps hidden for a
+        // park stayed hidden. Route it through a normal quit so unparkAll + saveNow run.
+        signal(SIGTERM, SIG_IGN)
+        let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        term.setEventHandler { NSApp.terminate(nil) }
+        term.resume()
+        termSource = term
         requestAccessibilityIfNeeded()
         setupStatusItem()
         windowManager.onWorkspaceChanged = { [weak self] number in

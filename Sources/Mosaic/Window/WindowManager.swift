@@ -884,6 +884,14 @@ final class WindowManager {
         // stranded, and the timing guard above can expire on a slow app without this leaking
         // through — the rule holds whatever the delay.
         guard isOnVisiblePath(leaf) else { return }
+        // `focused` writes into the ACTIVE workspace. A window shown on another monitor (⌘Tab to
+        // the browser on the right screen, macOS activating the next app after one was hidden)
+        // belongs to ITS workspace: adopting it here planted a leaf of workspace 3 as workspace 1's
+        // focus, and every later op — the warp, the halo, moves — started from the wrong screen.
+        if sid != activeSpaceID {
+            if let st = spaces[sid], st.focused !== leaf { st.focused = leaf }
+            return
+        }
         guard leaf !== focused else { return }
         focused = leaf
         refreshFocusAndDim()     // move the halo (+ follow the monitor dim if on). no re-tile/raise

@@ -14,6 +14,7 @@ extension WindowManager {
         let did = displayID(of: screen)
         let target = UInt64(n)
         guard shownOnDisplay[did] != target else {   // already shown on its monitor → just retarget
+            Log.event("retarget mon\(did): ws\(n) already shown, active ws\(activeSpaceID.map(String.init) ?? "-") → ws\(n)")
             activeSpaceID = target
             warpMouseToWorkspace(target, on: screen)
             if Config.shared.dimInactiveMonitors {   // active monitor changed → follow the dim
@@ -468,16 +469,30 @@ extension WindowManager {
     /// stays aligned. `screen` is the monitor the workspace was placed on.
     func warpMouseToWorkspace(_ space: UInt64, on screen: NSScreen) {
         guard Config.shared.warpMouseOnSwitch else { return }
-        let cocoa: CGPoint
+        var cocoa: CGPoint
         if let st = spaces[space], let f = (st.focused ?? st.root?.firstLeaf())?.window?.frame {
             let r = Geometry.flip(f)
             cocoa = CGPoint(x: r.midX, y: r.midY)
         } else {
             cocoa = CGPoint(x: screen.frame.midX, y: screen.frame.midY)
         }
+        // A frame read while the window was parked, hidden or mid-move can sit off this monitor,
+        // and a warp to nowhere leaves the pointer where it was — which checkSpaceChange then reads
+        // as "still on the other monitor" and flips the active workspace straight back. The warp's
+        // one job is to land on THIS screen: fall back to its centre and say so.
+        if !screen.frame.contains(cocoa) {
+            Log.event("warp ws\(space): focused centre \(Int(cocoa.x)),\(Int(cocoa.y)) is off its monitor → screen centre")
+            cocoa = CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+        }
         let cg = CGPoint(x: cocoa.x, y: Geometry.primaryHeight - cocoa.y)   // Cocoa → CG (top-left)
-        CGWarpMouseCursorPosition(cg)
+        let err = CGWarpMouseCursorPosition(cg)
         CGAssociateMouseAndMouseCursorPosition(1)   // avoid the post-warp cursor freeze
+        // A warp that did not land is a silent failure the user reads as "the mouse stays on the
+        // other monitor" — say so, with where the cursor actually is.
+        let now = CGEvent(source: nil)?.location ?? .zero
+        if err != .success || abs(now.x - cg.x) > 2 || abs(now.y - cg.y) > 2 {
+            Log.event("warp ws\(space) → \(Int(cg.x)),\(Int(cg.y)) did not land: cursor at \(Int(now.x)),\(Int(now.y)), CGError \(err.rawValue)")
+        }
     }
 
     /// A synthetic workspace id maps back to its number when it's a live managed workspace
