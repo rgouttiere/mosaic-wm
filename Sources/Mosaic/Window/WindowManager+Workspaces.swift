@@ -150,9 +150,10 @@ extension WindowManager {
                     let tabs = tile.children.enumerated().map { i, c -> ExposeTab in
                         let w = c.firstLeaf().window
                         return ExposeTab(label: w?.title ?? "—", icon: w?.app.icon, selected: i == sel, windowID: w?.resolvedID(),
-                                         focus: w.map { win in { [weak self] in self?.focusManagedWindow(win, onWorkspace: n) } })
+                                         focus: w.map { win in { [weak self] in self?.focusManagedWindow(win, onWorkspace: n) } },
+                                         iconKey: w?.app.bundleIdentifier ?? w?.appName ?? "?")
                     }
-                    tiles.append(ExposeTile(frame: f, tabs: tabs))
+                    tiles.append(ExposeTile(frame: f, tabs: tabs, stacked: tile.stacked))
                 }
             }
             wss.append(ExposeWorkspace(

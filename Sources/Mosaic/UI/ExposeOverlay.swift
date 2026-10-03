@@ -7,11 +7,13 @@ struct ExposeTab {
     let label: String; let icon: NSImage?; let selected: Bool
     let windowID: CGWindowID?
     var focus: (() -> Void)? = nil
+    var iconKey: String = ""   // bundle id — the key the tinted variant of the icon is cached under
 }
 /// A tile in a workspace: its frame (in the workspace's screen coords) + its tab(s).
 struct ExposeTile {
     let frame: CGRect
     let tabs: [ExposeTab]
+    var stacked: Bool = false   // a stacked group: drawn as a rail when the config says so, like the real one
     /// Window whose thumbnail backs the tile: the selected tab's (or the first).
     var displayedWindowID: CGWindowID? { (tabs.first(where: { $0.selected }) ?? tabs.first)?.windowID }
 }
@@ -462,11 +464,44 @@ private final class ExposeView: NSView {
 
             let hasImage = tile.displayedWindowID.flatMap { thumbs?.images[$0] } != nil
 
-            if tile.tabs.count > 1 {
+            NSGraphicsContext.current?.imageInterpolation = .high   // app icons scaled down: keep them crisp
+            let railHere = tile.stacked && Config.shared.stackStyle.lowercased() == "rail"
+            if tile.tabs.count > 1, railHere {
+                // The stack as its rail, where it really is: a narrow column down the tile's left
+                // edge, one cell per row, the active cell tinted with an accent bar. Proportional
+                // to the real rail but clamped — at exposé scale a true-to-size rail is 9 px and
+                // its icons dots, so legibility wins over proportion. Icons follow `railIconStyle`
+                // (tinted ones are the same cached images the real rail draws).
+                let tinted = Config.shared.railIconStyle.lowercased() == "tinted"
+                let n = CGFloat(tile.tabs.count)
+                let railW = max(16, min(28, wr.width * CGFloat(Config.shared.railWidth) / max(1, ws.screen.width)))
+                let cellH = max(10, min(railW + 2, wr.height / n))
+                NSGraphicsContext.saveGraphicsState()
+                clip.addClip()
+                NSColor.black.withAlphaComponent(0.42).setFill()
+                NSRect(x: wr.minX, y: wr.minY, width: railW, height: wr.height).fill()
+                for (i, tab) in tile.tabs.enumerated() {
+                    // Cocoa y grows upward: row 0 is the TOP cell.
+                    let cellRect = NSRect(x: wr.minX, y: wr.maxY - CGFloat(i + 1) * cellH, width: railW, height: cellH)
+                    if tab.selected {
+                        accent.withAlphaComponent(0.18).setFill()
+                        cellRect.insetBy(dx: 1, dy: 0.5).fill()
+                        accent.setFill()
+                        NSRect(x: cellRect.minX, y: cellRect.minY + 2, width: 1.5, height: cellRect.height - 4).fill()
+                    }
+                    if let raw = tab.icon {
+                        let s = max(8, cellH - 5)
+                        let icon = (tinted && !tab.selected) ? TabBarView.tinted(raw, key: tab.iconKey, size: s, color: accent) : raw
+                        icon.draw(in: NSRect(x: cellRect.midX - s / 2, y: cellRect.midY - s / 2, width: s, height: s),
+                                  from: .zero, operation: .sourceOver, fraction: 1)
+                    }
+                }
+                NSGraphicsContext.restoreGraphicsState()
+            } else if tile.tabs.count > 1 {
                 // Mini tab strip along the top. The active tab reads without a full accent block:
                 // a faint tint, its icon at full opacity (the others dimmed), and a crisp accent
                 // underline — matching the real tab bars.
-                let stripH = min(18, max(11, wr.height * 0.32))
+                let stripH = min(22, max(14, wr.height * 0.32))
                 let segW = wr.width / CGFloat(tile.tabs.count)
                 NSColor.black.withAlphaComponent(0.32).setFill()
                 NSRect(x: wr.minX, y: wr.maxY - stripH, width: wr.width, height: stripH).fill()
@@ -477,7 +512,7 @@ private final class ExposeView: NSView {
                         seg.fill()
                     }
                     if let icon = tab.icon, segW > 13 {
-                        let s = min(CGFloat(14), stripH - 3)
+                        let s = min(CGFloat(16), stripH - 4)
                         icon.draw(in: NSRect(x: seg.midX - s / 2, y: seg.midY - s / 2, width: s, height: s),
                                   from: .zero, operation: .sourceOver, fraction: tab.selected ? 1 : 0.5)
                     }
