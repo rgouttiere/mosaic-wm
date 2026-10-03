@@ -306,7 +306,8 @@ extension WindowManager {
             if let box {
                 letterbox.begin()
                 let t: CGFloat = 8
-                func bar(_ r: NSRect) { letterbox.fill(r.intersection(area)) }
+                let style = LetterboxStyle(ruleFor(w)?.letterbox ?? Config.shared.letterboxStyle)
+                func bar(_ r: NSRect) { letterbox.fill(r.intersection(area), style: style) }
                 if box.minY > area.minY + t { bar(NSRect(x: area.minX, y: area.minY, width: area.width, height: box.minY - area.minY)) }
                 if box.maxY < area.maxY - t { bar(NSRect(x: area.minX, y: box.maxY, width: area.width, height: area.maxY - box.maxY)) }
                 if box.minX > area.minX + t { bar(NSRect(x: area.minX, y: box.minY, width: box.minX - area.minX, height: box.height)) }
@@ -515,10 +516,14 @@ extension WindowManager {
             guard !covered.contains(did) else { continue }   // a game owns this one — draw nothing
             let dim = activeDid != nil && did != activeDid
             root.forEachVisibleLeaf { leaf in
+                // The fill is per app: a rule's `letterbox` first, else the global style — the rune
+                // rain can be the video player's alone, and `none` means no bar at all for that app.
+                let style = LetterboxStyle(leaf.window.flatMap { ruleFor($0)?.letterbox } ?? Config.shared.letterboxStyle)
                 // The PiP source's whole tile is covered (shown here but mirrored in the PiP); no border.
+                // That cover is not a gap fill, so `none` still covers — in black.
                 if leaf === pipSourceLeaf {
                     let tile = leaf.lastFrame
-                    if tile.width > 0, tile.height > 0 { letterbox.fill(tile) }
+                    if tile.width > 0, tile.height > 0 { letterbox.fill(tile, style: style == .none ? .black : style) }
                     return
                 }
                 guard let w = leaf.window, !w.isFullscreen, let wf = w.frame else { return }
@@ -526,7 +531,7 @@ extension WindowManager {
                 if drawBorders { windowBorders.border(around: win, dim: dim) }
                 let tile = leaf.lastFrame
                 guard tile.width > 0, tile.height > 0 else { return }
-                func bar(_ r: NSRect) { letterbox.fill(r.intersection(tile)) }
+                func bar(_ r: NSRect) { letterbox.fill(r.intersection(tile), style: style) }
                 if win.minY > tile.minY + t { bar(NSRect(x: tile.minX, y: tile.minY, width: tile.width, height: win.minY - tile.minY)) }
                 if win.maxY < tile.maxY - t { bar(NSRect(x: tile.minX, y: win.maxY, width: tile.width, height: tile.maxY - win.maxY)) }
                 if win.minX > tile.minX + t { bar(NSRect(x: tile.minX, y: win.minY, width: win.minX - tile.minX, height: win.height)) }

@@ -61,4 +61,5 @@ struct AppRule: Codable {
     var fullscreen: Bool?        // force native full screen off (false → tileable) / on
     var fullscreenLock: Bool?    // true → keep enforcing `fullscreen`; false/absent → apply
                                  // it once when the window opens, then leave it user-toggleable
+    var letterbox: String?       // "none" | "black" | "matrix": this app's gap fill, over the global `letterboxStyle`
 }

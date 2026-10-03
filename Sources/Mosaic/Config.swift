@@ -112,7 +112,7 @@ final class Config {
     /// or a hex like "#a6e3a1". Every field set to "accent" (border, tabs, drop) resolves through
     /// this, and the overlays read `Palette.accent`, so one value re-themes everything.
     var accentColor: String = "accent"
-    var letterboxStyle: String = "black"   // fill for letterboxed-tile gaps: "black" (plain) or "matrix" (static rune rain)
+    var letterboxStyle: String = "black"   // fill for letterboxed-tile gaps: "none", "black" (plain) or "matrix" (static rune rain)
     var borderColor: String = "accent"   // "accent" or hex like "#FF9500"
     var borderWidth: Double = 1
     var borderCornerRadius: Double = 18
@@ -525,6 +525,13 @@ final class Config {
         for (name, value) in ["activeOpacity": activeOpacity, "inactiveOpacity": inactiveOpacity]
         where !(0...1).contains(value) {
             loadIssues.append("\(name) = \(value) out of range (0.0 to 1.0)")
+        }
+        if !["none", "off", "black", "matrix"].contains(letterboxStyle.lowercased()) {
+            loadIssues.append("unknown letterboxStyle “\(letterboxStyle)” (none | black | matrix) — using black")
+            letterboxStyle = "black"
+        }
+        for rule in rules where rule.letterbox != nil && !["none", "off", "black", "matrix"].contains(rule.letterbox!.lowercased()) {
+            loadIssues.append("rule “\(rule.app)”: letterbox “\(rule.letterbox!)” is not none | black | matrix — treated as black")
         }
         for rule in rules where rule.workspace != nil && !(1...9).contains(rule.workspace!) {
             loadIssues.append("rule “\(rule.app)”: workspace \(rule.workspace!) out of range (1 to 9)")

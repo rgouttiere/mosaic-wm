@@ -7,6 +7,20 @@ import CoreText
 /// overlaps the window, so a bar at `.floating` (above every app window) covers the strip WITHOUT
 /// covering the video. Style: plain black, or a static "matrix" rune rain (config `letterboxStyle`).
 /// A small reused pool: each render claims the bars it needs via `fill`, `end` hides the leftovers.
+/// What fills the gap between a tile and the window in it: nothing, plain black, or the rune rain.
+/// Read from a rule's `letterbox` first, else the global `letterboxStyle` — so the fill can exist for
+/// the video player alone and no other app ever gets a bar it did not ask for.
+enum LetterboxStyle {
+    case none, black, matrix
+    init(_ s: String?) {
+        switch (s ?? "").lowercased() {
+        case "none", "off": self = .none
+        case "matrix": self = .matrix
+        default: self = .black
+        }
+    }
+}
+
 final class LetterboxFill {
     private var pool: [NSWindow] = []
     private var used = 0
@@ -15,15 +29,21 @@ final class LetterboxFill {
     /// Start a render pass — reset the claim counter.
     func begin() { used = 0 }
 
-    /// Cover `rect` (Cocoa coords) with an opaque bar, reusing a pooled window.
-    func fill(_ rect: NSRect) {
-        guard rect.width > 1, rect.height > 1 else { return }
+    /// Cover `rect` (Cocoa coords) with an opaque bar, reusing a pooled window. `style` is per tile
+    /// (a rule can keep the rune rain for the video player alone); `.none` claims nothing, so the
+    /// bar a previous pass drew there is hidden by `end()`.
+    func fill(_ rect: NSRect, style: LetterboxStyle) {
+        guard style != .none, rect.width > 1, rect.height > 1 else { return }
         let w: NSWindow
         if used < pool.count { w = pool[used] } else { w = makeBar(); pool.append(w) }
         used += 1
-        if !stale, w.isVisible, w.frame == rect { return }   // steady bar: no re-frame, no re-ordering
+        let matrix = style == .matrix
+        let view = w.contentView as? MatrixView
+        let restyled = view?.matrix != matrix
+        if let view { view.matrix = matrix }
+        if !stale, !restyled, w.isVisible, w.frame == rect { return }   // steady bar: no re-frame, no re-ordering
         w.setFrame(rect, display: false)   // a size change repaints the view; a steady bar re-draws nothing
-        if stale { w.contentView?.needsDisplay = true }   // letterboxStyle / accent changed
+        if stale || restyled { w.contentView?.needsDisplay = true }   // style / accent changed
         // A bar that was not up fades in where it lands (a zoom, a tile that just became
         // letterboxed) instead of popping; one already up just moves. In place, honours Reduce Motion.
         if w.isVisible || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
@@ -71,6 +91,8 @@ final class LetterboxFill {
 /// ~64 ms of main-thread drawing before the next frame — felt as a stall when tabbing to IINA.
 /// Same pattern, same pixels, ~15x cheaper.
 private final class MatrixView: NSView {
+    /// Rune rain (true) or plain black. Set per fill, from the tile's app rule or the global style.
+    var matrix = false
     override var isFlipped: Bool { true }   // row 0 at top, streaks brighten downward toward their head
 
     // Elder-Futhark-ish runes, to match the Matrix-rune look.
@@ -115,8 +137,7 @@ private final class MatrixView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.setFill(); bounds.fill()
-        guard Config.shared.letterboxStyle.lowercased() == "matrix",
-              bounds.width > 4, bounds.height > 4,
+        guard matrix, bounds.width > 4, bounds.height > 4,
               let ctx = NSGraphicsContext.current?.cgContext else { return }
 
         let cellW: CGFloat = 12, cellH: CGFloat = 15   // tight cells → dense columns

@@ -119,11 +119,16 @@ agent-unload:
 	@echo "Agent removed."
 
 ## Restart the running Mosaic: under the agent with kickstart, else the plain kill + open.
+## Every Mosaic process goes first, not just the agent's: a Quit from the menu followed by a manual
+## launch leaves an instance launchd does not own, the agent's fresh instance then finds it and
+## exits (single-instance guard), and "Restarted under launchd" is a lie — deploys stopped landing
+## for twenty minutes that way (2026-10-03). doctor flags the state; this makes restart repair it.
 restart:
+	@killall $(APP_NAME) 2>/dev/null && sleep 1 || true
 	@if launchctl print $(AGENT_TARGET) >/dev/null 2>&1; then \
 		launchctl kickstart -k $(AGENT_TARGET) && echo "Restarted under launchd."; \
 	else \
-		killall $(APP_NAME) 2>/dev/null; sleep 1; open $(BUNDLE) && echo "Restarted (no agent loaded)."; \
+		open $(BUNDLE) && echo "Restarted (no agent loaded)."; \
 	fi
 
 ## The update ritual: self-tests green, rebuild + verify the signature (bundle does both), restart.

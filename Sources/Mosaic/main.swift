@@ -79,13 +79,44 @@ if let verb = cliArgs.first {
     exit(1)
 }
 
-// One Mosaic at a time. With the launch agent keeping one alive, a manual `open Mosaic.app` (or a
-// second agent) would otherwise start a rival that fights the first over every window. The newcomer
-// leaves with status 0, so launchd does not treat its exit as a crash to recover from.
-if let other = NSRunningApplication.runningApplications(withBundleIdentifier: "fr.rgouttiere.mosaic")
-    .first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
-    Log.event("another Mosaic is already running (pid \(other.processIdentifier)) — this one exits")
+let agentLabel = "fr.rgouttiere.mosaic"
+func otherInstance() -> NSRunningApplication? {
+    NSRunningApplication.runningApplications(withBundleIdentifier: agentLabel)
+        .first { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+}
+
+// Started by hand while a launch agent is installed for THIS bundle → hand over to launchd. A Quit
+// from the menu followed by a manual relaunch (Spotlight, Finder) otherwise runs outside the agent:
+// no KeepAlive, and the next `make restart` lands on an instance launchd does not own — deploys
+// stopped landing for twenty minutes that way (2026-10-03). launchd names its child after the job
+// (XPC_SERVICE_NAME = the label); LaunchServices names a manual launch "application.<bundle>.<n>".
+// Debug builds run from the build tree are not the agent's program, so they are left alone.
+let agentPlist = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/LaunchAgents/\(agentLabel).plist").path
+if ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] != agentLabel,
+   let plist = NSDictionary(contentsOfFile: agentPlist),
+   let program = (plist["ProgramArguments"] as? [String])?.first, program == Bundle.main.executablePath,
+   otherInstance() == nil {
+    Log.event("started by hand while the launch agent is installed — handing over to launchd")
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+    p.arguments = ["kickstart", "gui/\(getuid())/\(agentLabel)"]
+    try? p.run()
     exit(0)
+}
+
+// One Mosaic at a time. With the launch agent keeping one alive, a second instance (a second
+// agent, a stray `open`) would fight the first over every window. The newcomer waits up to two
+// seconds for the other to go — it may be the hand-over above, exiting as we start — then leaves
+// with status 0, so launchd does not treat its exit as a crash to recover from.
+if var other = otherInstance() {
+    let deadline = Date().addingTimeInterval(2)
+    while Date() < deadline, let still = otherInstance() { other = still; usleep(100_000) }
+    if let still = otherInstance() {
+        Log.event("another Mosaic is already running (pid \(still.processIdentifier)) — this one exits")
+        exit(0)
+    }
+    _ = other
 }
 
 // Normal app mode: load user config first (writes a default on first run).

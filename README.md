@@ -49,7 +49,7 @@ make deploy   # after a change: rebuild, verify the signature, restart the agent
 
 Then grant **System Settings → Privacy & Security → Accessibility → Mosaic** and relaunch. A **▦** icon appears in the menu bar (**▦!** when the self-check finds that the grant does not apply — `mosaic doctor` says why).
 
-The agent keeps exactly one Mosaic alive: a crash is followed by a relaunch within seconds (the layout comes back from `state.json`), **Quit** from the menu stays quit, and a second `open Mosaic.app` exits at once. `make agent-unload` removes it.
+The agent keeps exactly one Mosaic alive: a crash is followed by a relaunch within seconds (the layout comes back from `state.json`), **Quit** from the menu stays quit, and a manual relaunch hands itself over to the agent (so you are never silently running outside it). `make agent-unload` removes it.
 
 Quick debug build: `swift build && .build/debug/Mosaic`.
 
@@ -118,7 +118,7 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `borderCornerRadius` | `18` | Border corner radius. |
 | `focusGlowRadius` | `6` | Soft accent halo around the focused window, in px (`0` = just the crisp border). |
 | `focusGlowFade` | `true` | Cross-fade the focus halo in place when focus jumps (honours Reduce Motion). |
-| `letterboxStyle` | `"black"` | Fill for letterboxed-tile gaps: `"black"` or `"matrix"` (static rune-rain). |
+| `letterboxStyle` | `"black"` | Fill for the gap between a tile and a window that doesn't fill it: `"none"` (no bar), `"black"`, or `"matrix"` (static rune-rain). A rule's `letterbox` overrides it per app — e.g. `"none"` globally and `"matrix"` for the video player. |
 | `activeOpacity` | `1.0` | Shade on the focused tile (`1.0` = none). |
 | `inactiveOpacity` | `1.0` | Below `1`, every unfocused tile of the active workspace is shaded by a click-through black sheet that fades in place as focus moves (`0.85` subtle, `0.5` heavy). Plain AppKit — works where window alpha no longer does. |
 
@@ -178,7 +178,7 @@ Per-app auto-placement `rules`, applied as windows open:
   { "app": "ferdium", "fullscreen": false }
 ]
 ```
-`app` = case-insensitive substring of the app name or bundle id. `float` keeps it out of tiling; `groupWith` auto-tabs it with the named app; `place` = `column` | `tab` | (default: next to focus); `workspace` = send its windows to workspace N (must be assigned; if that workspace is one tab group, the window joins it as a tab); `title` = a regex the window title must match for the rule to apply (e.g. `"^(PRO|Personal) — "` picks Safari windows of those profiles); `fullscreen` = force native full screen off (`false` → windowed, so it can tile) or on (`true`) — applied once when a window opens, or every time if you add `"fullscreenLock": true`.
+`app` = case-insensitive substring of the app name or bundle id. `float` keeps it out of tiling; `groupWith` auto-tabs it with the named app; `place` = `column` | `tab` | (default: next to focus); `workspace` = send its windows to workspace N (must be assigned; if that workspace is one tab group, the window joins it as a tab); `title` = a regex the window title must match for the rule to apply (e.g. `"^(PRO|Personal) — "` picks Safari windows of those profiles); `letterbox` = `none` | `black` | `matrix`, this app's gap fill over the global `letterboxStyle` (the rune rain for the video player alone, nothing anywhere else); `fullscreen` = force native full screen off (`false` → windowed, so it can tile) or on (`true`) — applied once when a window opens, or every time if you add `"fullscreenLock": true`.
 
 ### Turning features off
 
