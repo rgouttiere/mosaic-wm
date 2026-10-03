@@ -417,18 +417,28 @@ final class Container {
     /// selected entry's content is arranged; nested groups never draw their own bar (this
     /// single strip draws everything — no overlapping overlays).
     private func layoutStacked(in rect: NSRect, apply: Bool, into out: inout [ObjectIdentifier: NSRect]) {
-        // Clamp so a tall stack in a short pane can't produce a negative content height.
-        let stripH = min(tabBarHeight * CGFloat(children.count), rect.height)
-        let content = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, rect.height - stripH))
+        // Two ways to draw a stack: full-width rows across the top (each row costs a bar height —
+        // four rows ate 13 % of a laptop screen), or a narrow icon rail down the left edge, which
+        // costs width, the cheap dimension. Same strip window, same data; only the geometry moves.
+        // Clamped so a tall stack in a short pane can't produce a negative content height.
+        let rail = Config.shared.stackStyle.lowercased() == "rail"
+        let stripH = rail ? 0 : min(tabBarHeight * CGFloat(children.count), rect.height)
+        let railW = rail ? min(Config.shared.railWidth, rect.width) : 0
+        let content = NSRect(x: rect.minX + railW, y: rect.minY,
+                             width: max(0, rect.width - railW), height: max(0, rect.height - stripH))
         if apply {
             let bar = ensureTabBar()
             let r = stackedRows()
-            let strip = NSRect(x: rect.minX, y: rect.maxY - stripH, width: rect.width, height: stripH)
+            let strip = rail ? NSRect(x: rect.minX, y: rect.minY, width: railW, height: rect.height)
+                             : NSRect(x: rect.minX, y: rect.maxY - stripH, width: rect.width, height: stripH)
             bar.tabView.vertical = true
+            bar.tabView.rail = rail
             bar.tabView.titles = []
             bar.tabView.rows = r.titles
             bar.tabView.rowIcons = r.icons
             bar.tabView.rowPipFlags = r.pips
+            bar.tabView.rowBadges = r.badges
+            bar.tabView.rowIconKeys = r.keys
             bar.tabView.selectedSeg = r.selected
             bar.tabView.selectedRow = selected
             bar.place(at: strip)
@@ -442,20 +452,26 @@ final class Container {
     /// ONE builder for both the layout pass and a title refresh. They used to each carry a copy, and
     /// the refresh copy had no PiP flags — so a browser navigating wiped the badge off the strip
     /// until the next full render. Duplicated logic is exactly how that kind of bug is born.
-    private func stackedRows() -> (titles: [[String]], icons: [[NSImage?]], pips: [[Bool]], selected: [Int]) {
-        var rows: [[String]] = [], icons: [[NSImage?]] = [], pips: [[Bool]] = [], sel: [Int] = []
+    private func stackedRows() -> (titles: [[String]], icons: [[NSImage?]], pips: [[Bool]], selected: [Int], badges: [[Int?]], keys: [[String]]) {
+        var rows: [[String]] = [], icons: [[NSImage?]] = [], pips: [[Bool]] = [], sel: [Int] = [], badges: [[Int?]] = [], keys: [[String]] = []
+        func key(_ c: Container) -> String { c.firstLeaf().window?.app.bundleIdentifier ?? c.firstLeaf().window?.appName ?? "?" }
         for child in children {
             if !child.isLeaf, child.layout == .tabbed, !child.stacked, child.children.count > 1 {
-                rows.append(child.children.map { $0.title })
+                let titles = child.children.map { $0.title }
+                rows.append(titles)
                 icons.append(child.children.map { $0.appIcon })
                 pips.append(child.children.map { $0.containsPiPSource })
                 sel.append(min(max(child.selected, 0), child.children.count - 1))
+                badges.append(titles.map(UnreadBadge.parse))   // from the same title read, no extra AX call
+                keys.append(child.children.map(key))
             } else {
-                rows.append([child.title]); icons.append([child.appIcon])
+                let title = child.title
+                rows.append([title]); icons.append([child.appIcon])
                 pips.append([child.containsPiPSource]); sel.append(0)
+                badges.append([UnreadBadge.parse(title)]); keys.append([key(child)])
             }
         }
-        return (rows, icons, pips, sel)
+        return (rows, icons, pips, sel, badges, keys)
     }
 
     /// Place a stack entry's window(s) in `rect`. A tabbed entry's own bar is never shown
@@ -469,7 +485,12 @@ final class Container {
             tabBar?.orderOut(nil)
             lastFrame = rect   // record the content tile (below the strip) — else the letterbox fills
                                // the stale full-tile gap and paints over the stack strip
-            if window?.isFullscreen != true { window?.setCocoaFrame(rect.insetBy(dx: gap / 2, dy: gap / 2)) }
+            // The row on show is on screen again: drop the park flag FIRST, or this pass would skip
+            // the very write that brings it back. A hidden row keeps its flag — this branch used to
+            // place every hidden row on the tile each render only for the cross-app park to push it
+            // away again: two writes per render per hidden row, measured on a stacked workspace.
+            if visible { parkedOffScreen = false }
+            if let f = windowRect(forTile: rect) { window?.setCocoaFrame(f) }
             return
         }
         if layout == .tabbed {
@@ -482,11 +503,16 @@ final class Container {
         }
         // split
         if visible {
-            if apply { tabBar?.orderOut(nil) }
+            if apply { tabBar?.orderOut(nil); forEachLeaf { $0.parkedOffScreen = false } }   // on show again: release before placing
             runLayout(in: rect, visibleOnly: false, apply: apply, into: &out)   // tiles + its own inner bars
         } else if apply {
             hideBarsRecursively()
-            forEachLeaf { if $0.window?.isFullscreen != true { $0.window?.setCocoaFrame(rect.insetBy(dx: gap / 2, dy: gap / 2)) } }
+            // Same rule as a leaf's own placement: a hidden entry that the cross-app park already
+            // pushed off-screen is NOT dragged back onto the tile. This branch skipped that check,
+            // so every render placed each hidden stacked entry on its tile and the park pushed it
+            // away again — the two-passes-fighting pattern the frame audit exists for, measured as
+            // "3 writes in a render, repeatedly" on all six entries of a stacked mail/chat workspace.
+            forEachLeaf { if let f = $0.windowRect(forTile: rect) { $0.window?.setCocoaFrame(f) } }
         } else {
             forEachLeaf { out[ObjectIdentifier($0)] = rect }   // stacked behind, all on the same tile
         }
@@ -506,6 +532,8 @@ final class Container {
                 bar.tabView.rows = r.titles
                 bar.tabView.rowIcons = r.icons
                 bar.tabView.rowPipFlags = r.pips
+                bar.tabView.rowBadges = r.badges
+                bar.tabView.rowIconKeys = r.keys
                 bar.tabView.selectedSeg = r.selected
                 bar.tabView.selectedRow = selected
             } else {

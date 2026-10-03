@@ -126,5 +126,7 @@ restart:
 		killall $(APP_NAME) 2>/dev/null; sleep 1; open $(BUNDLE) && echo "Restarted (no agent loaded)."; \
 	fi
 
-## The update ritual: rebuild + verify the signature (bundle does both) + restart.
-deploy: bundle restart
+## The update ritual: self-tests green, rebuild + verify the signature (bundle does both), restart.
+## `test` first: a binary that crashes at launch under the agent is a respawn loop, and a shell
+## pipeline (`make test | grep …`) reports the grep's status, not make's — this target does not.
+deploy: test bundle restart

@@ -36,6 +36,7 @@ enum SelfTest {
         eventRingTests(h)
         frameMatchTests(h)
         undoRingTests(h)
+        unreadBadgeTests(h)
         print("MosaicSelfTest: \(h.passed) passed, \(h.failed) failed")
         return h.failed == 0 ? 0 : 1
     }
@@ -653,6 +654,18 @@ enum SelfTest {
         h.eq(r.pop(space: 1)?.at, t0.addingTimeInterval(20), "undo: then the newest of this one")
         h.eq(r.pop(space: 2)?.at, nil, "undo: nothing left for workspace 2")
         h.eq(r.items.count, 1, "undo: pops remove")
+    }
+
+    // MARK: - Unread badge parsed from window titles
+    static func unreadBadgeTests(_ h: Harness) {
+        h.eq(UnreadBadge.parse("Inbox (16,257) - gouttrap@gmail.com - Gmail"), 16257, "badge: Gmail count with thousands separator")
+        h.eq(UnreadBadge.parse("Boîte de réception (3) - Gmail"), 3, "badge: localised Gmail")
+        h.eq(UnreadBadge.parse("(2) Slack"), 2, "badge: leading Slack count")
+        h.eq(UnreadBadge.parse("* general - Qwant - Slack"), 0, "badge: unread without a number")
+        h.eq(UnreadBadge.parse("alerts-prod (Channel) - Qwant - Slack"), nil, "badge: words in parentheses are not a count")
+        h.eq(UnreadBadge.parse("Meet (3 participants)"), nil, "badge: a number with words is not a count")
+        h.eq(UnreadBadge.parse("Shadow - Calendar - Week of September 28, 2026"), nil, "badge: no parentheses, nothing")
+        h.eq(UnreadBadge.parse("Gmail - Pro — Inbox (0) - Gmail"), nil, "badge: zero is nothing")
     }
 }
 #endif

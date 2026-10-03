@@ -34,6 +34,10 @@ final class Config {
     var tabScrollCycle = true   // scroll over a tab bar to cycle its tabs
     var switcherFadeIn = true   // fade the quick-switcher popup in
     var tabBarHeight: CGFloat = 22
+    var stackStyle: String = "rows"   // how a stacked group draws its strip: "rows" (full-width rows on top) or "rail" (an icon rail on the left)
+    var railWidth: CGFloat = 44       // rail: width of the strip, in points; cells are square
+    var railIconSize: Double = 24     // rail: icon size for a single-window row (pairs shrink to fit)
+    var railIconStyle: String = "color"   // rail icons: "color" as the app ships them, or "tinted" (accent monochrome, the active row in colour)
     var defaultMode: String = "columns"   // columns | grouped | tabbed
     /// Warp the mouse cursor to a workspace when switching to it by shortcut (keeps
     /// the mouse-follows model consistent → fewer stale-desktop refresh glitches).
@@ -402,6 +406,10 @@ final class Config {
         bool("tabScrollCycle", \.tabScrollCycle, true),
         bool("switcherFadeIn", \.switcherFadeIn, true),
         points("tabBarHeight", \.tabBarHeight, 22, dump: true),
+        string("stackStyle", \.stackStyle, "rows", dump: true),
+        points("railWidth", \.railWidth, 44, dump: true),
+        double("railIconSize", \.railIconSize, 24, dump: true),
+        string("railIconStyle", \.railIconStyle, "color", dump: true),
         bool("warpMouseOnSwitch", \.warpMouseOnSwitch, true, dump: true),
         bool("workspaceWrap", \.workspaceWrap, true, dump: true),
         bool("trackpadGestures", \.trackpadGestures, false, dump: true),
@@ -505,6 +513,14 @@ final class Config {
                                      "bottomleft", "bottomright"]
         if !validPos.contains(hudPosition.lowercased()) {
             loadIssues.append("unknown hudPosition “\(hudPosition)”")
+        }
+        if !["rows", "rail"].contains(stackStyle.lowercased()) {
+            loadIssues.append("unknown stackStyle “\(stackStyle)” (rows | rail) — using rows")
+            stackStyle = "rows"
+        }
+        if !["color", "tinted"].contains(railIconStyle.lowercased()) {
+            loadIssues.append("unknown railIconStyle “\(railIconStyle)” (color | tinted) — using color")
+            railIconStyle = "color"
         }
         for (name, value) in ["activeOpacity": activeOpacity, "inactiveOpacity": inactiveOpacity]
         where !(0...1).contains(value) {

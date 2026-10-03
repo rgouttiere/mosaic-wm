@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 
 /// Draws the tab strip. Two modes:
 ///  • horizontal tabbed — one segment per window across a single row (`titles`);
@@ -38,6 +39,14 @@ final class TabBarView: NSView {
     var selectedRow = 0 { didSet { needsDisplay = true } }
     var selectedSeg: [Int] = [] { didSet { needsDisplay = true } }
     var onStackSelect: ((Int, Int) -> Void)?
+    /// Rail: the stacked strip as a narrow column of icons on the LEFT of the tile instead of
+    /// full-width rows on top. Same rows / segments / selection / clicks / drags — only the
+    /// geometry and the drawing differ, so nothing about a stack behaves differently in a rail.
+    var rail = false { didSet { needsDisplay = true } }
+    /// Per segment, what the window title says is unread (see `UnreadBadge`); drawn on the icon.
+    var rowBadges: [[Int?]] = [] { didSet { needsDisplay = true; rebuildToolTips() } }
+    /// Per segment, a stable key for its icon (bundle id) — the tinted variant is cached under it.
+    var rowIconKeys: [[String]] = []
 
     var onSelect: ((Int) -> Void)?
     var onReorder: ((Int, Int) -> Void)?
@@ -60,7 +69,17 @@ final class TabBarView: NSView {
         titles.isEmpty ? bounds.width : bounds.width / CGFloat(titles.count)
     }
     private var rowHeight: CGFloat {
-        rows.isEmpty ? bounds.height : bounds.height / CGFloat(rows.count)
+        guard !rows.isEmpty else { return bounds.height }
+        // Rail cells are square-ish and packed from the top; rows share the strip's full height.
+        if rail { return min(bounds.width + 4, bounds.height / CGFloat(rows.count)) }
+        return bounds.height / CGFloat(rows.count)
+    }
+    /// In a rail the strip runs the tile's full height; below the last cell there is nothing.
+    private func rowIndex(at point: NSPoint) -> Int? {
+        guard rowHeight > 0, !rows.isEmpty else { return nil }
+        let r = Int(point.y / rowHeight)
+        if rail, r >= rows.count { return nil }
+        return min(rows.count - 1, max(0, r))
     }
 
     private func index(at point: NSPoint) -> Int {
@@ -72,8 +91,7 @@ final class TabBarView: NSView {
     private func hoverKey(at point: NSPoint) -> HoverKey? {
         guard bounds.contains(point) else { return nil }
         if isStackedRows {
-            guard rowHeight > 0 else { return nil }
-            let r = min(rows.count - 1, max(0, Int(point.y / rowHeight)))
+            guard let r = rowIndex(at: point) else { return nil }
             let segs = rows.indices.contains(r) ? rows[r] : []
             let segW = segs.isEmpty ? bounds.width : bounds.width / CGFloat(segs.count)
             let s = segW > 0 ? min(max(segs.count - 1, 0), max(0, Int(point.x / segW))) : 0
@@ -95,7 +113,123 @@ final class TabBarView: NSView {
         // the window above it. Reads as glass rather than a flat tinted band; costs nothing.
         NSColor.white.withAlphaComponent(0.09).setFill()
         NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: 1).fill()
-        if isStackedRows { drawStacked() } else { drawHorizontal() }
+        if isStackedRows { if rail { drawRail() } else { drawStacked() } } else { drawHorizontal() }
+    }
+
+    /// The rail: one cell per stack entry, icons only, packed from the top. A nested tab group's
+    /// tabs sit side by side in its cell, shrunk to fit. The active cell carries the accent as a
+    /// bar on its left edge (the rail's "underline"); the active tab of a pair is the lit icon.
+    /// Titles are tooltips, unread counts are badges on the icons — this is the sidebar an
+    /// aggregator app draws, done by the window manager over real windows.
+    private func drawRail() {
+        let cfg = Config.shared
+        let accent = Config.color(from: cfg.tabActiveColor)
+        let w = bounds.width
+        // A lighter edge on the right, where the rail meets the window it stands beside.
+        NSColor.white.withAlphaComponent(0.06).setFill()
+        NSRect(x: w - 1, y: 0, width: 1, height: bounds.height).fill()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        for (r, segs) in rows.enumerated() {
+            let cell = NSRect(x: 0, y: CGFloat(r) * rowHeight, width: w, height: rowHeight)
+            let active = r == selectedRow
+            let activeSeg = selectedSeg.indices.contains(r) ? selectedSeg[r] : 0
+            if active {
+                accent.withAlphaComponent(0.16).setFill()
+                NSBezierPath(roundedRect: cell.insetBy(dx: 3, dy: 2), xRadius: 3, yRadius: 3).fill()
+                NSGraphicsContext.saveGraphicsState()
+                let glow = NSShadow()
+                glow.shadowColor = accent.withAlphaComponent(0.7); glow.shadowBlurRadius = 4; glow.shadowOffset = .zero
+                glow.set()
+                accent.setFill()
+                NSBezierPath(roundedRect: NSRect(x: 1.5, y: cell.minY + 8, width: 2.5, height: cell.height - 16), xRadius: 1.25, yRadius: 1.25).fill()
+                NSGraphicsContext.restoreGraphicsState()
+            } else if hover?.row == r {
+                accent.withAlphaComponent(0.14).setFill()
+                NSBezierPath(roundedRect: cell.insetBy(dx: 3, dy: 2), xRadius: 3, yRadius: 3).fill()
+            }
+            let k = max(1, segs.count)
+            let s = max(10, min(CGFloat(cfg.railIconSize), (w - 10) / CGFloat(k) - 2))
+            let total = CGFloat(k) * s + CGFloat(k - 1) * 3
+            var x = cell.midX - total / 2
+            for i in 0..<k {
+                let box = NSRect(x: x, y: cell.midY - s / 2, width: s, height: s)
+                let raw = rowIcons.indices.contains(r) && rowIcons[r].indices.contains(i) ? rowIcons[r][i] : nil
+                let lit = !active || i == activeSeg || k == 1
+                // "tinted": every icon becomes an accent-coloured monochrome — the iOS tinted look —
+                // except the active row's, which keeps its colours: focus reads as the one lit thing.
+                let key = rowIconKeys.indices.contains(r) && rowIconKeys[r].indices.contains(i) ? rowIconKeys[r][i] : "?"
+                let tint = cfg.railIconStyle.lowercased() == "tinted" && !(active && lit)
+                let icon = raw.map { tint ? TabBarView.tinted($0, key: key, size: s, color: accent) : $0 }
+                icon?.draw(in: box, from: .zero, operation: .sourceOver, fraction: lit ? 1 : 0.45)
+                if active, k > 1, i == activeSeg {
+                    accent.setFill()
+                    NSBezierPath(roundedRect: NSRect(x: box.minX + 2, y: box.maxY + 2, width: box.width - 4, height: 2), xRadius: 1, yRadius: 1).fill()
+                }
+                if let badge = rowBadges.indices.contains(r) && rowBadges[r].indices.contains(i) ? rowBadges[r][i] : nil {
+                    drawBadge(badge, at: NSPoint(x: box.maxX, y: box.minY), accent: accent)
+                }
+                let pip = rowPipFlags.indices.contains(r) && rowPipFlags[r].indices.contains(i) && rowPipFlags[r][i]
+                if pip {
+                    let ps: CGFloat = 9
+                    let conf = NSImage.SymbolConfiguration(pointSize: ps, weight: .semibold)
+                        .applying(NSImage.SymbolConfiguration(paletteColors: [accent]))
+                    NSImage(systemSymbolName: "pip.fill", accessibilityDescription: "Mirrored in picture-in-picture")?
+                        .withSymbolConfiguration(conf)?
+                        .draw(in: NSRect(x: box.maxX - ps + 2, y: box.maxY - ps + 2, width: ps, height: ps))
+                }
+                x += s + 3
+            }
+        }
+    }
+
+    /// An icon as an accent-coloured monochrome (luminance → tint, alpha kept), rendered once per
+    /// app, size and colour and cached: Core Image on every draw would turn a 6-row rail into
+    /// ~6 ms of filtering per render for pixels that never change.
+    private static var tintCache: [String: NSImage] = [:]
+    static func tinted(_ icon: NSImage, key: String, size: CGFloat, color: NSColor) -> NSImage {
+        let cacheKey = "\(key)|\(Int(size))|\(color.description)"
+        if let hit = tintCache[cacheKey] { return hit }
+        guard let tiff = icon.tiffRepresentation, let ci = CIImage(data: tiff),
+              let mono = CIFilter(name: "CIColorMonochrome", parameters: [
+                  kCIInputImageKey: ci, kCIInputColorKey: CIColor(color: color) ?? .white, kCIInputIntensityKey: 1.0,
+              ])?.outputImage,
+              let cg = CIContext(options: [.useSoftwareRenderer: false]).createCGImage(mono, from: mono.extent)
+        else { return icon }
+        let out = NSImage(cgImage: cg, size: NSSize(width: size, height: size))
+        if tintCache.count > 128 { tintCache.removeAll() }
+        tintCache[cacheKey] = out
+        return out
+    }
+
+    /// The unread badge: an accent dot at the icon's top-right corner, with the count when there
+    /// is one (capped at 99+, the number is a nudge, not a statistic).
+    private func drawBadge(_ count: Int, at corner: NSPoint, accent: NSColor) {
+        let label = count <= 0 ? "" : (count > 99 ? "99+" : String(count))
+        let font = NSFont.systemFont(ofSize: 8, weight: .bold)
+        let textSize = label.isEmpty ? .zero : (label as NSString).size(withAttributes: [.font: font])
+        let h: CGFloat = label.isEmpty ? 7 : 11
+        let w = label.isEmpty ? 7 : max(h, textSize.width + 6)
+        let pill = NSRect(x: corner.x - w + 3, y: corner.y - 3, width: w, height: h)
+        NSColor.black.withAlphaComponent(0.6).setFill()
+        NSBezierPath(roundedRect: pill.insetBy(dx: -1, dy: -1), xRadius: (h + 2) / 2, yRadius: (h + 2) / 2).fill()
+        accent.setFill()
+        NSBezierPath(roundedRect: pill, xRadius: h / 2, yRadius: h / 2).fill()
+        guard !label.isEmpty else { return }
+        (label as NSString).draw(at: NSPoint(x: pill.midX - textSize.width / 2, y: pill.midY - textSize.height / 2),
+                                 withAttributes: [.font: font, .foregroundColor: NSColor.black.withAlphaComponent(0.85)])
+    }
+
+    /// Rail titles live in tooltips (there is no room for text); one per segment cell.
+    private func rebuildToolTips() {
+        removeAllToolTips()
+        guard rail, isStackedRows else { return }
+        for (r, segs) in rows.enumerated() {
+            let cell = NSRect(x: 0, y: CGFloat(r) * rowHeight, width: bounds.width, height: rowHeight)
+            let segW = segs.isEmpty ? cell.width : cell.width / CGFloat(segs.count)
+            for (i, title) in segs.enumerated() {
+                addToolTip(NSRect(x: CGFloat(i) * segW, y: cell.minY, width: segW, height: cell.height), owner: title as NSString, userData: nil)
+            }
+        }
     }
 
     /// The active-tab accent underline (inset, rounded, soft glow) at the bottom of `rect` — used by
@@ -118,6 +252,7 @@ final class TabBarView: NSView {
         super.layout()
         positionUnderline(animated: false)   // snap on resize / initial place; selection changes animate
         positionHover(animated: false)
+        if rail { rebuildToolTips() }
     }
 
     /// Slide (or snap/hide) the hover wash to the hovered segment (horizontal mode only). Hidden on
@@ -311,10 +446,7 @@ final class TabBarView: NSView {
     /// Top-level index under `point` (a tab segment when horizontal, a row when stacked).
     /// Rows map 1:1 to children, so this doubles as the child index for reorder/detach.
     private func sourceIndex(at point: NSPoint) -> Int? {
-        if isStackedRows {
-            guard rowHeight > 0, !rows.isEmpty else { return nil }
-            return min(rows.count - 1, max(0, Int(point.y / rowHeight)))
-        }
+        if isStackedRows { return rowIndex(at: point) }
         guard !titles.isEmpty else { return nil }
         return index(at: point)
     }

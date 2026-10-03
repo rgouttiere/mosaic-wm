@@ -128,6 +128,10 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 |---|---|---|
 | `tabBarColor` | `"#1E1E1E"` | Bar background color. |
 | `tabBarOpacity` | `0.97` | Bar opacity. |
+| `stackStyle` | `"rows"` | How a stacked group draws its strip: `rows` = full-width rows across the top (one bar height each); `rail` = a narrow icon rail down the left edge — icons only, titles as tooltips, unread counts read from window titles as badges. A rail costs width, the cheap dimension on a laptop. |
+| `railWidth` | `44` | Rail width in points (cells are square). |
+| `railIconSize` | `24` | Icon size in a rail cell with one window; a nested tab pair shrinks its icons to fit side by side. |
+| `railIconStyle` | `"color"` | `color` = app icons as they ship; `tinted` = every icon as an accent-coloured monochrome (the iOS tinted look), the active row keeping its colours. |
 | `tabCornerRadius` | `10` | Bar corner radius. |
 | `tabFontSize` | `14` | Label font size. |
 | `tabTextColor` | `"#B0B0B0"` | Inactive tab label color. |
@@ -174,7 +178,7 @@ Per-app auto-placement `rules`, applied as windows open:
   { "app": "ferdium", "fullscreen": false }
 ]
 ```
-`app` = case-insensitive substring of the app name or bundle id. `float` keeps it out of tiling; `groupWith` auto-tabs it with the named app; `place` = `column` | `tab` | (default: next to focus); `workspace` = send its windows to workspace N (must be assigned); `fullscreen` = force native full screen off (`false` → windowed, so it can tile) or on (`true`) — applied once when a window opens, or every time if you add `"fullscreenLock": true`.
+`app` = case-insensitive substring of the app name or bundle id. `float` keeps it out of tiling; `groupWith` auto-tabs it with the named app; `place` = `column` | `tab` | (default: next to focus); `workspace` = send its windows to workspace N (must be assigned; if that workspace is one tab group, the window joins it as a tab); `title` = a regex the window title must match for the rule to apply (e.g. `"^(PRO|Personal) — "` picks Safari windows of those profiles); `fullscreen` = force native full screen off (`false` → windowed, so it can tile) or on (`true`) — applied once when a window opens, or every time if you add `"fullscreenLock": true`.
 
 ### Turning features off
 
