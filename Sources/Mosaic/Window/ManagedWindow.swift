@@ -14,6 +14,9 @@ final class ManagedWindow {
     /// removed after a couple of misses, so a transient AX/wake/dock glitch can never
     /// destroy the layout on a single bad read.
     var missCount = 0
+    /// The `followTitle` rule (its title pattern) last applied to this window: a re-route happens
+    /// only when the matching rule CHANGES, so a manual move is not undone by the next title tick.
+    var lastTitleRoute: String?
 
     init?(ref: AX.WindowRef) {
         guard let app = NSRunningApplication(processIdentifier: ref.pid) else { return nil }

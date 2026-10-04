@@ -62,4 +62,5 @@ struct AppRule: Codable {
     var fullscreenLock: Bool?    // true → keep enforcing `fullscreen`; false/absent → apply
                                  // it once when the window opens, then leave it user-toggleable
     var letterbox: String?       // "none" | "black" | "matrix": this app's gap fill, over the global `letterboxStyle`
+    var followTitle: Bool?       // re-apply `workspace` whenever the title changes to match this rule (a terminal named by its tmux session)
 }

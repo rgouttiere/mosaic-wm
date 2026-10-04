@@ -119,7 +119,9 @@ if var other = otherInstance() {
     _ = other
 }
 
-// Normal app mode: load user config first (writes a default on first run).
+// Normal app mode. Our own crash report first (macOS has stopped writing them for us), then the
+// user config (writes a default on first run).
+CrashHandler.install()
 Config.shared.load()
 
 // Mosaic runs as a menu-bar "accessory" app: no Dock icon, no main window.

@@ -517,6 +517,34 @@ extension WindowManager {
         render(activate: false)   // automatic update → never steal focus / switch desktop
     }
 
+    /// `detach` / `replace` for a leaf that lives in workspace `ws`, not necessarily the active one.
+    /// The plain variants below edit the ACTIVE tree through `root`; used on another workspace's
+    /// leaf they would have wiped the active root when that leaf was its workspace's only node.
+    func detach(_ leaf: Container, from ws: SpaceState) {
+        guard let parent = leaf.parent, let idx = parent.index(of: leaf) else {
+            if ws.root === leaf { ws.root = nil }
+            return
+        }
+        parent.removeChild(at: idx)
+        leaf.parent = nil
+        if parent.children.count == 1 {
+            replace(parent, with: parent.children[0], in: ws)
+        } else if parent.children.isEmpty {
+            detach(parent, from: ws)
+        }
+    }
+
+    func replace(_ node: Container, with replacement: Container, in ws: SpaceState) {
+        node.hideStrip()
+        if let grandparent = node.parent, let idx = grandparent.index(of: node) {
+            grandparent.children[idx] = replacement
+            replacement.parent = grandparent
+        } else {
+            ws.root = replacement
+            replacement.parent = nil
+        }
+    }
+
     func detach(_ leaf: Container) {
         guard let parent = leaf.parent, let idx = parent.index(of: leaf) else {
             root = nil
@@ -575,6 +603,7 @@ extension WindowManager {
         _ = window.resolvedID()   // cache its id now, so a later AX glitch can't make
                                   // reconcile treat it as new and insert a duplicate leaf
         let rule = ruleFor(window)
+        if let rule, rule.followTitle == true { window.lastTitleRoute = rule.title ?? rule.app }
 
         // Rule: send this app's new windows to a specific workspace (if it isn't the current
         // one). Places it there without disturbing this workspace.

@@ -98,17 +98,19 @@ final class WindowObserver {
             // level Moved never arrived while a standalone observer got it). Create the app's
             // observer on demand instead.
             if observers[window.pid] == nil, let app = NSRunningApplication(processIdentifier: window.pid) { observe(app) }
-            guard let observer = observers[window.pid] else { continue }
-            AXObserverAddNotification(observer, window.element,
-                                      kAXUIElementDestroyedNotification as CFString, refcon)
-            AXObserverAddNotification(observer, window.element,
-                                      kAXTitleChangedNotification as CFString, refcon)
+            guard let observer = observers[window.pid] else {
+                Log.event("AX observer — no observer for \(window.appName) (pid \(window.pid)): its windows send no events")
+                continue
+            }
             // Moved/Resized feed the frame + full-screen caches only (see the callback): a re-tile
             // on them would loop on the echo of our own writes.
-            AXObserverAddNotification(observer, window.element,
-                                      kAXWindowMovedNotification as CFString, refcon)
-            AXObserverAddNotification(observer, window.element,
-                                      kAXWindowResizedNotification as CFString, refcon)
+            for name in [kAXUIElementDestroyedNotification, kAXTitleChangedNotification,
+                         kAXWindowMovedNotification, kAXWindowResizedNotification] {
+                let r = AXObserverAddNotification(observer, window.element, name as CFString, refcon)
+                if r != .success, r != .notificationAlreadyRegistered {
+                    Log.event("AX observer — \(name) on \(window.appName) refused (\(r.rawValue))")
+                }
+            }
         }
     }
 

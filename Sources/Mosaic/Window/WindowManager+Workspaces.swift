@@ -404,9 +404,23 @@ extension WindowManager {
 
     func moveFocused(toWorkspace n: Int) {
         let target = UInt64(n)
-        guard let leaf = focused, leaf.window != nil, target != activeSpaceID else { return }
-        detach(leaf)
+        guard let leaf = focused, leaf.window != nil, target != activeSpaceID, let from = active else { return }
+        moveLeaf(leaf, from: from, toWorkspace: n)
+        if focused == nil || !treeContainsLeaf(focused!) { focused = root?.firstLeaf() }
+        render()
+        saveNow()
+    }
+
+    /// Re-home one leaf from workspace `from` onto workspace `n`: tiled there if that workspace is
+    /// shown, parked otherwise; the source is re-arranged if it is on a screen. No render, no save —
+    /// the caller decides (a keyboard move renders at once, a title re-route batches several).
+    func moveLeaf(_ leaf: Container, from: SpaceState, toWorkspace n: Int) {
+        let target = UInt64(n)
+        detach(leaf, from: from)
         leaf.parent = nil
+        if let fromID = workspaceID(of: from), let scr = screen(forWorkspace: fromID), from !== active {
+            from.root?.arrange(in: layoutRect(scr))   // the hole it left, on a monitor render() does not touch
+        }
 
         let tst = workspaceOffscreen(n)   // fetch/create; don't change where it's placed
         appendLeaf(leaf, to: tst)
@@ -417,10 +431,6 @@ extension WindowManager {
         } else {
             parkWorkspace(tst)   // parked destination → the moved window follows off-screen
         }
-
-        if focused == nil || !treeContainsLeaf(focused!) { focused = root?.firstLeaf() }
-        render()
-        saveNow()
     }
 
     /// The screen a workspace is currently placed on (nil if parked / not shown anywhere).

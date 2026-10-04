@@ -119,11 +119,22 @@ final class TrackpadGestures {
     /// on MultitouchSupport within 130 ms, and Mosaic died twice in a row with no crash report
     /// (ReportCrash had stopped writing them after the loop of 10/03). So the burst collapses into
     /// one restart two seconds after its LAST notification, and never two restarts within ten seconds.
-    private func scheduleWakeRestart() {
+    private func scheduleWakeRestart(postponed: Bool = false) {
         pendingRestart?.cancel()
-        coalescedWakes += 1
+        if !postponed { coalescedWakes += 1 }
+        let due = Date().addingTimeInterval(2.0)
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            // Fired long after it was due: the process was frozen (the wake of 2026-10-04 14:00 ran
+            // its 2 s steps 17 s later, all at once) and the multitouch service is in the same state
+            // of catch-up. Give it another beat rather than restart into the churn.
+            let late = Date().timeIntervalSince(due)
+            if late > 5, !postponed {
+                Log.event("trackpad gestures — wake restart fired \(Int(late)) s late (process was suspended), postponing 5 s")
+                self.pendingRestart = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in self?.scheduleWakeRestart(postponed: true) }
+                return
+            }
             let n = self.coalescedWakes
             self.coalescedWakes = 0
             if n > 1 { Log.event("trackpad gestures — \(n) wake notifications coalesced into one restart") }

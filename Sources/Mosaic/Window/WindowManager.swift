@@ -479,7 +479,7 @@ final class WindowManager {
             // running state instead, exactly as `recover` does once its own heal is behind it.
             for ws in wm.spaces.values { ws.root?.forEachLeaf { $0.window?.resetFrameWriteAudit() } }
         }
-        observer.onTitleChange = { [weak self] in self?.refreshVisibleTitles(); self?.scanAttention() }
+        observer.onTitleChange = { [weak self] in self?.refreshVisibleTitles(); self?.scanAttention(); self?.rerouteByTitle() }
         observer.onFocusChange = { [weak self] in self?.syncFocusToSystem() }
         observer.onWindowEvent = { [weak self] element, note in self?.noteWindowEvent(element, note) }
         observer.isOwnActivation = { [weak self] in

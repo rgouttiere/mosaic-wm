@@ -89,10 +89,17 @@ enum Health {
         try? fm.removeItem(at: cleanExitMarker)
         defer { try? Data().write(to: stamp) }
         guard let previous, !exitedCleanly else { return }
-        if let crash = newestCrashReport(), crash.date > previous {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let own = URL(fileURLWithPath: CrashHandler.path)
+        if let ownDate = (try? fm.attributesOfItem(atPath: own.path))?[.modificationDate] as? Date, ownDate > previous,
+           let text = try? String(contentsOf: own, encoding: .utf8) {
+            // Our own report: the signal and the first frames of the crashing thread.
+            let lines = text.split(separator: "\n").map(String.init)
+            let frames = lines.dropFirst().prefix(8).map { $0.trimmingCharacters(in: .whitespaces) }
+            Log.event("previous run (started \(f.string(from: previous))) crashed at \(f.string(from: ownDate)) — \(lines.first ?? "?")\n" + frames.joined(separator: "\n"))
+        } else if let crash = newestCrashReport(), crash.date > previous {
             Log.event("previous run ended in a crash: \(crash.summary)")
         } else {
-            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
             Log.event("previous run (started \(f.string(from: previous))) did not exit cleanly and left no crash report — killed, or ReportCrash throttled")
         }
     }

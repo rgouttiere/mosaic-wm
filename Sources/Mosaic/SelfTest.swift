@@ -296,6 +296,12 @@ enum SelfTest {
         h.check(Config.titleMatches("^Inbox", "Inbox (12) — Mail"), "anchors work")
         h.check(!Config.titleMatches("^Inbox", "Mail — Inbox"), "an anchor that doesn't hold fails")
         h.check(!Config.titleMatches(".*YouTube.*", "Some other page"), "a non-match is a non-match")
+        if let data = #"{"app":"kitty","title":"^k8s ·","workspace":4,"followTitle":true}"#.data(using: .utf8),
+           let rule = try? JSONDecoder().decode(AppRule.self, from: data) {
+            h.check(rule.followTitle == true && rule.workspace == 4 && rule.title == "^k8s ·", "a rule decodes followTitle")
+        } else {
+            h.check(false, "a rule with followTitle decodes")
+        }
         // The safety property: a typo must capture nothing rather than every window of the app.
         h.check(!Config.titleMatches("[unclosed", "anything at all"), "an invalid pattern matches nothing")
         h.check(!Config.titleMatches(".+", ""), "an empty title doesn't match a pattern needing one")
