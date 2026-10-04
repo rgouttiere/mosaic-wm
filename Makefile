@@ -123,6 +123,9 @@ agent-unload:
 ## launch leaves an instance launchd does not own, the agent's fresh instance then finds it and
 ## exits (single-instance guard), and "Restarted under launchd" is a lie — deploys stopped landing
 ## for twenty minutes that way (2026-10-03). doctor flags the state; this makes restart repair it.
+## The running instance gets SIGTERM first: it unparks, saves, writes its clean-exit marker and
+## exits 0 (which KeepAlive does not restart), then a plain kickstart starts the new build. Only
+## an instance that ignores SIGTERM for 4 s is kicked with -k.
 ## With the agent loaded, kickstart -k alone replaces its instance. A killall first made launchd
 ## respawn the killed instance at once (KeepAlive), which kickstart then killed again — and the
 ## replacement waited out launchd's 10 s throttle: two full restores per deploy, the first of them
@@ -131,7 +134,10 @@ restart:
 	@if launchctl print $(AGENT_TARGET) >/dev/null 2>&1; then \
 		agent_pid=$$(launchctl print $(AGENT_TARGET) 2>/dev/null | awk '/^[[:space:]]*pid = /{print $$3}'); \
 		for p in $$(pgrep -x $(APP_NAME)); do [ "$$p" = "$$agent_pid" ] || kill $$p 2>/dev/null || true; done; \
-		launchctl kickstart -k $(AGENT_TARGET) && echo "Restarted under launchd."; \
+		if [ -n "$$agent_pid" ]; then kill -TERM $$agent_pid 2>/dev/null || true; fi; \
+		for i in 1 2 3 4 5 6 7 8; do pgrep -x $(APP_NAME) >/dev/null 2>&1 || break; sleep 0.5; done; \
+		if pgrep -x $(APP_NAME) >/dev/null 2>&1; then launchctl kickstart -k $(AGENT_TARGET); else launchctl kickstart $(AGENT_TARGET); fi \
+		  && echo "Restarted under launchd."; \
 	else \
 		killall $(APP_NAME) 2>/dev/null && sleep 1 || true; \
 		open $(BUNDLE) && echo "Restarted (no agent loaded)."; \

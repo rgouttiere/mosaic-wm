@@ -40,6 +40,9 @@ final class TrackpadGestures {
     private var wantsRunning = false
     private var attempt = 0
     private var wakeObserver: NSObjectProtocol?
+    private var pendingRestart: DispatchWorkItem?
+    private var coalescedWakes = 0
+    private var lastRestartAt = Date.distantPast
 
     private var scrollTap: CFMachPort?
     private var scrollSource: CFRunLoopSource?
@@ -65,6 +68,7 @@ final class TrackpadGestures {
         started = cmt_start(cb)
         if started {
             attempt = 0
+            lastRestartAt = Date()   // a wake restart right after this start waits its ten seconds too
             installScrollTap()
             Log.event("trackpad gestures active — \(cmt_device_count()) multitouch device(s)")
         } else {
@@ -105,8 +109,30 @@ final class TrackpadGestures {
             // the devices that did not come back (and the display set is a one-screen transient).
             // Stopping ours while it stops its own is the overlap that made the double-stop in
             // cmt_stop reachable. A couple of seconds later the device list has settled.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { self?.restart() }
+            self?.scheduleWakeRestart()
         }
+    }
+
+    /// One restart per wake, however many notifications announce it. The Mac wakes every half hour
+    /// at night without lighting the screens (Power Nap), and macOS hands a GUI app the didWake of
+    /// each of those at the NEXT real wake: 17 at once on 2026-10-04 at 10:12, 17 stop/start cycles
+    /// on MultitouchSupport within 130 ms, and Mosaic died twice in a row with no crash report
+    /// (ReportCrash had stopped writing them after the loop of 10/03). So the burst collapses into
+    /// one restart two seconds after its LAST notification, and never two restarts within ten seconds.
+    private func scheduleWakeRestart() {
+        pendingRestart?.cancel()
+        coalescedWakes += 1
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let n = self.coalescedWakes
+            self.coalescedWakes = 0
+            if n > 1 { Log.event("trackpad gestures — \(n) wake notifications coalesced into one restart") }
+            let since = Date().timeIntervalSince(self.lastRestartAt)
+            if since < 10 { Log.event("trackpad gestures — wake restart skipped, last start \(Int(since)) s ago"); return }
+            self.restart()
+        }
+        pendingRestart = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
     }
 
     /// The multitouch service isn't always ready when we are — `cmt_start` reports failure when it

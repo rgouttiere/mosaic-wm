@@ -71,13 +71,30 @@ enum Health {
     /// At start: a crash report of ours newer than the previous start means the previous run ended
     /// in a crash — said once, in the log, where the next morning's question gets asked. The stamp
     /// file's mtime is the previous start; it is refreshed after the check.
+    private static var cleanExitMarker: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/mosaic/.clean-exit")
+    }
+
+    /// Written by applicationWillTerminate: the next start then knows the previous run ended on
+    /// purpose. Without it, a death leaves no trace unless ReportCrash wrote a report — and it
+    /// stops writing them for a process that crashed repeatedly (none for the two deaths of
+    /// 2026-10-04 10:12; the loop of 10/03 had used up its quota).
+    static func noteCleanExit() { try? Data().write(to: cleanExitMarker) }
+
     static func noteCrashSinceLastStart() {
         let fm = FileManager.default
         let stamp = fm.homeDirectoryForCurrentUser.appendingPathComponent(".config/mosaic/.last-start")
         let previous = (try? fm.attributesOfItem(atPath: stamp.path))?[.modificationDate] as? Date
+        let exitedCleanly = fm.fileExists(atPath: cleanExitMarker.path)
+        try? fm.removeItem(at: cleanExitMarker)
         defer { try? Data().write(to: stamp) }
-        guard let previous, let crash = newestCrashReport(), crash.date > previous else { return }
-        Log.event("previous run ended in a crash: \(crash.summary)")
+        guard let previous, !exitedCleanly else { return }
+        if let crash = newestCrashReport(), crash.date > previous {
+            Log.event("previous run ended in a crash: \(crash.summary)")
+        } else {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            Log.event("previous run (started \(f.string(from: previous))) did not exit cleanly and left no crash report — killed, or ReportCrash throttled")
+        }
     }
 
     static func newestCrashReport() -> (date: Date, summary: String)? {

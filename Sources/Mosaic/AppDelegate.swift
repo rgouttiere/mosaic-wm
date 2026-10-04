@@ -57,7 +57,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager.startObserving()
         presentConfigIssues()   // surface any problems from the startup config load
         startWatchingConfig()   // hot-reload config.json on save (no manual reload-config)
-        updateTrackpadGestures()   // opt-in native 3-finger swipe → workspace nav
+        // Three seconds, not now: the instance launchd relaunched right after a wake found the
+        // multitouch service still settling and died again within a second (2026-10-04 10:12:18).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in self?.updateTrackpadGestures() }   // opt-in native 3-finger swipe → workspace nav
         updateWindowDrag()         // hold-modifier + left-drag to move any window
 
         // CLI channel: `mosaic <verb>` over the Unix socket; every request gets an answer.
@@ -143,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        Health.noteCleanExit()      // the next start must not read this exit as a death
         CommandServer.shared.stop()
         windowManager.unparkAll()   // bring parked (off-screen, transparent) windows back so none is stranded
         windowManager.saveNow()
