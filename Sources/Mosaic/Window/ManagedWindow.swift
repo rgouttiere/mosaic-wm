@@ -14,6 +14,21 @@ final class ManagedWindow {
     /// removed after a couple of misses, so a transient AX/wake/dock glitch can never
     /// destroy the layout on a single bad read.
     var missCount = 0
+    /// The unread count for the rail badge, from this window's title — STICKY for a few seconds.
+    /// Gmail announces a chat message or a meeting by alternating its title every two seconds
+    /// between "[Daily] … - Chat" and "Inbox (867) - …" (measured 2026-10-05), and the badge parsed
+    /// straight from the title blinked with it. A title without a count no longer erases a count
+    /// seen in the last `badgeHold` seconds; a title WITH a count always wins at once.
+    func unreadBadge(fromTitle title: String) -> Int? {
+        if let n = UnreadBadge.parse(title) { lastBadge = n; lastBadgeAt = Date(); return n }
+        if let n = lastBadge, Date().timeIntervalSince(lastBadgeAt) < Self.badgeHold { return n }
+        lastBadge = nil
+        return nil
+    }
+    private var lastBadge: Int?
+    private var lastBadgeAt = Date.distantPast
+    private static let badgeHold: TimeInterval = 8
+
     /// The `followTitle` rule (its title pattern) last applied to this window: a re-route happens
     /// only when the matching rule CHANGES, so a manual move is not undone by the next title tick.
     var lastTitleRoute: String?

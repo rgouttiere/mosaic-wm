@@ -463,13 +463,13 @@ final class Container {
                 icons.append(child.children.map { $0.appIcon })
                 pips.append(child.children.map { $0.containsPiPSource })
                 sel.append(min(max(child.selected, 0), child.children.count - 1))
-                badges.append(titles.map(UnreadBadge.parse))   // from the same title read, no extra AX call
+                badges.append(zip(child.children, titles).map { c, t in c.firstLeaf().window?.unreadBadge(fromTitle: t) ?? UnreadBadge.parse(t) })   // same title read, sticky per window
                 keys.append(child.children.map(key))
             } else {
                 let title = child.title
                 rows.append([title]); icons.append([child.appIcon])
                 pips.append([child.containsPiPSource]); sel.append(0)
-                badges.append([UnreadBadge.parse(title)]); keys.append([key(child)])
+                badges.append([child.firstLeaf().window?.unreadBadge(fromTitle: title) ?? UnreadBadge.parse(title)]); keys.append([key(child)])
             }
         }
         return (rows, icons, pips, sel, badges, keys)
