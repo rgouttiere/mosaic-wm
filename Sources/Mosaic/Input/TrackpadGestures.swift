@@ -40,8 +40,7 @@ final class TrackpadGestures {
     private var wantsRunning = false
     private var attempt = 0
     private var wakeObserver: NSObjectProtocol?
-    private var pendingRestart: DispatchWorkItem?
-    private var coalescedWakes = 0
+    private var wokeAt: Date?   // set at each wake; cleared once a scroll proved the feed alive (or re-registered it)
     private var lastRestartAt = Date.distantPast
 
     private var scrollTap: CFMachPort?
@@ -58,14 +57,7 @@ final class TrackpadGestures {
         wantsRunning = true
         observeWake()
         guard !started else { return true }
-        // @convention(c): no captures — routes through the singleton. Runs on MT's own thread.
-        let cb: CMTFrameCallback = { xs, ys, count in
-            guard count == 3, let xs, let ys else { return }   // only the gesture we care about hits main
-            let ax = (xs[0] + xs[1] + xs[2]) / 3
-            let ay = (ys[0] + ys[1] + ys[2]) / 3
-            DispatchQueue.main.async { TrackpadGestures.shared.process(avgX: ax, avgY: ay) }
-        }
-        started = cmt_start(cb)
+        started = cmt_start(Self.frameCallback)
         if started {
             attempt = 0
             lastRestartAt = Date()   // a wake restart right after this start waits its ten seconds too
@@ -77,6 +69,14 @@ final class TrackpadGestures {
         return started
     }
 
+    /// @convention(c): no captures — routes through the singleton. Runs on MT's own thread.
+    static let frameCallback: CMTFrameCallback = { xs, ys, count in
+        guard count == 3, let xs, let ys else { return }   // only the gesture we care about hits main
+        let ax = (xs[0] + xs[1] + xs[2]) / 3
+        let ay = (ys[0] + ys[1] + ys[2]) / 3
+        DispatchQueue.main.async { TrackpadGestures.shared.process(avgX: ax, avgY: ay) }
+    }
+
     func stop() {
         wantsRunning = false
         attempt = 0
@@ -85,65 +85,33 @@ final class TrackpadGestures {
         started = false
     }
 
-    /// Re-register the devices. MultitouchSupport can invalidate its device list across a sleep and
-    /// nothing says so — the frame callbacks simply stop arriving, so the gestures die SILENTLY and
-    /// stay dead until Mosaic is relaunched (or config.json is saved, which re-arms them by
-    /// accident). Re-registering on wake is the only way to notice. cmt_stop unregisters the
-    /// callback, so this can't stack a second one on the same device.
-    private func restart() {
-        guard wantsRunning else { return }
-        Log.event("trackpad gestures — re-registering after wake")
-        cmt_stop()
-        removeScrollTap()
-        started = false
-        attempt = 0
-        start()
-    }
-
     private func observeWake() {
         guard wakeObserver == nil else { return }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            // Not at the notification itself: at that instant the framework is still tearing down
-            // the devices that did not come back (and the display set is a one-screen transient).
-            // Stopping ours while it stops its own is the overlap that made the double-stop in
-            // cmt_stop reachable. A couple of seconds later the device list has settled.
-            self?.scheduleWakeRestart()
-        }
+        ) { [weak self] _ in self?.wokeAt = Date() }
     }
 
-    /// One restart per wake, however many notifications announce it. The Mac wakes every half hour
-    /// at night without lighting the screens (Power Nap), and macOS hands a GUI app the didWake of
-    /// each of those at the NEXT real wake: 17 at once on 2026-10-04 at 10:12, 17 stop/start cycles
-    /// on MultitouchSupport within 130 ms, and Mosaic died twice in a row with no crash report
-    /// (ReportCrash had stopped writing them after the loop of 10/03). So the burst collapses into
-    /// one restart two seconds after its LAST notification, and never two restarts within ten seconds.
-    private func scheduleWakeRestart(postponed: Bool = false) {
-        pendingRestart?.cancel()
-        if !postponed { coalescedWakes += 1 }
-        let due = Date().addingTimeInterval(2.0)
-        let work = DispatchWorkItem { [weak self] in
+    /// No restart at wake any more. Every wake-time death of Mosaic (three of three, 2026-10-04/05)
+    /// came one to two seconds after the wake re-registration stopped and unregistered the devices,
+    /// with no crash report and no signal we could catch. The feed is now checked instead: the first
+    /// two-finger trackpad scroll after a wake proves whether frames still arrive. Only if they do
+    /// not is it re-registered — without stopping anything (`cmt_reregister_without_stop`).
+    fileprivate func checkFeedOnScroll(_ event: CGEvent) {
+        guard started, wantsRunning, let woke = wokeAt else { return }
+        guard event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0,
+              event.getIntegerValueField(.scrollWheelEventScrollPhase) != 0 else { return }   // a trackpad, fingers on it
+        let quiet = cmt_seconds_since_frame()
+        if quiet < 1.0 { wokeAt = nil; return }   // frames are flowing: this wake left the feed alive
+        guard Date().timeIntervalSince(lastRestartAt) > 10 else { return }
+        wokeAt = nil
+        lastRestartAt = Date()
+        DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            // Fired long after it was due: the process was frozen (the wake of 2026-10-04 14:00 ran
-            // its 2 s steps 17 s later, all at once) and the multitouch service is in the same state
-            // of catch-up. Give it another beat rather than restart into the churn.
-            let late = Date().timeIntervalSince(due)
-            if late > 5, !postponed {
-                Log.event("trackpad gestures — wake restart fired \(Int(late)) s late (process was suspended), postponing 5 s")
-                self.pendingRestart = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in self?.scheduleWakeRestart(postponed: true) }
-                return
-            }
-            let n = self.coalescedWakes
-            self.coalescedWakes = 0
-            if n > 1 { Log.event("trackpad gestures — \(n) wake notifications coalesced into one restart") }
-            let since = Date().timeIntervalSince(self.lastRestartAt)
-            if since < 10 { Log.event("trackpad gestures — wake restart skipped, last start \(Int(since)) s ago"); return }
-            self.restart()
+            Log.event("trackpad gestures — no frame for \(Int(min(quiet, 99_999))) s while scrolling after a wake, re-registering (old devices left alone)")
+            let ok = cmt_reregister_without_stop(Self.frameCallback)
+            Log.event("trackpad gestures — re-register \(ok ? "ok, \(cmt_device_count()) device(s)" : "found no device")")
         }
-        pendingRestart = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
     }
 
     /// The multitouch service isn't always ready when we are — `cmt_start` reports failure when it
@@ -256,5 +224,6 @@ private let scrollTapCallback: CGEventTapCallBack = { _, type, event, _ in
     // Outside the exposé: swallow the phantom scroll a 3-finger swipe emits (either axis). Normal
     // 2-finger scroll never sets the flag, so it always passes through.
     if threeFinger { return nil }
+    me.checkFeedOnScroll(event)   // after a wake: is the multitouch feed still alive?
     return Unmanaged.passUnretained(event)
 }

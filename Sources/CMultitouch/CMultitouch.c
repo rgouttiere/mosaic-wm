@@ -45,11 +45,15 @@ static MTDevicePredicateFn g_isAlive = NULL;
 // that macOS emits from a 3-finger swipe when native 3-finger gestures are off (else IINA & co.
 // read it as a horizontal seek). volatile: written on the MT thread, read on the event-tap thread.
 static volatile uint64_t g_last3 = 0;
+// Last time (mach ticks) ANY frame arrived from a registered device: tells a live feed from a dead one.
+static volatile uint64_t g_lastAny = 0;
 static mach_timebase_info_data_t g_tb = {0, 0};
 
 static int contact_cb(int device, MTTouch *touches, int numTouches, double ts, int frame) {
     (void)device; (void)ts; (void)frame;
-    if (numTouches >= 3) g_last3 = mach_absolute_time();
+    uint64_t now = mach_absolute_time();
+    g_lastAny = now;
+    if (numTouches >= 3) g_last3 = now;
     if (!g_cb) return 0;
     float xs[32], ys[32];
     int n = numTouches < 32 ? numTouches : 32;
@@ -133,3 +137,21 @@ void cmt_stop(void) {
 }
 
 int cmt_device_count(void) { return g_deviceCount; }
+
+double cmt_seconds_since_frame(void) {
+    uint64_t last = g_lastAny;
+    if (last == 0) return 1e9;
+    if (g_tb.denom == 0) mach_timebase_info(&g_tb);
+    uint64_t now = mach_absolute_time();
+    if (now <= last) return 0;
+    return (double)(now - last) * g_tb.numer / g_tb.denom / 1e9;
+}
+
+bool cmt_reregister_without_stop(CMTFrameCallback cb) {
+    /* The devices we hold are presumed dead (no frame while the user scrolls). Do NOT stop or
+       unregister them: every wake-time crash of 2026-10-04/05 followed a stop/unregister of the
+       old devices by about a second. Forget them (still retained, never released — see cmt_stop)
+       and register whatever the framework lists now. */
+    g_deviceCount = 0;
+    return cmt_start(cb);
+}

@@ -20,6 +20,12 @@ void cmt_stop(void);
 // Devices currently registered (0 after cmt_stop or a failed cmt_start).
 int cmt_device_count(void);
 
+// Seconds since the last frame from any registered device (huge if none ever came).
+double cmt_seconds_since_frame(void);
+
+// Register the currently listed devices WITHOUT stopping or unregistering the old ones.
+bool cmt_reregister_without_stop(CMTFrameCallback cb);
+
 // True if >=3 fingers were on the trackpad within the last `graceSeconds` (covers the momentum
 // tail after lift). Lets the scroll event-tap swallow the phantom scroll a 3-finger swipe emits.
 // Thread-safe to call from an event-tap callback.
