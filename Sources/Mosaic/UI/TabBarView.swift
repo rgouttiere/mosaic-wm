@@ -160,7 +160,7 @@ final class TabBarView: NSView {
                 let key = rowIconKeys.indices.contains(r) && rowIconKeys[r].indices.contains(i) ? rowIconKeys[r][i] : "?"
                 let tint = cfg.railIconStyle.lowercased() == "tinted" && !(active && lit)
                 let icon = raw.map { tint ? TabBarView.tinted($0, key: key, size: s, color: accent) : $0 }
-                icon?.draw(in: box, from: .zero, operation: .sourceOver, fraction: lit ? 1 : 0.45)
+                icon?.draw(in: box, from: .zero, operation: .sourceOver, fraction: lit ? 1 : 0.45, respectFlipped: true, hints: nil)   // the view is flipped: this NSImage.draw variant ignores that unless told
                 if active, k > 1, i == activeSeg {
                     accent.setFill()
                     NSBezierPath(roundedRect: NSRect(x: box.minX + 2, y: box.maxY + 2, width: box.width - 4, height: 2), xRadius: 1, yRadius: 1).fill()
@@ -386,7 +386,7 @@ final class TabBarView: NSView {
                 .applying(NSImage.SymbolConfiguration(paletteColors: [accent]))
             NSImage(systemSymbolName: "pip.fill", accessibilityDescription: "Mirrored in picture-in-picture")?
                 .withSymbolConfiguration(conf)?
-                .draw(in: box, from: .zero, operation: .sourceOver, fraction: active ? 1 : 0.75)
+                .draw(in: box, from: .zero, operation: .sourceOver, fraction: active ? 1 : 0.75, respectFlipped: true, hints: nil)
             textRight = box.minX - 6
         }
 
