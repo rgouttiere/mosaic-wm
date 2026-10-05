@@ -133,6 +133,7 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `railWidth` | `44` | Rail width in points (cells are square). |
 | `railIconSize` | `24` | Icon size in a rail cell with one window; a nested tab pair shrinks its icons to fit side by side. |
 | `railIconStyle` | `"color"` | `color` = app icons as they ship; `tinted` = every icon as an accent-coloured monochrome (the iOS tinted look), the active row keeping its colours. |
+| `railHoverPreview` | `true` | Rail: rest the pointer on an icon and a small card beside the rail shows that window's last preview and its title — refreshed by one capture, no live stream, no focus change. Replaces the rail tooltips. |
 | `tabCornerRadius` | `10` | Bar corner radius. |
 | `tabFontSize` | `14` | Label font size. |
 | `tabTextColor` | `"#B0B0B0"` | Inactive tab label color. |
@@ -246,3 +247,16 @@ Run the logic tests with `make test` — a small in-module suite (layout tree + 
 ## License
 
 [MIT](LICENSE) © 2026 Raphael Gouttiere.
+
+
+## Event stream
+
+`mosaic subscribe [event…]` prints one JSON object per line as things happen, until Mosaic exits:
+
+```
+$ mosaic subscribe workspace_changed focus_changed
+{"event":"workspace_changed","name":"4 - Code","previous":3,"ts_ms":1791190243283,"workspace":4}
+{"app":"kitty","event":"focus_changed","title":"mosaic · nvim","ts_ms":…,"window":720849,"workspace":4}
+```
+
+Events: `workspace_changed`, `focus_changed`, `window_created`, `window_destroyed`, `zoom_changed`, `attention_changed`, `badge_changed`. No filter = all. A listener that stops reading is dropped, never waited for. Typical use: `mosaic subscribe workspace_changed | while read -r e; do …; done`.

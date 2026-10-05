@@ -47,6 +47,8 @@ final class TabBarView: NSView {
     var rowBadges: [[Int?]] = [] { didSet { needsDisplay = true; rebuildToolTips() } }
     /// Per segment, a stable key for its icon (bundle id) — the tinted variant is cached under it.
     var rowIconKeys: [[String]] = []
+    /// Per segment, the window id behind it — the rail's hover preview shows that window.
+    var rowWindowIDs: [[CGWindowID?]] = []
 
     var onSelect: ((Int) -> Void)?
     var onReorder: ((Int, Int) -> Void)?
@@ -62,7 +64,21 @@ final class TabBarView: NSView {
 
     /// Which segment the pointer is over, for hover highlighting. Horizontal mode = row 0.
     private struct HoverKey: Equatable { let row: Int; let seg: Int }
-    private var hover: HoverKey? { didSet { if oldValue != hover { needsDisplay = true; positionHover(animated: oldValue != nil) } } }
+    private var hover: HoverKey? { didSet { if oldValue != hover { needsDisplay = true; positionHover(animated: oldValue != nil); updateRailPreview() } } }
+
+    /// Rail only: the hovered icon's window, unless it is the one already on screen.
+    private func updateRailPreview() {
+        guard rail, isStackedRows, let h = hover, let win = window,
+              rows.indices.contains(h.row), rows[h.row].indices.contains(h.seg) else { RailPreview.shared.hide(); return }
+        let activeSeg = selectedSeg.indices.contains(h.row) ? selectedSeg[h.row] : 0
+        if h.row == selectedRow && h.seg == activeSeg { RailPreview.shared.hide(); return }
+        let id = rowWindowIDs.indices.contains(h.row) && rowWindowIDs[h.row].indices.contains(h.seg) ? rowWindowIDs[h.row][h.seg] : nil
+        let segs = rows[h.row]
+        let segW = segs.isEmpty ? bounds.width : bounds.width / CGFloat(segs.count)
+        let local = NSRect(x: CGFloat(h.seg) * segW, y: CGFloat(h.row) * rowHeight, width: segW, height: rowHeight)
+        let screenRect = win.convertToScreen(convert(local, to: nil))
+        RailPreview.shared.hover(windowID: id, title: segs[h.seg], cell: screenRect)
+    }
 
     private var isStackedRows: Bool { vertical && !rows.isEmpty }
     private var segmentWidth: CGFloat {
@@ -222,7 +238,7 @@ final class TabBarView: NSView {
     /// Rail titles live in tooltips (there is no room for text); one per segment cell.
     private func rebuildToolTips() {
         removeAllToolTips()
-        guard rail, isStackedRows else { return }
+        guard rail, isStackedRows, !Config.shared.railHoverPreview else { return }   // the preview card carries the title
         for (r, segs) in rows.enumerated() {
             let cell = NSRect(x: 0, y: CGFloat(r) * rowHeight, width: bounds.width, height: rowHeight)
             let segW = segs.isEmpty ? cell.width : cell.width / CGFloat(segs.count)
@@ -413,7 +429,7 @@ final class TabBarView: NSView {
     override func mouseMoved(with event: NSEvent) {
         hover = hoverKey(at: convert(event.locationInWindow, from: nil))
     }
-    override func mouseExited(with event: NSEvent) { hover = nil }
+    override func mouseExited(with event: NSEvent) { hover = nil; RailPreview.shared.hide() }
 
     /// Scroll over the strip to cycle tabs (horizontal) or stack rows (vertical), wrapping.
     override func scrollWheel(with event: NSEvent) {

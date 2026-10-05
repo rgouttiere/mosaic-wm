@@ -706,6 +706,7 @@ extension WindowManager {
     }
 
     func updateFocusIndicator(onScreen: Set<CGWindowID>? = nil) {
+        emitFocusIfChanged()
         // The focus contour re-shows from many paths (focus sync, mouse, reconcile); stand all of
         // them down while a screenshot tool is up, else the border creeps back over its overlay.
         if screenshotToolFrontmost() { focusIndicator.hide(); return }

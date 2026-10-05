@@ -440,6 +440,7 @@ final class Container {
             bar.tabView.rowPipFlags = r.pips
             bar.tabView.rowBadges = r.badges
             bar.tabView.rowIconKeys = r.keys
+                bar.tabView.rowWindowIDs = r.ids
             bar.tabView.selectedSeg = r.selected
             bar.tabView.selectedRow = selected
             bar.place(at: strip)
@@ -453,8 +454,8 @@ final class Container {
     /// ONE builder for both the layout pass and a title refresh. They used to each carry a copy, and
     /// the refresh copy had no PiP flags — so a browser navigating wiped the badge off the strip
     /// until the next full render. Duplicated logic is exactly how that kind of bug is born.
-    private func stackedRows() -> (titles: [[String]], icons: [[NSImage?]], pips: [[Bool]], selected: [Int], badges: [[Int?]], keys: [[String]]) {
-        var rows: [[String]] = [], icons: [[NSImage?]] = [], pips: [[Bool]] = [], sel: [Int] = [], badges: [[Int?]] = [], keys: [[String]] = []
+    private func stackedRows() -> (titles: [[String]], icons: [[NSImage?]], pips: [[Bool]], selected: [Int], badges: [[Int?]], keys: [[String]], ids: [[CGWindowID?]]) {
+        var rows: [[String]] = [], icons: [[NSImage?]] = [], pips: [[Bool]] = [], sel: [Int] = [], badges: [[Int?]] = [], keys: [[String]] = [], ids: [[CGWindowID?]] = []
         func key(_ c: Container) -> String { c.firstLeaf().window?.app.bundleIdentifier ?? c.firstLeaf().window?.appName ?? "?" }
         for child in children {
             if !child.isLeaf, child.layout == .tabbed, !child.stacked, child.children.count > 1 {
@@ -465,14 +466,15 @@ final class Container {
                 sel.append(min(max(child.selected, 0), child.children.count - 1))
                 badges.append(zip(child.children, titles).map { c, t in c.firstLeaf().window?.unreadBadge(fromTitle: t) ?? UnreadBadge.parse(t) })   // same title read, sticky per window
                 keys.append(child.children.map(key))
+                ids.append(child.children.map { $0.firstLeaf().window?.lastKnownID })
             } else {
                 let title = child.title
                 rows.append([title]); icons.append([child.appIcon])
                 pips.append([child.containsPiPSource]); sel.append(0)
-                badges.append([child.firstLeaf().window?.unreadBadge(fromTitle: title) ?? UnreadBadge.parse(title)]); keys.append([key(child)])
+                badges.append([child.firstLeaf().window?.unreadBadge(fromTitle: title) ?? UnreadBadge.parse(title)]); keys.append([key(child)]); ids.append([child.firstLeaf().window?.lastKnownID])
             }
         }
-        return (rows, icons, pips, sel, badges, keys)
+        return (rows, icons, pips, sel, badges, keys, ids)
     }
 
     /// Place a stack entry's window(s) in `rect`. A tabbed entry's own bar is never shown
@@ -561,6 +563,7 @@ final class Container {
                 bar.tabView.rowPipFlags = r.pips
                 bar.tabView.rowBadges = r.badges
                 bar.tabView.rowIconKeys = r.keys
+                bar.tabView.rowWindowIDs = r.ids
                 bar.tabView.selectedSeg = r.selected
                 bar.tabView.selectedRow = selected
             } else {

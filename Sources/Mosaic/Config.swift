@@ -38,6 +38,7 @@ final class Config {
     var stackStyle: String = "rows"   // how a stacked group draws its strip: "rows" (full-width rows on top) or "rail" (an icon rail on the left)
     var railWidth: CGFloat = 44       // rail: width of the strip, in points; cells are square
     var railIconSize: Double = 24     // rail: icon size for a single-window row (pairs shrink to fit)
+    var railHoverPreview: Bool = true   // rail: hovering an icon shows a card with the window's preview + title
     var railIconStyle: String = "color"   // rail icons: "color" as the app ships them, or "tinted" (accent monochrome, the active row in colour)
     var defaultMode: String = "columns"   // columns | grouped | tabbed
     /// Warp the mouse cursor to a workspace when switching to it by shortcut (keeps
@@ -412,6 +413,7 @@ final class Config {
         points("railWidth", \.railWidth, 44, dump: true),
         double("railIconSize", \.railIconSize, 24, dump: true),
         string("railIconStyle", \.railIconStyle, "color", dump: true),
+        bool("railHoverPreview", \.railHoverPreview, true, dump: true),
         bool("warpMouseOnSwitch", \.warpMouseOnSwitch, true, dump: true),
         bool("workspaceWrap", \.workspaceWrap, true, dump: true),
         bool("trackpadGestures", \.trackpadGestures, false, dump: true),
