@@ -207,6 +207,7 @@ final class WindowManager {
     /// to come back rather than closed. macOS can take many seconds to re-materialise windows
     /// after a long sleep, far longer than the two misses that normally confirm a close.
     var wakeGraceUntil = Date.distantPast
+    let dragSwitch = DragSwitch()
     var lastEmittedFocusID: CGWindowID?   // focus_changed is emitted only when this changes
     /// The ghost janitor runs on its own slower cadence — see `purgeVisibleGhosts`.
     var lastGhostPurge = Date.distantPast
@@ -467,6 +468,8 @@ final class WindowManager {
     }
 
     func startObserving() {
+        dragSwitch.wm = self
+        dragSwitch.start()
         loadState()
         // Apps a previous run hid for a park and never unhid (kill -9, a crash): their windows are
         // invisible to the restore's capture, so they came back as "new" windows — re-routed and

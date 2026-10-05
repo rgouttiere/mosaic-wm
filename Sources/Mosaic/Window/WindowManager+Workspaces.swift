@@ -477,8 +477,8 @@ extension WindowManager {
 
     /// Optionally move the cursor onto the just-switched workspace so the mouse-follows model
     /// stays aligned. `screen` is the monitor the workspace was placed on.
-    func warpMouseToWorkspace(_ space: UInt64, on screen: NSScreen) {
-        guard Config.shared.warpMouseOnSwitch else { return }
+    func warpMouseToWorkspace(_ space: UInt64, on screen: NSScreen, force: Bool = false) {
+        guard Config.shared.warpMouseOnSwitch || force else { return }
         var cocoa: CGPoint
         if let st = spaces[space], let f = (st.focused ?? st.root?.firstLeaf())?.window?.frame {
             let r = Geometry.flip(f)

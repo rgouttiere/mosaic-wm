@@ -134,6 +134,8 @@ Every key is optional — omit one and its default applies. Sizes are in pixels,
 | `railIconSize` | `24` | Icon size in a rail cell with one window; a nested tab pair shrinks its icons to fit side by side. |
 | `railIconStyle` | `"color"` | `color` = app icons as they ship; `tinted` = every icon as an accent-coloured monochrome (the iOS tinted look), the active row keeping its colours. |
 | `railHoverPreview` | `true` | Rail: rest the pointer on an icon and a small card beside the rail shows that window's last preview and its title — refreshed by one capture, no live stream, no focus change. Replaces the rail tooltips. |
+| `dragSwitch` | `true` | Drag a file, a tab or some text up to the top edge of any screen: a list of every workspace drops down at the top-left. Rest on one and its row fills; after `dragSwitchDwell` seconds Mosaic switches to it and carries the pointer, still dragging, onto its screen. Move away or let go to cancel. |
+| `dragSwitchDwell` | `2.0` | Seconds to rest on a row of the drag-switch list before switching. |
 | `tabCornerRadius` | `10` | Bar corner radius. |
 | `tabFontSize` | `14` | Label font size. |
 | `tabTextColor` | `"#B0B0B0"` | Inactive tab label color. |
