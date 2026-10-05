@@ -207,6 +207,7 @@ final class WindowManager {
     /// to come back rather than closed. macOS can take many seconds to re-materialise windows
     /// after a long sleep, far longer than the two misses that normally confirm a close.
     var wakeGraceUntil = Date.distantPast
+    var lastEmittedFocusID: CGWindowID?   // focus_changed is emitted only when this changes
     /// The ghost janitor runs on its own slower cadence — see `purgeVisibleGhosts`.
     var lastGhostPurge = Date.distantPast
     /// Rate-limit for the bulk-stale note in `reconcile` — the hold re-checks every 0.1s, and the

@@ -63,7 +63,8 @@ final class CommandServer {
         tv.tv_sec = 3
         setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            defer { close(client) }
+            var keep = false
+            defer { if !keep { close(client) } }
             var buf = [UInt8](repeating: 0, count: 4096)
             var request = ""
             while request.firstIndex(of: "\n") == nil {
@@ -73,6 +74,21 @@ final class CommandServer {
                 if request.utf8.count > 4096 { break }
             }
             let line = request.split(separator: "\n", maxSplits: 1).first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
+            // `subscribe [event…]`: answer the status line, then keep the socket for the event stream.
+            let words = line.split(separator: " ").map(String.init)
+            if words.first == "subscribe" {
+                let filter = Set(words.dropFirst())
+                let unknown = filter.subtracting(Events.names)
+                if !unknown.isEmpty {
+                    Self.writeAll(client, Array("1\nunknown event(s): \(unknown.sorted().joined(separator: ", ")) — known: \(Events.names.sorted().joined(separator: ", "))\n".utf8))
+                    return
+                }
+                Self.writeAll(client, Array("0\n".utf8))
+                keep = true
+                Events.add(client, filter: filter)
+                DispatchQueue.main.async { Events.emit("subscribed", ["filter": filter.sorted()]) }
+                return
+            }
             var reply: (status: Int32, text: String) = (1, "no handler\n")
             DispatchQueue.main.sync { [weak self] in
                 if let self, let handle = self.handle { reply = handle(line) }

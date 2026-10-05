@@ -146,6 +146,8 @@ extension WindowManager {
         guard let st = active else { return }
         st.isZoomed.toggle()
         render()
+        Events.emit("zoom_changed", ["workspace": workspaceID(of: st).map { Int($0) as Any } ?? NSNull(), "zoomed": st.isZoomed,
+                                     "app": st.focused?.window?.appName ?? NSNull()])
     }
 
     /// Reset the split ratios to equal. Walks up to the nearest SPLIT ancestor, so it works even
@@ -569,7 +571,10 @@ extension WindowManager {
         // Drop snapshots for windows that are gone, so the map stays bounded to live windows (and a
         // reused object address can't false-match a stale title).
         if titleSnapshot.count > live.count { titleSnapshot = titleSnapshot.filter { live.contains($0.key) } }
-        if changed { publishAttention() }
+        if changed {
+            publishAttention()
+            Events.emit("attention_changed", ["workspaces": attentionWorkspaces.sorted()])
+        }
     }
 
     /// Drop a workspace's attention flag because the user is now looking at it. Cheap no-op if it

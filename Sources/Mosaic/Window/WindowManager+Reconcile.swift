@@ -490,6 +490,7 @@ extension WindowManager {
         if !deadLeaves.isEmpty {
             let who = deadLeaves.compactMap { $0.window?.appName }.joined(separator: ", ")
             Log.event("detaching \(deadLeaves.count) leaf/leaves after \(missesToConfirm) misses: \(who)")
+            for leaf in deadLeaves { if let w = leaf.window { emitWindowEvent("window_destroyed", w) } }
         }
         if gracePending {
             // Faster re-check → a closed window's tile/tab is confirmed gone and removed in
@@ -625,6 +626,7 @@ extension WindowManager {
         guard root != nil else {
             self.root = leaf; focused = leaf
             Log.event("insert \(window.logLabel) → \(ws) as root")
+            emitWindowEvent("window_created", window)
             return
         }
 
@@ -654,6 +656,7 @@ extension WindowManager {
         }
         focused = leaf
         Log.event("insert \(window.logLabel) → \(ws) \(how)")
+        emitWindowEvent("window_created", window)
     }
 
     /// Master-stack insert: a new window joins the tabbed stack on the right; if only the master

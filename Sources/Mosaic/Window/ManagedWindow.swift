@@ -20,11 +20,18 @@ final class ManagedWindow {
     /// straight from the title blinked with it. A title without a count no longer erases a count
     /// seen in the last `badgeHold` seconds; a title WITH a count always wins at once.
     func unreadBadge(fromTitle title: String) -> Int? {
-        if let n = UnreadBadge.parse(title) { lastBadge = n; lastBadgeAt = Date(); return n }
-        if let n = lastBadge, Date().timeIntervalSince(lastBadgeAt) < Self.badgeHold { return n }
-        lastBadge = nil
-        return nil
+        let value: Int?
+        if let n = UnreadBadge.parse(title) { lastBadge = n; lastBadgeAt = Date(); value = n }
+        else if let n = lastBadge, Date().timeIntervalSince(lastBadgeAt) < Self.badgeHold { value = n }
+        else { lastBadge = nil; value = nil }
+        if value != emittedBadge {
+            emittedBadge = value
+            Events.emit("badge_changed", ["app": appName, "count": value.map { $0 as Any } ?? NSNull(),
+                                          "window": lastKnownID.map { Int($0) as Any } ?? NSNull()])
+        }
+        return value
     }
+    private var emittedBadge: Int?
     private var lastBadge: Int?
     private var lastBadgeAt = Date.distantPast
     private static let badgeHold: TimeInterval = 8

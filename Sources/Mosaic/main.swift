@@ -5,6 +5,41 @@ import AppKit
 /// actions; `query` falls back to the status file when no Mosaic is running to ask.
 let cliArgs = Array(CommandLine.arguments.dropFirst())
 
+/// `mosaic subscribe [event…]`: print each event line as it arrives. Exit 0 when Mosaic closes the
+/// stream, 1 if it is not running or refuses the filter.
+func subscribe(_ filter: [String]) -> Int32 {
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else { return 1 }
+    var addr = sockaddr_un()
+    addr.sun_family = sa_family_t(AF_UNIX)
+    guard CommandServer.fill(&addr, with: CommandServer.socketPath) else { return 1 }
+    let len = socklen_t(MemoryLayout<sockaddr_un>.size)
+    guard withUnsafePointer(to: &addr, { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, len) } }) == 0 else {
+        FileHandle.standardError.write(Data("mosaic: Mosaic is not running\n".utf8)); return 1
+    }
+    let req = Array((["subscribe"] + filter).joined(separator: " ").appending("\n").utf8)
+    _ = req.withUnsafeBufferPointer { write(fd, $0.baseAddress, $0.count) }
+    setvbuf(stdout, nil, _IOLBF, 0)   // one line per event, even into a pipe
+    var pending = ""
+    var header: Int32?
+    var buf = [UInt8](repeating: 0, count: 8192)
+    while true {
+        let n = read(fd, &buf, buf.count)
+        guard n > 0 else { break }
+        pending += String(decoding: buf[0..<n], as: UTF8.self)
+        while let nl = pending.firstIndex(of: "\n") {
+            let line = String(pending[..<nl]); pending = String(pending[pending.index(after: nl)...])
+            if header == nil {
+                header = Int32(line) ?? 1
+                if header != 0 { FileHandle.standardError.write(Data(("mosaic: " + pending).utf8)); return 1 }
+                continue
+            }
+            print(line)
+        }
+    }
+    return header == 0 ? 0 : 1
+}
+
 /// Send `line` to the running app; nil when there is no app to talk to.
 func askApp(_ line: String) -> (status: Int32, text: String)? {
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -50,6 +85,9 @@ if let verb = cliArgs.first {
         for key in Config.shared.keybindings.keys.sorted() { print("  \(key)") }
         print("  reload-config\n  dump-layout\n  doctor")
         exit(0)
+    }
+    if verb == "subscribe" {   // stream events until Mosaic goes away (or ^C)
+        exit(subscribe(Array(cliArgs.dropFirst())))
     }
     if let answer = askApp(cliArgs.joined(separator: " ")) {
         if answer.status == 0 { print(answer.text, terminator: "") }

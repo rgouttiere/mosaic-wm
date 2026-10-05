@@ -467,10 +467,10 @@ extension WindowManager {
         if let scr = screen(forWorkspace: target) {
             tst.root?.arrange(in: layoutRect(scr))
             tst.root?.raiseVisibleWindows()   // skips fullscreen (Space yank) + hidden tabs (wrong tab surfacing)
-            Log.event("insert \(window.logLabel) → ws\(n) tiled (\(why))")
+            Log.event("insert \(window.logLabel) → ws\(n) tiled (\(why))"); emitWindowEvent("window_created", window)
         } else {
             parkWorkspace(tst)
-            Log.event("insert \(window.logLabel) → ws\(n) parked (\(why))")
+            Log.event("insert \(window.logLabel) → ws\(n) parked (\(why))"); emitWindowEvent("window_created", window)
         }
         scheduleSave()
     }
@@ -568,8 +568,12 @@ extension WindowManager {
         onWorkspaceChanged?(focused)
         writeStatusFile(focused: focused)
         if focused != lastEmittedWorkspace {
+            let previous = lastEmittedWorkspace
             lastEmittedWorkspace = focused
             runWorkspaceHook(focused)
+            Events.emit("workspace_changed", ["workspace": focused.map { $0 as Any } ?? NSNull(),
+                                              "previous": previous.map { $0 as Any } ?? NSNull(),
+                                              "name": focused.flatMap { Config.shared.workspaceNames[$0] } ?? NSNull()])
         }
     }
 
