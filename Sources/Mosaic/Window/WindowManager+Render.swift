@@ -59,9 +59,29 @@ extension WindowManager {
         changed?.flushStripSelection()   // a focus move into a hidden tab: the strip flips before the arrange
     }
 
+    /// The workspace whose tree holds `node` (a strip can be clicked on any monitor).
+    func owningWorkspace(of node: Container) -> SpaceState? {
+        var top = node
+        while let p = top.parent { top = p }
+        return spaces.values.first { $0.root === top }
+    }
+
+    /// A click on a strip belongs to the strip's workspace, whatever the mouse-follow model believed
+    /// a moment ago: make that workspace active first, so `focused` lands in the right tree — writing
+    /// it into the active one planted a leaf of another workspace there, and the zoomed one lost its
+    /// zoom to a tile of the monitor next door.
+    private func activateOwner(of container: Container) {
+        checkSpaceChange()
+        if let ws = owningWorkspace(of: container), let id = workspaceID(of: ws), id != activeSpaceID,
+           screen(forWorkspace: id) != nil {
+            activeSpaceID = id
+        }
+    }
+
     func wireTabCallbacks(_ node: Container) {
         node.onTabSelect = { [weak self] container, index in
             guard let self, container.children.indices.contains(index) else { return }
+            self.activateOwner(of: container)
             container.selected = index
             self.focused = container.children[index].firstLeaf()
             container.flushStripSelection()
@@ -69,6 +89,7 @@ extension WindowManager {
         }
         node.onStackSelect = { [weak self] container, row, seg in
             guard let self, container.children.indices.contains(row) else { return }
+            self.activateOwner(of: container)
             container.selected = row
             let entry = container.children[row]
             // Inline tab-group row: `seg` picks the sub-tab inside that group.
@@ -397,7 +418,9 @@ extension WindowManager {
             lastOtherMonitorArrange = Date()
             Perf.span("render.arrangeOthers") {
                 for (did, n) in shownOnDisplay where n != activeSpaceID {
-                    if let ws = spaces[n], let scr = self.screen(forDisplayID: did) { ws.root?.arrange(in: layoutRect(scr)) }
+                    // A zoomed workspace is left alone: re-tiling it put the zoomed window back in its
+                    // column every second — the "navigating the rail on another screen un-zooms" bug.
+                    if let ws = spaces[n], !ws.isZoomed, let scr = self.screen(forDisplayID: did) { ws.root?.arrange(in: layoutRect(scr)) }
                 }
             }
         }
@@ -556,6 +579,10 @@ extension WindowManager {
         for (did, wsNum) in shownOnDisplay {
             guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
             guard !covered.contains(did) else { continue }   // a game owns this one — draw nothing
+            // A zoomed workspace shows ONE window over the whole screen; its other "visible" leaves
+            // are behind it. Bordering them drew their outlines across the zoomed window — the stray
+            // lines of the zoom. The zoom render owns that screen's dressing (halo, letterbox).
+            guard spaces[wsNum]?.isZoomed != true else { continue }
             let dim = activeDid != nil && did != activeDid
             root.forEachVisibleLeaf { leaf in
                 // The fill is per app: a rule's `letterbox` first, else the global style — the rune
@@ -599,6 +626,10 @@ extension WindowManager {
         for (did, wsNum) in shownOnDisplay {
             guard screen(forDisplayID: did) != nil, let root = spaces[wsNum]?.root else { continue }
             guard !covered.contains(did) else { continue }   // a game owns this one — draw nothing
+            // A zoomed workspace shows ONE window over the whole screen; its other "visible" leaves
+            // are behind it. Bordering them drew their outlines across the zoomed window — the stray
+            // lines of the zoom. The zoom render owns that screen's dressing (halo, letterbox).
+            guard spaces[wsNum]?.isZoomed != true else { continue }
             let dim = activeDid != nil && did != activeDid
             root.forEachVisibleLeaf { leaf in
                 guard let w = leaf.window, !w.isFullscreen, let wf = w.frame else { return }
@@ -634,7 +665,7 @@ extension WindowManager {
     func updateScrims() {
         let active = CGFloat(Config.shared.activeOpacity)
         let inactive = CGFloat(Config.shared.inactiveOpacity)
-        guard active < 1 || inactive < 1, let root, !scratchpadVisible, let screen = activeScreen,
+        guard active < 1 || inactive < 1, let root, !scratchpadVisible, self.active?.isZoomed != true, let screen = activeScreen,
               !coveredDisplays().contains(displayID(of: screen)) else { scrims.hideAll(); return }
         scrims.begin()
         // Reuse the cached window id (kept fresh by reconcile's resolvedID) instead of paying a

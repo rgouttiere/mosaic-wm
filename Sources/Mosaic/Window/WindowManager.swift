@@ -329,6 +329,17 @@ final class WindowManager {
         r.arrange(in: area)
         if raise { r.raiseVisibleWindows() }   // caller may skip when a render() right after re-raises the same windows
         r.raiseVisibleStrips()
+        reapplyZoom(ws, area: area)
+    }
+
+    /// A zoomed workspace re-tiled from outside its own render (unpark at a switch, the wake and
+    /// display reasserts): `arrange` put every tile back in its slot, the zoomed window included.
+    /// Put that one back over the whole screen. The zoom render does the full job (aspect fit,
+    /// letterbox, halo) when that workspace is next the active one.
+    func reapplyZoom(_ ws: SpaceState, area: NSRect) {
+        guard ws.isZoomed, let w = ws.focused?.window, !w.isFullscreen else { return }
+        w.setCocoaFrame(area)
+        AX.raise(w.element)
     }
 
     /// Raise every SHOWN workspace's windows so they sit above the parked workspaces' off-screen

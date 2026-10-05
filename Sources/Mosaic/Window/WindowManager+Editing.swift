@@ -526,6 +526,7 @@ extension WindowManager {
             r.arrange(in: layoutRect(screen))
             r.raiseVisibleWindows()
             r.raiseVisibleStrips()
+            reapplyZoom(state, area: layoutRect(screen))
         }
         sweepOrphanStrips()
     }
