@@ -208,6 +208,7 @@ final class WindowManager {
     /// after a long sleep, far longer than the two misses that normally confirm a close.
     var wakeGraceUntil = Date.distantPast
     let dragSwitch = DragSwitch()
+    var pendingWakeSequence = false   // woke behind the lock screen: run the wake steps at the unlock
     var pendingBootRestore = false   // launched behind the lock screen: restore once it is unlocked
     var bootRestoreAttempts = 0
     var lastEmittedFocusID: CGWindowID?   // focus_changed is emitted only when this changes
@@ -625,6 +626,22 @@ final class WindowManager {
         cancelWakeWork()   // both wake notifications fire for one wake — the last one wins, once
         let generation = sleepGeneration
         Log.event("wake — gen \(generation), \(NSScreen.screens.count) screen(s) present")
+        // Behind the lock screen, nothing to re-place and nobody answers: the flight recorder of the
+        // 13:41 death (2026-10-06) shows the wake sequence running BEFORE the unlock — kitty's title
+        // read timing out at 1.5 s twice, the main thread silent for 3.2 s — and Mosaic killed half a
+        // second after the second notification, with the main thread silent again. Every wake death
+        // so far came out of a locked wake. Run the sequence at the unlock instead.
+        if Self.sessionIsLocked() {
+            suspendReasons.insert(.locked)
+            pendingWakeSequence = true
+            WakeTrace.mark("wake while locked — sequence deferred to unlock")
+            Log.event("wake behind the lock screen — re-placement deferred until unlock")
+            return
+        }
+        runWakeSequence(generation: generation)
+    }
+
+    func runWakeSequence(generation: UInt64) {
         // Settle, then correct twice more: a slow wake can re-hide the overlays AND nudge windows
         // again after the first pass, so external monitors that come back late (and any window
         // macOS scatters afterwards) still get fixed without a manual visit to each workspace.
@@ -667,6 +684,12 @@ final class WindowManager {
         guard suspendReasons.remove(.locked) != nil else { return }
         Log.event("screen unlocked — resuming")
         if pendingBootRestore { pendingBootRestore = false; bootRestore(); return }
+        if pendingWakeSequence {
+            pendingWakeSequence = false
+            WakeTrace.begin("unlock after a locked wake", seconds: 60)
+            runWakeSequence(generation: sleepGeneration)
+            return
+        }
         later("unlockResync", in: 0.3) { wm in
             wm.checkSpaceChange()
             wm.reconcile()
@@ -676,6 +699,7 @@ final class WindowManager {
     }
 
     func noteSleep() {
+        pendingWakeSequence = false
         sleepGeneration &+= 1
         cancelWakeWork()
         suspendReasons.insert(.sleep)
