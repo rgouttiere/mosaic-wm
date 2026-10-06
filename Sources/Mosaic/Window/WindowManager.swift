@@ -115,7 +115,7 @@ final class WindowManager {
     /// reconfigure settling during a sleep cleared the SLEEP's hold. Reconcile then ran against
     /// sleeping windows, and mistaking one for a closed window is what destroys a screen's layout.
     /// Each holder now releases only its own reason.
-    enum SuspendReason { case sleep, displayChange, locked }
+    enum SuspendReason { case sleep, displayChange, locked, booting }
     var suspendReasons: Set<SuspendReason> = []
     var suspended: Bool { !suspendReasons.isEmpty }
     /// Bumped on every sleep. Deferred wake steps capture it and bail if it moved, so a settle
@@ -208,6 +208,8 @@ final class WindowManager {
     /// after a long sleep, far longer than the two misses that normally confirm a close.
     var wakeGraceUntil = Date.distantPast
     let dragSwitch = DragSwitch()
+    var pendingBootRestore = false   // launched behind the lock screen: restore once it is unlocked
+    var bootRestoreAttempts = 0
     var lastEmittedFocusID: CGWindowID?   // focus_changed is emitted only when this changes
     /// The ghost janitor runs on its own slower cadence — see `purgeVisibleGhosts`.
     var lastGhostPurge = Date.distantPast
@@ -477,9 +479,10 @@ final class WindowManager {
         // later visit" with its only app invisible. Unhide first; the windows take a beat to
         // reappear, so the eager restore waits for them.
         if unhideLeftoversFromPreviousRun() > 0 {
-            later("restoreAfterUnhide", in: 0.5, whileSuspended: true) { $0.restoreSavedWorkspaces() }
+            suspendReasons.insert(.booting)
+            later("restoreAfterUnhide", in: 0.5, whileSuspended: true) { $0.bootRestore() }
         } else {
-            restoreSavedWorkspaces()   // eager, BEFORE the timer can lazily restore just one
+            bootRestore()   // eager, BEFORE the timer can lazily restore just one
         }
         // Stop routing late-launching apps to their saved workspace after a grace window, so
         // windows opened deliberately later go to the active workspace as normal.
@@ -661,6 +664,7 @@ final class WindowManager {
     func handleUnlock() {
         guard suspendReasons.remove(.locked) != nil else { return }
         Log.event("screen unlocked — resuming")
+        if pendingBootRestore { pendingBootRestore = false; bootRestore(); return }
         later("unlockResync", in: 0.3) { wm in
             wm.checkSpaceChange()
             wm.reconcile()

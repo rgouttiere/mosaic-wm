@@ -23,6 +23,38 @@ extension WindowManager {
     /// show the first non-empty workspace on each monitor and park the rest. Windows for apps
     /// that haven't relaunched yet are simply absent from a tree and re-adopted by reconcile
     /// later; windows opened since the save fall through to the active workspace as usual.
+    /// The launch-time restore, guarded. Twice on 2026-10-06 (01:45 and 11:42) Mosaic was relaunched
+    /// by launchd right after a wake, BEHIND THE LOCK SCREEN: no window could be enumerated, every
+    /// saved workspace matched 0, and the reconcile that followed adopted every window as new —
+    /// "tout cassé", the saved layout overwritten minutes later. So: behind the lock screen, wait for
+    /// the unlock; and if the windows are there but none matched, hold every reconcile and retry for
+    /// a while rather than rebuild the desktop from scratch.
+    func bootRestore() {
+        if Self.sessionIsLocked() {
+            suspendReasons.insert(.locked)
+            pendingBootRestore = true
+            Log.event("launched behind the lock screen — restore deferred until unlock")
+            return
+        }
+        let wanted = savedState.values.compactMap(\.tree).reduce(0) { $0 + savedLeafCount($1) }
+        restoreSavedWorkspaces()
+        if wanted >= 3, managedWindowCount == 0, bootRestoreAttempts < 15 {
+            bootRestoreAttempts += 1
+            suspendReasons.insert(.booting)
+            Log.event("restore matched nothing of \(wanted) saved window(s) — holding, retry \(bootRestoreAttempts)/15 in 2 s")
+            later("bootRestoreRetry", in: 2, whileSuspended: true) { $0.bootRestore() }
+            return
+        }
+        if suspendReasons.remove(.booting) != nil {
+            Log.event("restore settled after \(bootRestoreAttempts) retr\(bootRestoreAttempts == 1 ? "y" : "ies") — \(managedWindowCount) window(s) managed")
+        }
+    }
+
+    static func sessionIsLocked() -> Bool {
+        guard let d = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return (d["CGSSessionScreenIsLocked"] as? Bool) == true || (d["CGSSessionScreenIsLocked"] as? Int) == 1
+    }
+
     func restoreSavedWorkspaces() {
         guard !savedState.isEmpty else { return }
         // Build launch routing hints from EVERY saved window first, so apps that relaunch after
