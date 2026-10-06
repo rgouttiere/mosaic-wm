@@ -101,6 +101,9 @@ enum Health {
             Log.event("previous run ended in a crash: \(crash.summary)")
         } else {
             Log.event("previous run (started \(f.string(from: previous))) did not exit cleanly and left no crash report — killed, or ReportCrash throttled")
+            if let tail = WakeTrace.previousTail(), let mod = (try? fm.attributesOfItem(atPath: WakeTrace.path))?[.modificationDate] as? Date, mod > previous {
+                Log.event("its last wake trace (\(WakeTrace.path)):\n" + tail)
+            }
         }
     }
 

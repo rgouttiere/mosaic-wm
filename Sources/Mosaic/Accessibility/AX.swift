@@ -33,6 +33,7 @@ enum AX {
     // MARK: Attribute reads
 
     static func copy<T>(_ element: AXUIElement, _ attribute: String) -> T? {
+        if WakeTrace.active { WakeTrace.mark("→ AX \(attribute) \(appName(of: element))") }
         let t0 = DispatchTime.now(); defer { reportIfSlow(attribute, element, since: t0) }
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
@@ -50,8 +51,20 @@ enum AX {
     private static let slowThreshold: Double = 500   // ms
     private static var lastSlowReport: [pid_t: Date] = [:]
 
+    /// App name for a trace line (pid → name, cached: this runs before every traced call).
+    static func appName(of element: AXUIElement) -> String {
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        if let n = traceNames[pid] { return n }
+        let n = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid \(pid)"
+        traceNames[pid] = n
+        return n
+    }
+    private static var traceNames: [pid_t: String] = [:]
+
     static func reportIfSlow(_ what: String, _ element: AXUIElement, since t0: DispatchTime) {
         let ms = Double(DispatchTime.now().uptimeNanoseconds &- t0.uptimeNanoseconds) / 1_000_000
+        if ms >= 100, WakeTrace.active { WakeTrace.mark("← \(what) \(appName(of: element)) \(Int(ms)) ms") }
         guard ms >= slowThreshold else { return }
         var pid: pid_t = 0
         AXUIElementGetPid(element, &pid)
@@ -101,6 +114,7 @@ enum AX {
     /// synchronous relayout in the app for nothing.
     static func setFrame(_ element: AXUIElement, _ rect: CGRect, current: CGRect? = nil, quiet: Bool = false,
                          onlyChanged: Bool = false) -> Bool {
+        if WakeTrace.active { WakeTrace.mark("→ AX setFrame \(appName(of: element))") }
         let t0 = DispatchTime.now(); defer { if !quiet { reportIfSlow("setFrame", element, since: t0) } }
         if onlyChanged, let current {
             let needPos = abs(current.origin.x - rect.origin.x) > 0.5 || abs(current.origin.y - rect.origin.y) > 0.5
@@ -139,6 +153,7 @@ enum AX {
     }
 
     static func raise(_ element: AXUIElement) {
+        if WakeTrace.active { WakeTrace.mark("→ AX raise \(appName(of: element))") }
         let t0 = DispatchTime.now(); defer { reportIfSlow("raise", element, since: t0) }
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
     }

@@ -619,6 +619,8 @@ final class WindowManager {
     /// settle, then re-assert every workspace's placement (parked off-screen or tiled on its
     /// monitor) — which also brings the tab bars back. No CGS, no drift heuristics.
     func handleWake() {
+        if !WakeTrace.active { WakeTrace.begin("wake, gen \(sleepGeneration), \(NSScreen.screens.count) screen(s)") }
+        else { WakeTrace.mark("second wake notification") }
         suspendReasons.insert(.sleep)
         cancelWakeWork()   // both wake notifications fire for one wake — the last one wins, once
         let generation = sleepGeneration
@@ -801,6 +803,7 @@ final class WindowManager {
         // signature, two writes within ONE pass, is still caught.
         ManagedWindow.RenderEpoch.begin()
         if let why { Log.event("reassert all workspaces — \(why)") }
+        WakeTrace.mark("reassert — \(why ?? "-")")
         for (id, ws) in spaces {
             if let scr = screen(forWorkspace: id) {
                 unparkWorkspace(ws, on: scr)   // on-screen + raised

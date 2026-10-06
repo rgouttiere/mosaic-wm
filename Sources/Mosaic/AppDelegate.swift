@@ -79,6 +79,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return (0, windowManager.doctorReport())
         case "dump-layout":
             return (0, windowManager.dumpLayout())
+        case "wake-trace":   // record a wake-like reassert, to check the flight recorder end to end
+            WakeTrace.begin("manual (mosaic wake-trace)", seconds: 15)
+            windowManager.reassertAllWorkspaces(why: "manual wake-trace")
+            return (0, "recording 15 s to \(WakeTrace.path)\n")
         case "query":
             let wm = windowManager
             let focused = wm.activeSpaceID.flatMap { wm.workspaceNumber(for: $0) }
