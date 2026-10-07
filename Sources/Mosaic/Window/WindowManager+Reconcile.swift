@@ -20,10 +20,25 @@ extension WindowManager {
     /// drop what we cached on it. Equality is on the AX element — a token compare, no round trip.
     func noteWindowEvent(_ element: AXUIElement, _ notification: String) {
         Perf.count("ax.windowEvent")
-        for ws in spaces.values {
+        for (sid, ws) in spaces {
             ws.root?.forEachLeaf { leaf in
-                if let w = leaf.window, CFEqual(w.element, element) { w.noteExternalChange(notification) }
+                guard let w = leaf.window, CFEqual(w.element, element), w.noteExternalChange(notification) else { return }
+                Log.event("\(w.logLabel) was \(notification == kAXWindowResizedNotification as String ? "resized" : "moved") from outside — re-placing")
+                outsideMoves.insert(sid)
             }
+        }
+        guard !outsideMoves.isEmpty else { return }
+        // Batched: an app resizing itself fires a burst; one re-arrange of the affected shown
+        // workspaces once it has settled. Parked ones are re-placed when they are next shown.
+        later("outsideMove", in: 0.3) { wm in
+            let ids = wm.outsideMoves; wm.outsideMoves.removeAll()
+            for id in ids {
+                guard let ws = wm.spaces[id], let r = ws.root, let scr = wm.screen(forWorkspace: id) else { continue }
+                let area = wm.layoutRect(scr)
+                r.arrange(in: area)
+                wm.reapplyZoom(ws, area: area)
+            }
+            wm.refreshFocusAndDim()
         }
     }
 

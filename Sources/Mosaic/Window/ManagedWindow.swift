@@ -255,7 +255,7 @@ final class ManagedWindow {
         let el = element
         parkQueue.async { [weak self] in
             _ = AX.setFrame(el, axRect, current: current, quiet: true, onlyChanged: true)
-            DispatchQueue.main.async { self?.pendingParkWrites -= 1 }
+            DispatchQueue.main.async { self?.pendingParkWrites -= 1; self?.lastWriteAt = Date() }   // its Moved echo is ours, not an outside move
         }
     }
 
@@ -306,14 +306,29 @@ final class ManagedWindow {
     /// The app (or macOS) reported something about this window: drop what we cached about it.
     /// Moved/Resized also arrive as the echo of our own writes — one extra read per write, cheap.
     /// `lastSetFrame` (the write-skip memory) is left alone: that is the drag path's business.
-    func noteExternalChange(_ notification: String) {
-        if notification == kAXTitleChangedNotification as String { titleCache = nil; return }
+    /// Returns true when the window was moved or resized BY SOMEONE ELSE and should be put back:
+    /// the app itself (kitty kept a height of 950 px — the laptop's — on the ultrawide for hours,
+    /// 2026-10-07) or macOS. Our write-skip memory (`lastSetFrame`) still said "placed", so every
+    /// later render skipped it and only `recover` fixed it. Not while a mouse button is down (the
+    /// user dragging it is the drop path's business) nor mid live-resize, and at most three
+    /// re-placements per window per ten seconds, so an app that insists on its own size is not
+    /// fought forever.
+    func noteExternalChange(_ notification: String) -> Bool {
+        if notification == kAXTitleChangedNotification as String { titleCache = nil; return false }
         // The Moved/Resized echo of our own write: the readback (or the asked rect) already holds
         // the truth, and dropping it made the very next read — aspect-fit, halo, borders — a round
         // trip into an app still busy with that relayout (200 ms, measured).
-        if Date().timeIntervalSince(lastWriteAt) < 0.5 { return }
+        if Date().timeIntervalSince(lastWriteAt) < 0.5 { return false }
         frameCache = nil; fullscreenCache = nil
+        guard lastSetFrame != nil, !Self.liveResize, NSEvent.pressedMouseButtons == 0 else { return false }
+        let now = Date()
+        externalFixes = externalFixes.filter { now.timeIntervalSince($0) < 10 }
+        guard externalFixes.count < 3 else { return false }
+        externalFixes.append(now)
+        lastSetFrame = nil   // the next arrange writes it again instead of skipping it
+        return true
     }
+    private var externalFixes: [Date] = []
     private var lastWriteAt = Date.distantPast
 
     /// Bring this window (and its app) to the front of the window stack.

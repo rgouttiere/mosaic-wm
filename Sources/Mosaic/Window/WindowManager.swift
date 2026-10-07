@@ -208,6 +208,7 @@ final class WindowManager {
     /// after a long sleep, far longer than the two misses that normally confirm a close.
     var wakeGraceUntil = Date.distantPast
     let dragSwitch = DragSwitch()
+    var outsideMoves = Set<UInt64>()   // workspaces holding a window moved/resized from outside, re-arranged in a batch
     var pendingWakeSequence = false   // woke behind the lock screen: run the wake steps at the unlock
     var pendingBootRestore = false   // launched behind the lock screen: restore once it is unlocked
     var bootRestoreAttempts = 0
