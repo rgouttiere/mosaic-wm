@@ -81,6 +81,22 @@ enum Health {
     /// 2026-10-04 10:12; the loop of 10/03 had used up its quota).
     static func noteCleanExit() { try? Data().write(to: cleanExitMarker) }
 
+    /// What launchd recorded about how the previous instance ended ("last exit reason" / code).
+    /// The only witness of a kill that leaves no crash report and no signal we can catch — a
+    /// SIGKILL from the kernel, for instance a code-signing kill (seen 2026-10-11 after a deploy).
+    static func launchdLastExit() -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        p.arguments = ["print", "gui/\(getuid())/fr.rgouttiere.mosaic"]
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = Pipe()
+        guard (try? p.run()) != nil else { return nil }
+        p.waitUntilExit()
+        let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let keep = out.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("last exit") || $0.hasPrefix("runs =") }
+        return keep.isEmpty ? nil : keep.joined(separator: ", ")
+    }
+
     static func noteCrashSinceLastStart() {
         let fm = FileManager.default
         let stamp = fm.homeDirectoryForCurrentUser.appendingPathComponent(".config/mosaic/.last-start")
@@ -101,6 +117,7 @@ enum Health {
             Log.event("previous run ended in a crash: \(crash.summary)")
         } else {
             Log.event("previous run (started \(f.string(from: previous))) did not exit cleanly and left no crash report — killed, or ReportCrash throttled")
+            if let why = launchdLastExit() { Log.event("launchd says: \(why)") }
             if let tail = WakeTrace.previousTail(), let mod = (try? fm.attributesOfItem(atPath: WakeTrace.path))?[.modificationDate] as? Date, mod > previous {
                 Log.event("its last wake trace (\(WakeTrace.path)):\n" + tail)
             }
