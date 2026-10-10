@@ -73,6 +73,21 @@ enum AX {
         lastSlowReport[pid] = now
         let app = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid \(pid)"
         Log.event("slow AX \(what) → \(app): \(Int(ms)) ms")
+        if what == "setFrame" { disableEnhancedUIIfOn(pid: pid, app: app) }
+    }
+
+    /// Chromium, Firefox and Electron apps ANIMATE every frame change requested over accessibility
+    /// while `AXEnhancedUserInterface` is on (an assistive tool turned it on, or VoiceOver ran once),
+    /// and the write blocks until the animation ends. Off on every app here (checked 2026-10-11), so
+    /// this is a guard, not a fix: only after a slow frame write, one read, and a write if it is on.
+    /// BetterStage does the same, unconditionally.
+    static func disableEnhancedUIIfOn(pid: pid_t, app: String) {
+        let ax = AXUIElementCreateApplication(pid)
+        var v: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(ax, "AXEnhancedUserInterface" as CFString, &v) == .success,
+              (v as? Bool) == true else { return }
+        let r = AXUIElementSetAttributeValue(ax, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
+        Log.event("\(app): AXEnhancedUserInterface was on — turned off (\(r == .success ? "ok" : "refused \(r.rawValue)")), frame writes stop animating")
     }
 
     static func title(_ element: AXUIElement) -> String {
