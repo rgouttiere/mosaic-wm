@@ -99,7 +99,12 @@ final class ManagedWindow {
     /// our own writes seed it with the readback, and the TTL is only a net for a silent app.
     /// Measured before: 616 full-screen reads and 121 frame reads for ten tab switches.
     private static let frameCacheTTL: TimeInterval = 10
-    private static let fullscreenTTL: TimeInterval = 30
+    /// Long on purpose: entering or leaving native full screen always moves and resizes the window,
+    /// and the Moved/Resized notification drops this cache (`noteExternalChange`). A 30 s TTL meant
+    /// that after any pause, the once-a-second re-tile of the OTHER monitors re-read every window's
+    /// full-screen state — one round trip into each napping app, 35–97 ms landing in the middle of
+    /// a workspace switch (measured 2026-10-11).
+    private static let fullscreenTTL: TimeInterval = 600
 
     /// Bumped at both ends of a render, so an entry filled DURING one stays valid for the rest of
     /// it however long it takes, and no entry can match between renders. The plain 50ms window

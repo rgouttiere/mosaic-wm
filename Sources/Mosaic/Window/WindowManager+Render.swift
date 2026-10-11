@@ -420,7 +420,7 @@ extension WindowManager {
                 for (did, n) in shownOnDisplay where n != activeSpaceID {
                     // A zoomed workspace is left alone: re-tiling it put the zoomed window back in its
                     // column every second — the "navigating the rail on another screen un-zooms" bug.
-                    if let ws = spaces[n], !ws.isZoomed, let scr = self.screen(forDisplayID: did) { ws.root?.arrange(in: layoutRect(scr)) }
+                    if let ws = spaces[n], !ws.isZoomed, let scr = self.screen(forDisplayID: did) { ws.root?.arrange(in: layoutRect(scr), visibleOnly: true) }   // heal only: no title refresh, no hidden tabs — those are AX reads into apps that may be napping (78 ms, measured)
                 }
             }
         }

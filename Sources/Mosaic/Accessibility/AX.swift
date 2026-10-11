@@ -55,12 +55,14 @@ enum AX {
     static func appName(of element: AXUIElement) -> String {
         var pid: pid_t = 0
         AXUIElementGetPid(element, &pid)
-        if let n = traceNames[pid] { return n }
+        traceLock.lock(); let hit = traceNames[pid]; traceLock.unlock()
+        if let hit { return hit }
         let n = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid \(pid)"
-        traceNames[pid] = n
+        traceLock.lock(); traceNames[pid] = n; traceLock.unlock()
         return n
     }
-    private static var traceNames: [pid_t: String] = [:]
+    private static var traceNames: [pid_t: String] = [:]   // read from the background write queues too
+    private static let traceLock = NSLock()
 
     static func reportIfSlow(_ what: String, _ element: AXUIElement, since t0: DispatchTime) {
         let ms = Double(DispatchTime.now().uptimeNanoseconds &- t0.uptimeNanoseconds) / 1_000_000
