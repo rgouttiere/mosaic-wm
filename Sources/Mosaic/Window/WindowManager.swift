@@ -208,6 +208,7 @@ final class WindowManager {
     /// after a long sleep, far longer than the two misses that normally confirm a close.
     var wakeGraceUntil = Date.distantPast
     let dragSwitch = DragSwitch()
+    let prewake = Prewake()
     var outsideMoves = Set<UInt64>()   // workspaces holding a window moved/resized from outside, re-arranged in a batch
     var pendingWakeSequence = false   // woke behind the lock screen: run the wake steps at the unlock
     var pendingBootRestore = false   // launched behind the lock screen: restore once it is unlocked
@@ -474,6 +475,8 @@ final class WindowManager {
     func startObserving() {
         dragSwitch.wm = self
         dragSwitch.start()
+        prewake.wm = self
+        prewake.start()
         loadState()
         // Apps a previous run hid for a park and never unhid (kill -9, a crash): their windows are
         // invisible to the restore's capture, so they came back as "new" windows — re-routed and
