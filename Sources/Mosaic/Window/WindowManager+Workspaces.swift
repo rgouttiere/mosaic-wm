@@ -59,6 +59,12 @@ extension WindowManager {
             unparkWorkspace(ws, on: screen)    // raised: it has to land above the outgoing
             activateBeforeHiding(ws)           // hide-park only: hiding the frontmost app makes macOS activate the next one
             if let outgoingWS { parkWorkspace(outgoingWS) }
+            // A focus from another tree would be activated by render and dragged back to its own
+            // workspace by the focus sync — the switch could never stick.
+            if let f = ws.focused, !(ws.root.map { contains($0, f) } ?? false) {
+                Log.event("ws\(n): focus \(f.window?.app.localizedName ?? "?") is not in its tree — reset")
+                ws.focused = nil
+            }
             if ws.focused == nil { ws.focused = ws.root?.firstLeaf() }
             render()
         }

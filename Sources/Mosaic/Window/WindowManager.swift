@@ -925,9 +925,11 @@ final class WindowManager {
         preselect = nil          // focus moved → disarm any pending preselect
 
         // Parked elsewhere → go there. switchToWorkspace renders, and render selects the tabs on
-        // the focused leaf's path, so setting focus first is what surfaces it on arrival.
+        // the focused leaf's path, so setting focus first is what surfaces it on arrival. On ITS
+        // workspace: `focused` writes into the active one, which planted ws3's Chrome as ws1's focus
+        // — every visit to ws1 then activated Chrome, and this followed it straight back to ws3.
         if screen(forWorkspace: sid) == nil, let n = workspaceNumber(for: sid) {
-            focused = leaf
+            spaces[sid]?.focused = leaf
             switchToWorkspace(n)
             return
         }
