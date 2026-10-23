@@ -151,7 +151,7 @@ final class WindowManager {
     var focusAssertedAt = Date.distantPast
     var focusAssertedID: CGWindowID?
     var focusAssertedPID: pid_t?
-    var lastReconcileOnScreen: Set<CGWindowID> = []
+    var lastReconcileOnScreen: Set<String> = []   // `id@display` (snapshotKey), not ids: a monitor crossing is a change
     var lastReconcileSpaceID: UInt64?   // active space the on-screen snapshot above was taken on
     /// Recently-focused workspace numbers, most-recent first. Powers the switcher's recency
     /// ordering and the ⌘⌥B back-and-forth toggle.
@@ -332,7 +332,10 @@ final class WindowManager {
             if b.leaf === focusedLeaf { return false }
             return a.frame.width * a.frame.height > b.frame.width * b.frame.height
         }
-        for (leaf, frame) in planned { leaf.window?.setCocoaFrame(frame) }
+        // Not the hidden cross-app tabs: the plan lists every leaf, and writing theirs put each one on
+        // its tile for `parkHiddenCrossAppTabs` to push away again — two writes per hidden tab per
+        // switch, the `double-frame-write` on Notes, Chrome and Slack (found by tools/e2e-visibility).
+        for (leaf, frame) in planned where !leaf.parkedOffScreen { leaf.window?.setCocoaFrame(frame) }
         r.arrange(in: area)
         if raise { r.raiseVisibleWindows() }   // caller may skip when a render() right after re-raises the same windows
         r.raiseVisibleStrips()

@@ -36,6 +36,10 @@ extension WindowManager {
         // whole incoming arrange, one window popping in after another.
         // No coverParkedSlivers() here: it only re-raises the OTHER monitors' workspaces (unchanged
         // by this switch), while the incoming's own render raises it above the sliver it leaves.
+        // The unpark and park below are a placement pass of their own for the frame-write audit:
+        // counted in the last render's epoch, the outgoing's park read as a second write on every
+        // window that render had placed (tools/e2e-visibility, 2026-10-23).
+        ManagedWindow.RenderEpoch.begin()
         focusIndicator.hide()
         windowBorders.hideAll(); scrims.hideAll(); letterbox.hideAll()
         let outgoing = shownOnDisplay[did]

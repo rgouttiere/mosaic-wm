@@ -156,6 +156,9 @@ final class ManagedWindow {
     /// its content — when the target is unchanged. Mosaic is the layout authority and does
     /// not track external moves, so comparing against our own last write is sufficient.
     private var lastSetFrame: CGRect?
+    /// `lastSetFrame` came from a park write, which trusts the request: the next synchronous write
+    /// reads back whatever it changes, instead of trusting a move at "constant" size.
+    private var frameUnverified = false
 
     /// Position/size the window in Cocoa coordinates (converted to AX internally).
     /// Forget the frame-write audit counters. They are cumulative since launch on purpose — a
@@ -189,15 +192,25 @@ final class ManagedWindow {
         // re-tile. Otherwise the cache is only reset by `invalidateFrameCache` below.
         drainParkWrites()   // a park of THIS window still in flight must land before we move it again
         Perf.count("ax.frameWrite")
-        if !probe { noteWriteForAudit() }
         // Our last accepted write is the best free estimate of where the window is now; fall back to
         // the (50ms-cached) live read when we have none, e.g. right after invalidateFrameCache.
         let before = lastSetFrame ?? frame
         let sizeChanges = before.map { abs($0.width - axRect.width) > 0.5 || abs($0.height - axRect.height) > 0.5 } ?? true
+        // A park write never reads back (nobody is looking), so its cache is the rect we asked for.
+        // The first write that matters afterwards must learn the truth even when it only moves: a
+        // fixed-size window inserted into a parked workspace (a return hint) kept a cache the size of
+        // its whole tile, was never letterboxed, and sat at the tile's corner — `window-off-tile`,
+        // found by tools/e2e-visibility (2026-10-23).
+        let unverified = frameUnverified
         if Perf.span("ax.setFrame", { AX.setFrame(element, axRect, current: before, onlyChanged: true) }) {   // blocks until the app has relaid out
+            // Audited only when accepted: a write an app still launching refused, then its retry by
+            // the next pass, is one placement — not two passes fighting (a Calculator at launch,
+            // tools/e2e-visibility, 2026-10-23).
+            if !probe { noteWriteForAudit(axRect) }
             lastSetFrame = axRect
             lastWriteAt = Date()
-            if !sizeChanges {
+            frameUnverified = false
+            if !sizeChanges, !unverified {
                 // A move at constant size cannot hit a min-size clamp, so there is nothing to learn
                 // from a readback — and that second round trip waited for the app's relayout (17 ms
                 // on average, 150 ms worst, on every tab switch). Trust the write.
@@ -251,9 +264,10 @@ final class ManagedWindow {
             return
         }
         Perf.count("ax.frameWrite"); Perf.count("ax.parkWriteQueued")
-        noteWriteForAudit()   // a queued park counts like any write: two passes fighting is still two passes
+        noteWriteForAudit(axRect)   // a queued park counts like any write: two passes fighting is still two passes
         let current = lastSetFrame ?? frameCache
         lastSetFrame = axRect
+        frameUnverified = true   // the cache holds what we asked, not what the window took
         lastWriteAt = Date()
         _ = cacheFrame(axRect)
         pendingParkWrites += 1
@@ -264,10 +278,22 @@ final class ManagedWindow {
         }
     }
 
-    private func noteWriteForAudit() {
+    private static var lastDoubleWriteLog = Date.distantPast
+    private func noteWriteForAudit(_ rect: CGRect) {
         if lastWriteEpoch == RenderEpoch.current {
             writesThisEpoch += 1
-            if writesThisEpoch == 2 { doubleWriteRenders += 1 }
+            if writesThisEpoch == 2 {
+                doubleWriteRenders += 1
+                // The audit counts; this names the two passes (mangled — `swift demangle` the line).
+                // At most one line per 5 s: a window written twice per render would flood the log.
+                if Date().timeIntervalSince(Self.lastDoubleWriteLog) > 5 {
+                    Self.lastDoubleWriteLog = Date()
+                    func s(_ r: CGRect) -> String { "\(Int(r.origin.x)),\(Int(r.origin.y)) \(Int(r.width))×\(Int(r.height))" }
+                    let callers = Thread.callStackSymbols.dropFirst(2).prefix(6)
+                        .map { $0.split(separator: " ").dropFirst(3).first.map(String.init) ?? "?" }
+                    Log.event("double write: \(logLabel) asked \(s(rect)), last \(lastSetFrame.map(s) ?? "-") — \(callers.joined(separator: " < "))")
+                }
+            }
         } else {
             lastWriteEpoch = RenderEpoch.current
             writesThisEpoch = 1
@@ -307,6 +333,12 @@ final class ManagedWindow {
         frameCache = nil   // the system moved it behind our back: what we last read is suspect too
         fullscreenCache = nil
     }
+
+    /// For a diagnostic: the next `frame` is a fresh read, our last write stays trusted. A readback
+    /// right after a write into a slow app can return the frame it has not applied yet, and the echo
+    /// of our own move is ignored without refreshing the cache — a window on its tile then read as
+    /// `window-off-tile` for a second (a Calculator, tools/e2e-visibility, 2026-10-23).
+    func dropFrameCache() { frameCache = nil }
 
     /// The app (or macOS) reported something about this window: drop what we cached about it.
     /// Moved/Resized also arrive as the echo of our own writes — one extra read per write, cheap.

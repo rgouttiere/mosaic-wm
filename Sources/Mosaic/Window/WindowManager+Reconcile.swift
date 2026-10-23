@@ -350,7 +350,9 @@ extension WindowManager {
         // The render's snapshot (150 ms TTL, same layer-0 filter as AX.onScreenWindowIDs). A window
         // that closed inside that window shows up one confirmation pass later (+0.3 s), which the
         // observer schedules anyway; a fresh CGWindowList here cost 4 ms a reconcile for nothing.
-        let onScreen = Perf.span("reconcile.onScreenIDs") { Set(onScreenSnapshot(maxAge: snapshotTTL).map { $0.id }) }
+        let snapshot = Perf.span("reconcile.onScreenIDs") { onScreenSnapshot(maxAge: snapshotTTL) }
+        let onScreen = Set(snapshot.map { $0.id })
+        let onScreenKey = snapshotKey(snapshot)
         Perf.span("reconcile.dedup") { dedupTrees() }
         let __resolve = DispatchTime.now()
 
@@ -423,8 +425,8 @@ extension WindowManager {
         // captureWindows for the new active screen — leaving a window that opened on a NON-active
         // monitor unadopted when you move there (captureWindows only ever sees the active screen).
         if deadLeaves.isEmpty, staleLeaves.isEmpty,
-           onScreen == lastReconcileOnScreen, activeSpaceID == lastReconcileSpaceID { Perf.count("reconcile.fastPath"); return }
-        lastReconcileOnScreen = onScreen
+           onScreenKey == lastReconcileOnScreen, activeSpaceID == lastReconcileSpaceID { Perf.count("reconcile.fastPath"); return }
+        lastReconcileOnScreen = onScreenKey
         let __full = DispatchTime.now(); defer { Perf.record("reconcile.full", since: __full) }   // the slow path: capture + adopt + purge
         lastReconcileSpaceID = activeSpaceID
 
@@ -435,12 +437,20 @@ extension WindowManager {
         // display is still connected, so an undock still lets a window be re-adopted onto a
         // remaining screen. Floating windows aren't tracked here, so they still drag freely.
         var trackedElsewhere = Set<CGWindowID>()
+        // By element too — identity, no round trip. A window whose id could not be resolved when it was
+        // inserted (an AX timeout into a launching app) is not in either id set, so the next full
+        // reconcile adopted it AGAIN: two leaves for one Calculator, then a dedup, then a detach for
+        // a close that never happened (found by tools/e2e-visibility, 2026-10-23).
+        var trackedElements: [AXUIElement] = []
         for (sid, st) in spaces where sid != activeSpaceID {
             guard self.screen(forDisplayID: st.displayID) != nil else { continue }   // home display gone → adoptable
             st.root?.forEachLeaf { leaf in
-                if let w = leaf.window, let id = w.lastKnownID ?? w.resolvedID() { trackedElsewhere.insert(id) }
+                guard let w = leaf.window else { return }
+                trackedElements.append(w.element)
+                if let id = w.lastKnownID ?? w.resolvedID() { trackedElsewhere.insert(id) }
             }
         }
+        root?.forEachLeaf { if let w = $0.window { trackedElements.append(w.element) } }
         // Only an app that owns an on-screen window we do not track yet can have an addition. The
         // capture used to ask EVERY app on screen for its windows — a dozen round trips, 260 ms on
         // average on the reconciles after a workspace switch (measured), to discard nearly all of
@@ -450,6 +460,7 @@ extension WindowManager {
         if !candidatePids.isEmpty { Perf.count("reconcile.captureApps", candidatePids.count) }
         let windows = candidatePids.isEmpty ? [] : captureWindows(on: screen, onScreen: onScreen, limitedTo: candidatePids)
         var additions = windows.filter { window in
+            if trackedElements.contains(where: { CFEqual($0, window.element) }) { return false }   // already a leaf somewhere
             guard let id = AX.windowID(window.element) else { return false }
             if trackedElsewhere.contains(id) { return false }   // belongs to another workspace → leave it there
             return !aliveTreeIDs.contains(id)

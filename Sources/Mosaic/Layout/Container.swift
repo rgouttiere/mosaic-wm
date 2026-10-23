@@ -276,6 +276,19 @@ final class Container {
     /// tab. Cleared for whichever tab becomes selected, in `arrangeTabbed`.
     var parkedOffScreen = false
 
+    /// Under a non-selected child of some tab group (tabbed or stacked): off screen by design.
+    var isHiddenTab: Bool {
+        var node: Container = self
+        while let p = node.parent {
+            if p.layout == .tabbed, p.children.count > 1 {
+                let sel = min(max(p.selected, 0), p.children.count - 1)
+                if p.children[sel] !== node { return true }
+            }
+            node = p
+        }
+        return false
+    }
+
     /// Lay this subtree out in `rect`. ONE implementation, two modes: `apply` true moves the real
     /// windows and places the strips; false only records the rect each node would occupy. Having the
     /// preview share this code is the whole point — it used to be a SECOND, approximate copy of the
@@ -303,6 +316,12 @@ final class Container {
     ///   the slot, centred, so it never overshoots and freezes the column; the letterbox fill
     ///   (computed off the full-tile lastFrame) covers the surrounding gap.
     private func windowRect(forTile rect: NSRect) -> NSRect? {
+        // The park flag outlives its reason when the group dissolves (toggle-tabbed back to a split,
+        // a sibling closing, a move out): `parkHiddenCrossAppTabs` releases it, but only inside
+        // render(), after arrange — and the arranges of a switch, a refresh or an outside move never
+        // reach it. The leaf stayed at its park spot (`window-off-tile`, found by
+        // tools/e2e-visibility, 2026-10-23). So the flag only holds while the leaf IS a hidden tab.
+        if parkedOffScreen, !isHiddenTab { parkedOffScreen = false }
         guard let w = window, w.isFullscreen != true, !parkedOffScreen,
               !ManagedWindow.parkHiddenPids.contains(w.pid) else { return nil }   // hidden by the park: stays put, unseen
         let slot = rect.insetBy(dx: gap / 2, dy: gap / 2)

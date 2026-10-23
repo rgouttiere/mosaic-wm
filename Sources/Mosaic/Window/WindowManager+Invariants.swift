@@ -6,6 +6,9 @@ extension WindowManager {
     /// stays pure and testable. Read-only: a violation is a bug to fix at its source, never
     /// something to quietly repair on the way past.
     func layoutSnapshot() -> LayoutSnapshot {
+        // A judgement on fresh frames, not on what the last pass left in the caches: one AX read per
+        // window, acceptable for a diagnostic (dump-layout, doctor, the health check).
+        for ws in spaces.values { ws.root?.forEachLeaf { $0.window?.dropFrameCache() } }
         // Which leaves are actually on screen: the visible path of each workspace a present monitor
         // shows. Collected first so the per-workspace walk below can just look the answer up.
         var visible = Set<ObjectIdentifier>()

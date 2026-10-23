@@ -226,6 +226,21 @@ extension WindowManager {
         return windowSnapshot
     }
 
+    /// `id@display` for every on-screen window. The reconcile fast path and the background refresh
+    /// key on this, not on the ids alone: with ids, an unmanaged window dragged (or moved by a
+    /// script) from another monitor onto the active one was never adopted — the set had not changed,
+    /// and only an unrelated window opening or closing moved it (found by tools/e2e-visibility,
+    /// 2026-10-23). A window changes key only when it crosses a monitor, so our own placement writes
+    /// still leave it alone.
+    func snapshotKey(_ list: [(id: CGWindowID, pid: pid_t, bounds: CGRect)]) -> Set<String> {
+        let screens = NSScreen.screens.map { (id: displayID(of: $0), frame: $0.frame) }
+        return Set(list.map { w in
+            let r = Geometry.flip(w.bounds)
+            let centre = CGPoint(x: r.midX, y: r.midY)
+            return "\(w.id)@\(screens.first { $0.frame.contains(centre) }?.id ?? 0)"
+        })
+    }
+
     private static let snapshotQueue = DispatchQueue(label: "mosaic.windowlist", qos: .userInitiated)
 
     func refreshSnapshotInBackground() {
@@ -237,7 +252,7 @@ extension WindowManager {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.snapshotRefreshing = false
-                let changed = Set(list.map(\.id)) != Set(self.windowSnapshot.map(\.id))
+                let changed = self.snapshotKey(list) != self.snapshotKey(self.windowSnapshot)
                 self.windowSnapshot = list
                 self.windowSnapshotTime = Date()
                 if changed { Perf.count("snapshot.changed"); self.tick() }   // what the stale pass missed
