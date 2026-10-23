@@ -7,7 +7,7 @@ BIN := .build/$(CONFIG)/$(APP_NAME)
 SIGN_ID := Mosaic Self-Signed
 
 PREFIX ?= /usr/local
-.PHONY: build bundle run clean cert dist install-cli test spike agent agent-unload restart deploy
+.PHONY: build bundle run clean cert dist install-cli test spike agent agent-unload restart deploy e2e
 
 ## Create the stable self-signed dev identity (run once).
 cert:
@@ -80,6 +80,17 @@ spike:
 	fi
 	@echo "Running spike ($(CURDIR)/.build/debug/MosaicSpike)"
 	.build/debug/MosaicSpike
+
+## Live end-to-end check against the RUNNING app: throwaway Calculator windows on two spare workspaces,
+## then random switches, tab cycles, groupings, moves, swaps, closes and opens — every window must stay
+## where the eye expects it (on screen, the shown tab in front, parked ones off screen, invariants OK).
+## Takes the keyboard and the mouse for about a minute: hands off.
+E2E_WS_A ?= 8
+E2E_WS_B ?= 9
+E2E_ROUNDS ?= 40
+e2e:
+	swiftc -O tools/e2e-visibility.swift -o .build/e2e-visibility
+	.build/e2e-visibility $(E2E_WS_A) $(E2E_WS_B) $(E2E_ROUNDS)
 
 clean:
 	rm -rf .build $(BUNDLE) dist Mosaic.zip
