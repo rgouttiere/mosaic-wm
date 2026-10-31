@@ -60,10 +60,12 @@ extension WindowManager {
         // Build launch routing hints from EVERY saved window first, so apps that relaunch after
         // us (reboot) can still be routed to their workspace even though they're absent from the
         // pool right now. Cleared a few seconds later (in startObserving).
+        var savedIDs: [CGWindowID: String] = [:]   // id → bundle ("" when the save has none)
         for (id, saved) in savedState {
             var wins: [SavedWindow] = []
             flattenSaved(saved.tree, into: &wins)
             for sw in wins {
+                if let wid = sw.windowID { savedIDs[wid] = sw.bundleID ?? "" }
                 guard let b = sw.bundleID else { continue }
                 if let t = sw.title { restoreHints["\(b)\u{1}\(t)"] = Int(id) }
                 restoreHints[b] = Int(id)   // weaker bundle-only fallback
@@ -72,10 +74,19 @@ extension WindowManager {
         var pool = AX.managedWindows().compactMap(ManagedWindow.init).filter {
             !isFloating($0) && !$0.isFullscreen && $0.app.bundleIdentifier != scratchpadBundleID
         }
+        // A window some saved slot names by id belongs to THAT slot. Matched workspace by workspace,
+        // an earlier workspace's fuzzy stage took it first: the slot of a closed private Firefox
+        // window in ws4 matched "the only Firefox left" — ws5's, whose own slot then came back
+        // empty and left its monitor bare (2026-10-30). The fuzzy stages skip claimed windows.
+        let claimed = Set(pool.compactMap { w -> CGWindowID? in
+            guard let wid = w.resolvedID(), let b = savedIDs[wid],
+                  b.isEmpty || b == w.app.bundleIdentifier else { return nil }
+            return wid
+        })
         for (id, saved) in savedState.sorted(by: { $0.key < $1.key }) {
             guard let tree = saved.tree else { continue }
             let wanted = savedLeafCount(tree)
-            guard let root = rebuild(tree, pool: &pool) else {
+            guard let root = rebuild(tree, pool: &pool, claimed: claimed) else {
                 Log.event("restore ws\(id): 0/\(wanted) window(s) matched — kept for a later visit")
                 continue
             }
@@ -296,12 +307,12 @@ extension WindowManager {
         return true
     }
 
-    func rebuild(_ saved: SavedNode, pool: inout [ManagedWindow]) -> Container? {
+    func rebuild(_ saved: SavedNode, pool: inout [ManagedWindow], claimed: Set<CGWindowID> = []) -> Container? {
         if let sw = saved.window {
-            guard let match = takeMatch(sw, from: &pool) else { return nil }
+            guard let match = takeMatch(sw, from: &pool, claimed: claimed) else { return nil }
             return Container(window: match)
         }
-        let kids = (saved.children ?? []).compactMap { rebuild($0, pool: &pool) }
+        let kids = (saved.children ?? []).compactMap { rebuild($0, pool: &pool, claimed: claimed) }
         if kids.isEmpty { return nil }
         if kids.count == 1 { return kids[0] }   // collapse branches that lost windows
         let container = Container(layout: layout(named: saved.layout), children: kids)
@@ -314,8 +325,9 @@ extension WindowManager {
     }
 
     /// Find a live window matching a saved one (by id, then bundle+title, then bundle)
-    /// and remove it from the pool so it isn't reused.
-    func takeMatch(_ sw: SavedWindow, from pool: inout [ManagedWindow]) -> ManagedWindow? {
+    /// and remove it from the pool so it isn't reused. `claimed`: ids another saved slot names
+    /// exactly — only the id stage may take those.
+    func takeMatch(_ sw: SavedWindow, from pool: inout [ManagedWindow], claimed: Set<CGWindowID> = []) -> ManagedWindow? {
         // Match by id, but only if the bundle also agrees: a saved CGWindowID is stable only while
         // the app keeps running (Persistence.swift), and macOS REUSES ids across a reboot — an id
         // alone can collide with an unrelated app's window and graft the wrong app into a saved slot.
@@ -324,8 +336,9 @@ extension WindowManager {
                                             && (sw.bundleID == nil || $0.app.bundleIdentifier == sw.bundleID) }) {
             return pool.remove(at: i)
         }
+        func free(_ i: Int) -> Bool { pool[i].lastKnownID.map { !claimed.contains($0) } ?? true }
         if let b = sw.bundleID, let t = sw.title,
-           let i = pool.firstIndex(where: { $0.app.bundleIdentifier == b && $0.title == t }) {
+           let i = pool.indices.first(where: { free($0) && pool[$0].app.bundleIdentifier == b && pool[$0].title == t }) {
             return pool.remove(at: i)
         }
         // Same app, same place: two Chrome windows whose titles both changed since the save used to
@@ -333,7 +346,7 @@ extension WindowManager {
         // where Mosaic put them — the one that fits the saved frame best, within tolerance, is it.
         if let b = sw.bundleID, let f = sw.frame, f.count == 4 {
             let saved = CGRect(x: f[0], y: f[1], width: f[2], height: f[3])
-            let same = pool.indices.filter { pool[$0].app.bundleIdentifier == b }
+            let same = pool.indices.filter { free($0) && pool[$0].app.bundleIdentifier == b }
             let frames = same.map { pool[$0].frame ?? .null }
             if let k = Geometry.frameMatchIndex(saved: saved, candidates: frames) {
                 return pool.remove(at: same[k])
@@ -342,7 +355,7 @@ extension WindowManager {
         // Bundle-only fallback: only when it's UNAMBIGUOUS (exactly one window of that app
         // left in the pool) — otherwise we'd grab an arbitrary same-app window.
         if let b = sw.bundleID {
-            let matches = pool.indices.filter { pool[$0].app.bundleIdentifier == b }
+            let matches = pool.indices.filter { free($0) && pool[$0].app.bundleIdentifier == b }
             if matches.count == 1 { return pool.remove(at: matches[0]) }
         }
         return nil
