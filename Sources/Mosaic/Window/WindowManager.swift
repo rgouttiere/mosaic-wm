@@ -23,7 +23,7 @@ final class WindowManager {
     /// dock/undock or an explicit send) — 0 while the workspace exists but is parked nowhere.
     final class SpaceState {
         var displayID: CGDirectDisplayID
-        var root: Container?
+        var root: Container? { didSet { if oldValue !== root { TreeAudit.note(oldValue, replacedBy: root, in: self) } } }
         weak var focused: Container?
         var mode: Mode = .columns
         var isZoomed = false   // focused tile fills the screen (monocle), follows focus
@@ -31,7 +31,13 @@ final class WindowManager {
     }
 
     /// All workspaces, keyed by synthetic id (= workspace number). Persisted.
-    var spaces: [UInt64: SpaceState] = [:]
+    var spaces: [UInt64: SpaceState] = [:] {
+        didSet {   // a workspace replaced or removed takes its whole tree with it
+            for (k, old) in oldValue where spaces[k] !== old {
+                TreeAudit.note(old.root, replacedBy: spaces[k]?.root, in: old, ws: k)
+            }
+        }
+    }
     /// The workspace currently shown on the monitor under the mouse (the "active" one that
     /// keyboard ops target). Set by us on switch / monitor cross — never read from CGS.
     var activeSpaceID: UInt64?
@@ -476,6 +482,7 @@ final class WindowManager {
     }
 
     func startObserving() {
+        TreeAudit.manager = self
         dragSwitch.wm = self
         dragSwitch.start()
         prewake.wm = self
